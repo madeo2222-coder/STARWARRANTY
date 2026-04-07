@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 
 type Contract = {
   id: string;
@@ -32,6 +32,8 @@ type Billing = {
 };
 
 export default function EditContractPage() {
+  const supabase = createClient();
+
   const params = useParams();
   const router = useRouter();
   const contractId = String(params?.id || "");

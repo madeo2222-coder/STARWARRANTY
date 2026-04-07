@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 
 type ContractRow = {
   id: string;
@@ -18,7 +18,19 @@ type PaymentRegistrationRow = {
   registration_status: string | null;
 };
 
+type ProfileRow = {
+  agency_id: string | null;
+  role: string | null;
+};
+
+type AgencyRow = {
+  id: string;
+  parent_agency_id: string | null;
+};
+
 export default function AgencyDashboardPage() {
+  const supabase = createClient();
+
   const [loading, setLoading] = useState(true);
 
   const [totalSales, setTotalSales] = useState(0);
@@ -33,124 +45,144 @@ export default function AgencyDashboardPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
+      try {
+        setLoading(true);
 
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
 
-      if (userError || !user) {
-        console.error("ユーザー取得エラー:", userError);
-        setLoading(false);
-        return;
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("agency_id, role")
-        .eq("user_id", user.id)
-        .single();
-
-      if (profileError || !profile) {
-        console.error("プロフィール取得エラー:", profileError);
-        setLoading(false);
-        return;
-      }
-
-      if (profile.role !== "agency") {
-        console.error("代理店ユーザーではありません");
-        setLoading(false);
-        return;
-      }
-
-      const agencyId = profile.agency_id;
-
-      const { data: contracts, error: contractsError } = await supabase
-        .from("contracts")
-        .select("id, amount, cost, commission")
-        .eq("agency_id", agencyId);
-
-      if (contractsError || !contracts) {
-        console.error("contracts取得エラー:", contractsError);
-        setLoading(false);
-        return;
-      }
-
-      let sales = 0;
-      let profit = 0;
-
-      (contracts as ContractRow[]).forEach((contract) => {
-        const amount = contract.amount ?? 0;
-        const cost = contract.cost ?? 0;
-        const commission = contract.commission ?? 0;
-
-        sales += amount;
-        profit += amount - cost - commission;
-      });
-
-      setTotalSales(sales);
-      setTotalProfit(profit);
-      setContractCount(contracts.length);
-
-      const contractIds = contracts.map((contract) => contract.id);
-
-      if (contractIds.length > 0) {
-        const { data: billings, error: billingsError } = await supabase
-          .from("billings")
-          .select("amount")
-          .in("contract_id", contractIds)
-          .eq("status", "pending");
-
-        if (billingsError) {
-          console.error("billings取得エラー:", billingsError);
-        } else {
-          const pending = ((billings as BillingRow[]) || []).reduce(
-            (sum, billing) => sum + (billing.amount ?? 0),
-            0
-          );
-          setPendingAmount(pending);
+        if (userError || !user) {
+          console.error("ユーザー取得エラー:", userError);
+          setLoading(false);
+          return;
         }
 
-        const { data: registrations, error: registrationsError } =
-          await supabase
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("agency_id, role")
+          .eq("user_id", user.id)
+          .single();
+
+        if (profileError || !profileData) {
+          console.error("プロフィール取得エラー:", profileError);
+          setLoading(false);
+          return;
+        }
+
+        const profile = profileData as ProfileRow;
+
+        if (profile.role !== "agency") {
+          console.error("代理店ユーザーではありません");
+          setLoading(false);
+          return;
+        }
+
+        if (!profile.agency_id) {
+          setLoading(false);
+          return;
+        }
+
+        // 👇 子代理店取得
+        const { data: childAgencies } = await supabase
+          .from("agencies")
+          .select("id,parent_agency_id")
+          .eq("parent_agency_id", profile.agency_id);
+
+        const children = (childAgencies ?? []) as AgencyRow[];
+
+        const visibleAgencyIds = [
+          profile.agency_id,
+          ...children.map((a) => a.id),
+        ];
+
+        // 👇 契約取得（ここが重要）
+        const { data: contractsData, error: contractsError } = await supabase
+          .from("contracts")
+          .select("id, amount, cost, commission")
+          .in("agency_id", visibleAgencyIds);
+
+        if (contractsError || !contractsData) {
+          console.error("contracts取得エラー:", contractsError);
+          setLoading(false);
+          return;
+        }
+
+        const contracts = contractsData as ContractRow[];
+
+        let sales = 0;
+        let profit = 0;
+
+        contracts.forEach((contract) => {
+          const amount = contract.amount ?? 0;
+          const cost = contract.cost ?? 0;
+          const commission = contract.commission ?? 0;
+
+          sales += amount;
+          profit += amount - cost - commission;
+        });
+
+        setTotalSales(sales);
+        setTotalProfit(profit);
+        setContractCount(contracts.length);
+
+        const contractIds = contracts.map((c) => c.id);
+
+        if (contractIds.length > 0) {
+          const { data: billingsData } = await supabase
+            .from("billings")
+            .select("amount")
+            .in("contract_id", contractIds)
+            .eq("status", "pending");
+
+          const billings = (billingsData ?? []) as BillingRow[];
+
+          const pending = billings.reduce(
+            (sum, b) => sum + (b.amount ?? 0),
+            0
+          );
+
+          setPendingAmount(pending);
+
+          const { data: registrationsData } = await supabase
             .from("payment_registrations")
             .select("registration_status")
             .in("contract_id", contractIds);
 
-        if (registrationsError) {
-          console.error("payment_registrations取得エラー:", registrationsError);
-        } else {
-          const rows = (registrations as PaymentRegistrationRow[]) || [];
+          const rows = (registrationsData ?? []) as PaymentRegistrationRow[];
 
           setNotStartedCount(
-            rows.filter((row) => row.registration_status === "not_started").length
+            rows.filter((r) => r.registration_status === "not_started").length
           );
+
           setCustomerPendingCount(
-            rows.filter((row) => row.registration_status === "customer_pending")
+            rows.filter((r) => r.registration_status === "customer_pending")
               .length
           );
+
           setIncompleteCount(
-            rows.filter((row) => row.registration_status === "incomplete").length
+            rows.filter((r) => r.registration_status === "incomplete").length
           );
+
           setCompletedCount(
-            rows.filter((row) => row.registration_status === "completed").length
+            rows.filter((r) => r.registration_status === "completed").length
           );
         }
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [supabase]);
 
   if (loading) {
     return <div className="p-4">読み込み中...</div>;
   }
 
   return (
-    <div className="p-4 pb-24 space-y-6">
+    <div className="space-y-6 p-4 pb-24">
       <h1 className="text-xl font-bold">代理店ダッシュボード</h1>
 
       <div className="grid grid-cols-2 gap-4">

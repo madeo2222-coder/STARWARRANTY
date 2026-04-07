@@ -1,261 +1,294 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
-type AgencyRelation =
-  | {
-      id: string;
-      name: string | null;
-    }
-  | {
-      id: string;
-      name: string | null;
-    }[]
-  | null;
+const supabase = createClient();
 
-type CustomerRow = {
-  id: string;
-  company_name: string | null;
-  service_name: string | null;
-  payment_method: string | null;
-  monthly_amount: number | null;
-  status: string | null;
+type Profile = {
+  id?: string;
+  user_id?: string;
   agency_id: string | null;
-  agencies: AgencyRelation;
+  role: string | null;
 };
 
-type MockRole = "headquarters" | "agency" | "sub_agency";
+type Agency = {
+  id: string;
+  name: string | null;
+  parent_agency_id: string | null;
+};
 
-export default function CustomersPage() {
-  const [customers, setCustomers] = useState<CustomerRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState("");
+type Customer = {
+  id: string;
+  name: string | null;
+  email?: string | null;
+  phone?: string | null;
+  agency_id?: string | null;
+  created_at?: string | null;
+};
 
-  const mockProfile: {
-    role: MockRole;
-    agency_id: string | null;
-  } = {
-    role: "headquarters",
-    agency_id: null,
-    // role: "agency",
-    // agency_id: "0267a2cd-63ef-4f53-a416-8c68487d4ed5",
-    // role: "sub_agency",
-    // agency_id: "0267a2cd-63ef-4f53-a416-8c68487d4ed5",
-  };
+function getErrorMessage(err: unknown) {
+  if (err instanceof Error) return err.message;
 
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
+  if (typeof err === "string") return err;
 
-  async function fetchCustomers() {
-    setLoading(true);
-    setErrorMsg("");
+  if (err && typeof err === "object") {
+    const anyErr = err as Record<string, unknown>;
+
+    if (typeof anyErr.message === "string") return anyErr.message;
+    if (typeof anyErr.error_description === "string") {
+      return anyErr.error_description;
+    }
+    if (typeof anyErr.details === "string") return anyErr.details;
+    if (typeof anyErr.hint === "string") return anyErr.hint;
 
     try {
-      let visibleAgencyIds: string[] | null = null;
+      return JSON.stringify(anyErr);
+    } catch {
+      return "不明なエラーが発生しました。";
+    }
+  }
 
-      if (mockProfile.role === "headquarters") {
-        visibleAgencyIds = null;
-      }
+  return "不明なエラーが発生しました。";
+}
 
-      if (mockProfile.role === "agency") {
-        if (!mockProfile.agency_id) {
-          setErrorMsg("代理店アカウントの agency_id が未設定です");
-          setCustomers([]);
-          setLoading(false);
-          return;
+export default function CustomersPage() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError) throw authError;
+        if (!user) throw new Error("ログイン情報を取得できませんでした。");
+
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("id, user_id, agency_id, role")
+          .eq("user_id", user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        if (!isMounted) return;
+        setProfile(profileData as Profile);
+
+        const userRole = String(profileData?.role ?? "").toLowerCase();
+        const userAgencyId = profileData?.agency_id ?? null;
+
+        let visibleAgencyIds: string[] = [];
+
+        if (
+          userRole === "headquarters" ||
+          userRole === "hq" ||
+          userRole === "admin"
+        ) {
+          const { data: allAgencies, error: agenciesError } = await supabase
+            .from("agencies")
+            .select("id, name, parent_agency_id")
+            .order("created_at", { ascending: true });
+
+          if (agenciesError) throw agenciesError;
+
+          const safeAgencies = ((allAgencies ?? []) as Agency[]).filter(
+            (agency) => !!agency.id
+          );
+
+          if (!isMounted) return;
+          setAgencies(safeAgencies);
+          visibleAgencyIds = safeAgencies.map((agency) => agency.id);
+        } else {
+          if (!userAgencyId) {
+            if (!isMounted) return;
+            setAgencies([]);
+            setCustomers([]);
+            setLoading(false);
+            return;
+          }
+
+          const { data: childAgencies, error: childAgenciesError } =
+            await supabase
+              .from("agencies")
+              .select("id, name, parent_agency_id")
+              .eq("parent_agency_id", userAgencyId)
+              .order("created_at", { ascending: true });
+
+          if (childAgenciesError) throw childAgenciesError;
+
+          const childIds = ((childAgencies ?? []) as Agency[])
+            .map((agency) => agency.id)
+            .filter(Boolean);
+
+          const ownAndChildren = [userAgencyId, ...childIds];
+
+          const { data: visibleAgencies, error: visibleAgenciesError } =
+            await supabase
+              .from("agencies")
+              .select("id, name, parent_agency_id")
+              .in("id", ownAndChildren)
+              .order("created_at", { ascending: true });
+
+          if (visibleAgenciesError) throw visibleAgenciesError;
+
+          if (!isMounted) return;
+          setAgencies((visibleAgencies ?? []) as Agency[]);
+          visibleAgencyIds = ownAndChildren;
         }
 
-        const { data: childAgencies, error: childError } = await supabase
-          .from("agencies")
-          .select("id")
-          .eq("parent_id", mockProfile.agency_id);
+        let customersQuery = supabase
+          .from("customers")
+          .select("id, name, email, phone, agency_id, created_at")
+          .order("created_at", { ascending: false });
 
-        if (childError) {
-          console.error("child agencies fetch error:", childError);
-          setErrorMsg("子代理店の取得に失敗しました");
-          setCustomers([]);
-          setLoading(false);
-          return;
+        if (visibleAgencyIds.length > 0) {
+          customersQuery = customersQuery.in("agency_id", visibleAgencyIds);
         }
 
-        visibleAgencyIds = [
-          mockProfile.agency_id,
-          ...((childAgencies ?? []).map((agency) => agency.id) as string[]),
-        ];
-      }
+        const { data: customersData, error: customersError } =
+          await customersQuery;
 
-      if (mockProfile.role === "sub_agency") {
-        if (!mockProfile.agency_id) {
-          setErrorMsg("二次代理店アカウントの agency_id が未設定です");
-          setCustomers([]);
-          setLoading(false);
-          return;
-        }
+        if (customersError) throw customersError;
 
-        visibleAgencyIds = [mockProfile.agency_id];
-      }
+        if (!isMounted) return;
+        setCustomers((customersData ?? []) as Customer[]);
+      } catch (err) {
+        console.error("customers page load error:", err);
 
-      let query = supabase
-        .from("customers")
-        .select(
-          `
-          id,
-          company_name,
-          service_name,
-          payment_method,
-          monthly_amount,
-          status,
-          agency_id,
-          agencies (
-            id,
-            name
-          )
-        `
-        )
-        .order("created_at", { ascending: false });
+        if (!isMounted) return;
 
-      if (visibleAgencyIds && visibleAgencyIds.length > 0) {
-        query = query.in("agency_id", visibleAgencyIds);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error("customers fetch error:", error);
-        setErrorMsg("顧客一覧の取得に失敗しました");
+        setError(getErrorMessage(err));
         setCustomers([]);
-        setLoading(false);
-        return;
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-
-      setCustomers((data ?? []) as unknown as CustomerRow[]);
-      setLoading(false);
-    } catch (error) {
-      console.error("customers unexpected error:", error);
-      setErrorMsg("顧客一覧の読み込み中に予期しないエラーが発生しました");
-      setCustomers([]);
-      setLoading(false);
     }
-  }
 
-  function getAgencyName(customer: CustomerRow) {
-    if (!customer.agencies) return "-";
-    if (Array.isArray(customer.agencies)) {
-      return customer.agencies[0]?.name || "-";
-    }
-    return customer.agencies.name || "-";
-  }
+    load();
 
-  function getPaymentLabel(paymentMethod: string | null) {
-    if (paymentMethod === "card") return "クレカ";
-    if (paymentMethod === "bank") return "口座振替";
-    return "-";
-  }
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  function getStatusLabel(status: string | null) {
-    if (status === "active") return "稼働中";
-    if (status === "cancelled") return "解約";
-    return "-";
-  }
+  const agencyMap = useMemo(() => {
+    return new Map(
+      agencies.map((agency) => [agency.id, agency.name ?? "代理店名未設定"])
+    );
+  }, [agencies]);
 
-  function formatMoney(value: number | null) {
-    return `¥${Number(value || 0).toLocaleString()}`;
-  }
+  const filteredCustomers = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
 
-  function getRoleLabel(role: MockRole) {
-    if (role === "headquarters") return "本部";
-    if (role === "agency") return "代理店";
-    if (role === "sub_agency") return "2次代理店";
-    return "-";
-  }
+    if (!keyword) return customers;
+
+    return customers.filter((customer) => {
+      const name = String(customer.name ?? "").toLowerCase();
+      const email = String(customer.email ?? "").toLowerCase();
+      const phone = String(customer.phone ?? "").toLowerCase();
+      const agencyName = String(
+        customer.agency_id ? agencyMap.get(customer.agency_id) ?? "" : ""
+      ).toLowerCase();
+
+      return (
+        name.includes(keyword) ||
+        email.includes(keyword) ||
+        phone.includes(keyword) ||
+        agencyName.includes(keyword)
+      );
+    });
+  }, [customers, search, agencyMap]);
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">顧客一覧（申込台帳）</h1>
-          <p className="text-sm text-gray-500">
-            現在の表示権限: {getRoleLabel(mockProfile.role)}
-            {mockProfile.agency_id ? ` / agency_id: ${mockProfile.agency_id}` : ""}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button className="rounded-lg bg-blue-600 px-4 py-2 text-white">
-            クレカCSV
-          </button>
-          <button className="rounded-lg bg-green-600 px-4 py-2 text-white">
-            口座振替CSV
-          </button>
-          <Link
-            href="/customers/new"
-            className="rounded-lg bg-black px-4 py-2 text-white"
-          >
-            ＋ 顧客登録
-          </Link>
-        </div>
+    <div className="p-4 pb-24">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold">顧客一覧</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          {profile?.role
+            ? `ログイン中の権限: ${profile.role}`
+            : "ログイン中の権限を確認しています"}
+        </p>
       </div>
 
-      {errorMsg && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {errorMsg}
-        </div>
-      )}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="顧客名 / メール / 電話 / 代理店名で検索"
+          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-black"
+        />
+      </div>
 
-      <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-6 text-sm text-gray-500">読み込み中...</div>
-        ) : customers.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">
-            表示対象の顧客データがありません
-          </div>
-        ) : (
+      {loading ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
+          読み込み中...
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+          {error}
+        </div>
+      ) : filteredCustomers.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
+          顧客データがありません。
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50">
-                <tr className="text-left">
-                  <th className="px-4 py-3 font-medium">企業名</th>
+                <tr className="text-left text-gray-600">
+                  <th className="px-4 py-3 font-medium">顧客名</th>
+                  <th className="px-4 py-3 font-medium">メール</th>
+                  <th className="px-4 py-3 font-medium">電話番号</th>
                   <th className="px-4 py-3 font-medium">代理店</th>
-                  <th className="px-4 py-3 font-medium">サービス</th>
-                  <th className="px-4 py-3 font-medium">決済</th>
-                  <th className="px-4 py-3 font-medium">月額</th>
-                  <th className="px-4 py-3 font-medium">状態</th>
-                  <th className="px-4 py-3 font-medium">操作</th>
+                  <th className="px-4 py-3 font-medium">登録日</th>
                 </tr>
               </thead>
               <tbody>
-                {customers.map((customer) => (
-                  <tr key={customer.id} className="border-t">
-                    <td className="px-4 py-3">{customer.company_name || "-"}</td>
-                    <td className="px-4 py-3">{getAgencyName(customer)}</td>
-                    <td className="px-4 py-3">{customer.service_name || "-"}</td>
-                    <td className="px-4 py-3">
-                      {getPaymentLabel(customer.payment_method)}
+                {filteredCustomers.map((customer) => (
+                  <tr key={customer.id} className="border-t border-gray-100">
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {customer.name || "未設定"}
                     </td>
-                    <td className="px-4 py-3">
-                      {formatMoney(customer.monthly_amount)}
+                    <td className="px-4 py-3 text-gray-600">
+                      {customer.email || "-"}
                     </td>
-                    <td className="px-4 py-3">
-                      {getStatusLabel(customer.status)}
+                    <td className="px-4 py-3 text-gray-600">
+                      {customer.phone || "-"}
                     </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/customers/${customer.id}`}
-                        className="text-blue-600 underline"
-                      >
-                        詳細
-                      </Link>
+                    <td className="px-4 py-3 text-gray-600">
+                      {customer.agency_id
+                        ? agencyMap.get(customer.agency_id) ?? "代理店未設定"
+                        : "代理店未設定"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {customer.created_at
+                        ? new Date(customer.created_at).toLocaleDateString("ja-JP")
+                        : "-"}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

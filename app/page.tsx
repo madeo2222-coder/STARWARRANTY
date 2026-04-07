@@ -2,16 +2,27 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
+type AppRole = "headquarters" | "agency" | "sub_agency";
+
+type Profile = {
+  role: AppRole;
+  agency_id: string | null;
+};
 
 type Agency = {
   id: string;
-  name: string;
+  agency_name?: string | null;
+  name?: string | null;
+  parent_agency_id?: string | null;
 };
 
 type Customer = {
   id: string;
-  name: string;
+  name: string | null;
+  agency_id: string | null;
 };
 
 type Contract = {
@@ -172,68 +183,164 @@ function rankingBadge(index: number) {
 }
 
 export default function HomePage() {
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [billings, setBillings] = useState<Billing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, []);
+
+  async function handleLogout() {
+    setLogoutLoading(true);
+
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      alert(`ログアウト失敗: ${error.message}`);
+      setLogoutLoading(false);
+      return;
+    }
+
+    router.push("/login");
+    router.refresh();
+  }
 
   async function fetchData() {
     setLoading(true);
 
-    const [agenciesRes, customersRes, contractsRes, billingsRes] =
-      await Promise.all([
-        supabase.from("agencies").select("id, name").order("name", { ascending: true }),
-        supabase.from("customers").select("id, name").order("name", { ascending: true }),
-        supabase
-          .from("contracts")
-          .select("id, agency_id, customer_id, amount, cost, commission"),
-        supabase
-          .from("billings")
-          .select("id, contract_id, status, amount, due_date, paid_date"),
-      ]);
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-    if (agenciesRes.error) {
-      console.error("agencies error:", agenciesRes.error);
+    if (userError || !user) {
+      router.push("/login");
+      router.refresh();
+      return;
     }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("role, agency_id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (profileError || !profileData) {
+      router.push("/login");
+      router.refresh();
+      return;
+    }
+
+    const currentProfile: Profile = {
+      role: profileData.role as AppRole,
+      agency_id: profileData.agency_id,
+    };
+
+    setProfile(currentProfile);
+
+    const { data: allAgencies, error: agenciesError } = await supabase
+      .from("agencies")
+      .select("id, agency_name, name, parent_agency_id")
+      .order("created_at", { ascending: true });
+
+    if (agenciesError) {
+      console.error("agencies error:", agenciesError);
+      setLoading(false);
+      return;
+    }
+
+    const agenciesList = (allAgencies || []) as Agency[];
+    setAgencies(agenciesList);
+
+    let visibleAgencyIds: string[] = [];
+
+    if (currentProfile.role === "headquarters") {
+      visibleAgencyIds = agenciesList.map((agency) => agency.id);
+    } else if (currentProfile.role === "agency") {
+      const myAgencyId = currentProfile.agency_id;
+      const childAgencyIds = agenciesList
+        .filter((agency) => agency.parent_agency_id === myAgencyId)
+        .map((agency) => agency.id);
+
+      visibleAgencyIds = myAgencyId ? [myAgencyId, ...childAgencyIds] : [];
+    } else {
+      visibleAgencyIds = currentProfile.agency_id ? [currentProfile.agency_id] : [];
+    }
+
+    const [customersRes, contractsRes] = await Promise.all([
+      visibleAgencyIds.length > 0
+        ? supabase
+            .from("customers")
+            .select("id, name, agency_id")
+            .in("agency_id", visibleAgencyIds)
+        : Promise.resolve({ data: [], error: null }),
+      visibleAgencyIds.length > 0
+        ? supabase
+            .from("contracts")
+            .select("id, agency_id, customer_id, amount, cost, commission")
+            .in("agency_id", visibleAgencyIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
     if (customersRes.error) {
       console.error("customers error:", customersRes.error);
     }
+
     if (contractsRes.error) {
       console.error("contracts error:", contractsRes.error);
     }
+
+    const contractsList = (contractsRes.data || []) as Contract[];
+    const contractIds = contractsList.map((contract) => contract.id);
+
+    const billingsRes =
+      contractIds.length > 0
+        ? await supabase
+            .from("billings")
+            .select("id, contract_id, status, amount, due_date, paid_date")
+            .in("contract_id", contractIds)
+        : { data: [], error: null };
+
     if (billingsRes.error) {
       console.error("billings error:", billingsRes.error);
     }
 
-    setAgencies((agenciesRes.data || []) as Agency[]);
     setCustomers((customersRes.data || []) as Customer[]);
-    setContracts((contractsRes.data || []) as Contract[]);
+    setContracts(contractsList);
     setBillings((billingsRes.data || []) as Billing[]);
     setLoading(false);
   }
 
+  const visibleAgencies = useMemo(() => {
+    if (!profile) return [];
+
+    if (profile.role === "headquarters") {
+      return agencies;
+    }
+
+    if (profile.role === "agency") {
+      return agencies.filter(
+        (agency) =>
+          agency.id === profile.agency_id || agency.parent_agency_id === profile.agency_id
+      );
+    }
+
+    return agencies.filter((agency) => agency.id === profile.agency_id);
+  }, [agencies, profile]);
+
   const rows = useMemo<AgencyRow[]>(() => {
-    const baseAgencies: Agency[] = [
-      ...agencies,
-      {
-        id: "unassigned",
-        name: "未設定",
-      },
-    ];
+    return visibleAgencies.map((agency) => {
+      const agencyName = agency.agency_name || agency.name || "名称未設定";
 
-    return baseAgencies.map((agency) => {
-      const agencyContracts = contracts.filter((contract) => {
-        if (agency.id === "unassigned") {
-          return !contract.agency_id;
-        }
-        return contract.agency_id === agency.id;
-      });
-
+      const agencyContracts = contracts.filter((contract) => contract.agency_id === agency.id);
       const contractIds = agencyContracts.map((contract) => contract.id);
 
       const agencyBillings = billings.filter((billing) =>
@@ -270,7 +377,7 @@ export default function HomePage() {
 
       return {
         id: agency.id,
-        name: agency.name,
+        name: agencyName,
         sales,
         grossProfit,
         unpaid,
@@ -281,7 +388,7 @@ export default function HomePage() {
         contractCount: agencyContracts.length,
       };
     });
-  }, [agencies, contracts, billings]);
+  }, [visibleAgencies, contracts, billings]);
 
   const totalSales = rows.reduce((sum, row) => sum + row.sales, 0);
   const totalGrossProfit = rows.reduce((sum, row) => sum + row.grossProfit, 0);
@@ -306,7 +413,7 @@ export default function HomePage() {
     return customerIds.size;
   }, [contracts]);
 
-  const totalAgencies = agencies.length;
+  const totalAgencies = visibleAgencies.length;
 
   const dangerRows = useMemo(() => {
     return [...rows]
@@ -368,7 +475,11 @@ export default function HomePage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">ダッシュボード</h1>
               <p className="mt-1 text-sm text-gray-500">
-                集金代行プラットフォーム 全体サマリー
+                {profile?.role === "headquarters"
+                  ? "Star Revenue 本部ビュー"
+                  : profile?.role === "agency"
+                  ? "一次代理店ビュー"
+                  : "二次代理店ビュー"}
               </p>
             </div>
 
@@ -385,6 +496,14 @@ export default function HomePage() {
               >
                 新規契約
               </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={logoutLoading}
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
+              >
+                {logoutLoading ? "ログアウト中..." : "ログアウト"}
+              </button>
             </div>
           </div>
 
@@ -469,7 +588,7 @@ export default function HomePage() {
           </div>
 
           <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">代理店数</p>
+            <p className="text-sm text-gray-500">表示対象代理店数</p>
             <p className="mt-2 text-xl font-bold text-gray-900">
               {totalAgencies.toLocaleString()}件
             </p>
@@ -482,9 +601,7 @@ export default function HomePage() {
             className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
           >
             <p className="text-sm font-semibold text-gray-900">顧客管理</p>
-            <p className="mt-1 text-sm text-gray-500">
-              顧客の登録・編集・確認
-            </p>
+            <p className="mt-1 text-sm text-gray-500">顧客の登録・編集・確認</p>
           </Link>
 
           <Link
@@ -492,9 +609,7 @@ export default function HomePage() {
             className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
           >
             <p className="text-sm font-semibold text-gray-900">契約管理</p>
-            <p className="mt-1 text-sm text-gray-500">
-              契約一覧・新規契約登録
-            </p>
+            <p className="mt-1 text-sm text-gray-500">契約一覧・新規契約登録</p>
           </Link>
 
           <Link
@@ -502,9 +617,7 @@ export default function HomePage() {
             className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
           >
             <p className="text-sm font-semibold text-gray-900">請求管理</p>
-            <p className="mt-1 text-sm text-gray-500">
-              ステータス更新・未回収管理
-            </p>
+            <p className="mt-1 text-sm text-gray-500">ステータス更新・未回収管理</p>
           </Link>
 
           <Link
@@ -512,9 +625,7 @@ export default function HomePage() {
             className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
           >
             <p className="text-sm font-semibold text-gray-900">代理店管理</p>
-            <p className="mt-1 text-sm text-gray-500">
-              代理店分析・回収率確認
-            </p>
+            <p className="mt-1 text-sm text-gray-500">代理店分析・回収率確認</p>
           </Link>
         </div>
 
@@ -542,8 +653,7 @@ export default function HomePage() {
                       <div>
                         <p className="text-sm font-bold text-gray-900">{row.name}</p>
                         <p className="mt-1 text-xs text-gray-500">
-                          契約 {row.contractCount}件 / 回収率{" "}
-                          {row.collectionRate.toFixed(1)}%
+                          契約 {row.contractCount}件 / 回収率 {row.collectionRate.toFixed(1)}%
                         </p>
                       </div>
                       {alertBadge(row.warningLevel)}
@@ -619,14 +729,10 @@ export default function HomePage() {
                     {rankingBadge(index)}
                     <div>
                       <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                      <p className="text-xs text-gray-500">
-                        粗利 {formatYen(row.grossProfit)}
-                      </p>
+                      <p className="text-xs text-gray-500">粗利 {formatYen(row.grossProfit)}</p>
                     </div>
                   </div>
-                  <p className="text-sm font-bold text-gray-900">
-                    {formatYen(row.sales)}
-                  </p>
+                  <p className="text-sm font-bold text-gray-900">{formatYen(row.sales)}</p>
                 </div>
               ))}
             </div>
@@ -655,9 +761,7 @@ export default function HomePage() {
                       </p>
                     </div>
                   </div>
-                  <p className="text-sm font-bold text-red-600">
-                    {formatYen(row.unpaid)}
-                  </p>
+                  <p className="text-sm font-bold text-red-600">{formatYen(row.unpaid)}</p>
                 </div>
               ))}
             </div>
@@ -707,23 +811,17 @@ export default function HomePage() {
                         <td className="px-4 py-4 text-gray-700">
                           {formatYen(row.grossProfit)}
                         </td>
-                        <td className="px-4 py-4 text-red-600">
-                          {formatYen(row.unpaid)}
-                        </td>
+                        <td className="px-4 py-4 text-red-600">{formatYen(row.unpaid)}</td>
                         <td className="px-4 py-4 font-medium text-blue-600">
                           {row.collectionRate.toFixed(1)}%
                         </td>
                         <td className="px-4 py-4">
-                          {row.id === "unassigned" ? (
-                            <span className="text-xs text-gray-400">未設定は詳細なし</span>
-                          ) : (
-                            <Link
-                              href={`/agencies/${row.id}`}
-                              className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700"
-                            >
-                              詳細を見る
-                            </Link>
-                          )}
+                          <Link
+                            href={`/agencies/${row.id}`}
+                            className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700"
+                          >
+                            詳細を見る
+                          </Link>
                         </td>
                       </tr>
                     ))

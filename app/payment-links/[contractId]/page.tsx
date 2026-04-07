@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 
 const STORAGE_BUCKET = "bank-transfer-docs";
 
@@ -17,7 +17,7 @@ type Contract = {
   payment_method?: string | null;
   status?: string | null;
   contract_date?: string | null;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type Customer = {
@@ -28,7 +28,7 @@ type Customer = {
   company?: string | null;
   customer_name?: string | null;
   name?: string | null;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type Payment = {
@@ -43,7 +43,7 @@ type Payment = {
   sent_via?: string | null;
   note?: string | null;
   created_at?: string | null;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type BankTransferDocument = {
@@ -56,13 +56,15 @@ type BankTransferDocument = {
   file_size?: number | null;
   created_at?: string | null;
   status?: string | null;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export default function PaymentLinkPage() {
+  const supabase = createClient();
+
   const params = useParams();
   const router = useRouter();
-  const contractId = params.contractId as string;
+  const contractId = String(params?.contractId ?? "");
 
   const [contract, setContract] = useState<Contract | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -85,7 +87,7 @@ export default function PaymentLinkPage() {
 
   useEffect(() => {
     if (!contractId) return;
-    fetchData();
+    void fetchData();
   }, [contractId]);
 
   async function fetchData() {
@@ -104,19 +106,22 @@ export default function PaymentLinkPage() {
         throw new Error("契約情報が見つかりません");
       }
 
-      setContract(contractData as Contract);
+      const currentContract = contractData as Contract;
+      setContract(currentContract);
 
       let customerData: Customer | null = null;
-      if (contractData.customer_id) {
+
+      if (currentContract.customer_id) {
         const { data, error } = await supabase
           .from("customers")
           .select("*")
-          .eq("id", contractData.customer_id)
+          .eq("id", currentContract.customer_id)
           .single();
 
         if (error) {
           throw new Error(`顧客取得エラー: ${error.message}`);
         }
+
         customerData = data as Customer;
       }
 
@@ -134,11 +139,12 @@ export default function PaymentLinkPage() {
         throw new Error(`payments取得エラー: ${paymentError.message}`);
       }
 
-      const latestPayment = (paymentData as Payment | null) || null;
+      const latestPayment = (paymentData as Payment | null) ?? null;
       setPayment(latestPayment);
 
       const initialMethod =
-        latestPayment?.payment_method || contractData.payment_method || "card";
+        latestPayment?.payment_method || currentContract.payment_method || "card";
+
       setPaymentMethod(initialMethod);
       setRegistrationUrl(latestPayment?.registration_url || "");
       setRegistrationStatus(latestPayment?.registration_status || "pending");
@@ -166,10 +172,12 @@ export default function PaymentLinkPage() {
         throw new Error(`書類取得エラー: ${docsError.message}`);
       }
 
-      setDocuments((docsData as BankTransferDocument[]) || []);
-    } catch (error: any) {
+      setDocuments(((docsData as BankTransferDocument[]) ?? []).filter(Boolean));
+    } catch (error: unknown) {
       console.error(error);
-      setErrorMessage(error?.message || "読み込みに失敗しました");
+      const message =
+        error instanceof Error ? error.message : "読み込みに失敗しました";
+      setErrorMessage(message);
     } finally {
       setLoading(false);
     }
@@ -177,6 +185,7 @@ export default function PaymentLinkPage() {
 
   function getCustomerName(c: Customer | null) {
     if (!c) return "未設定";
+
     return (
       c.company_name ||
       c.company ||
@@ -233,8 +242,9 @@ export default function PaymentLinkPage() {
       throw new Error(error?.message || "payments作成に失敗しました");
     }
 
-    setPayment(data as Payment);
-    return data.id as string;
+    const nextPayment = data as Payment;
+    setPayment(nextPayment);
+    return nextPayment.id;
   }
 
   async function handleSave() {
@@ -269,9 +279,11 @@ export default function PaymentLinkPage() {
 
       setPayment(data as Payment);
       setSuccessMessage("決済管理情報を保存しました");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      setErrorMessage(error?.message || "保存に失敗しました");
+      const message =
+        error instanceof Error ? error.message : "保存に失敗しました";
+      setErrorMessage(message);
     } finally {
       setSaving(false);
     }
@@ -345,9 +357,11 @@ export default function PaymentLinkPage() {
       e.target.value = "";
 
       await fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      setErrorMessage(error?.message || "アップロードに失敗しました");
+      const message =
+        error instanceof Error ? error.message : "アップロードに失敗しました";
+      setErrorMessage(message);
       e.target.value = "";
     } finally {
       setUploading(false);
@@ -367,9 +381,11 @@ export default function PaymentLinkPage() {
       }
 
       window.open(data.signedUrl, "_blank");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      setErrorMessage(error?.message || "ファイルを開けませんでした");
+      const message =
+        error instanceof Error ? error.message : "ファイルを開けませんでした";
+      setErrorMessage(message);
     }
   }
 
@@ -379,6 +395,7 @@ export default function PaymentLinkPage() {
         setErrorMessage("コピー対象がありません");
         return;
       }
+
       await navigator.clipboard.writeText(text);
       setSuccessMessage(successText);
       setErrorMessage("");
@@ -612,7 +629,9 @@ ${registrationUrl || "未設定"}
             <div>
               <label className="mb-1 block text-sm font-medium">書類状況</label>
               <select
-                value={paymentMethod === "bank" ? formDocumentStatus : "not_required"}
+                value={
+                  paymentMethod === "bank" ? formDocumentStatus : "not_required"
+                }
                 onChange={(e) => setFormDocumentStatus(e.target.value)}
                 disabled={paymentMethod !== "bank"}
                 className="w-full rounded-lg border px-3 py-2 disabled:bg-gray-100"

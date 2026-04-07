@@ -8,6 +8,14 @@ export type CurrentProfile = {
   agency_id: string | null;
 };
 
+function isAppRole(value: unknown): value is AppRole {
+  return (
+    value === "headquarters" ||
+    value === "agency" ||
+    value === "sub_agency"
+  );
+}
+
 export async function getCurrentProfile(): Promise<CurrentProfile | null> {
   const supabase = await createClient();
 
@@ -30,9 +38,13 @@ export async function getCurrentProfile(): Promise<CurrentProfile | null> {
     return null;
   }
 
+  if (!isAppRole(data.role)) {
+    return null;
+  }
+
   return {
     userId: user.id,
-    role: data.role as AppRole,
-    agency_id: data.agency_id,
+    role: data.role,
+    agency_id: data.agency_id ?? null,
   };
 }

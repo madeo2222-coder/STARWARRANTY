@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 
 type ContractRow = {
   id: string;
@@ -22,9 +22,20 @@ type ContractRow = {
 };
 
 type ProfileRow = {
-  role: "admin" | "agency";
+  role: "headquarters" | "agency" | "sub_agency";
   agency_id: string | null;
 };
+
+type AgencyRow = {
+  id: string;
+  name: string | null;
+  parent_agency_id: string | null;
+};
+
+function toContracts(value: unknown): ContractRow[] {
+  if (!Array.isArray(value)) return [];
+  return value as ContractRow[];
+}
 
 function formatPaymentMethod(value: string | null | undefined) {
   switch (value) {
@@ -63,6 +74,8 @@ function formatRegistrationStatus(value: string | null | undefined) {
 }
 
 export default function ContractsPage() {
+  const supabase = createClient();
+
   const [contracts, setContracts] = useState<ContractRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -78,20 +91,56 @@ export default function ContractsPage() {
 
       if (userError || !user) {
         console.error("ユーザー取得エラー:", userError);
+        setContracts([]);
         setLoading(false);
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("role, agency_id")
         .eq("user_id", user.id)
-        .single<ProfileRow>();
+        .single();
 
-      if (profileError || !profile) {
+      if (profileError || !profileData) {
         console.error("プロフィール取得エラー:", profileError);
+        setContracts([]);
         setLoading(false);
         return;
+      }
+
+      const profile = profileData as ProfileRow;
+
+      let visibleAgencyIds: string[] | null = null;
+
+      if (profile.role === "sub_agency") {
+        visibleAgencyIds = profile.agency_id ? [profile.agency_id] : [];
+      } else if (profile.role === "agency") {
+        if (!profile.agency_id) {
+          visibleAgencyIds = [];
+        } else {
+          const { data: childAgencies, error: childAgenciesError } =
+            await supabase
+              .from("agencies")
+              .select("id,name,parent_agency_id")
+              .eq("parent_agency_id", profile.agency_id);
+
+          if (childAgenciesError) {
+            console.error("子代理店取得エラー:", childAgenciesError);
+            setContracts([]);
+            setLoading(false);
+            return;
+          }
+
+          const children = (Array.isArray(childAgencies)
+            ? childAgencies
+            : []) as AgencyRow[];
+
+          visibleAgencyIds = [
+            profile.agency_id,
+            ...children.map((agency) => agency.id),
+          ];
+        }
       }
 
       let query = supabase
@@ -114,24 +163,31 @@ export default function ContractsPage() {
         )
         .order("contract_date", { ascending: false });
 
-      if (profile.role === "agency") {
-        query = query.eq("agency_id", profile.agency_id);
+      if (visibleAgencyIds !== null) {
+        if (visibleAgencyIds.length === 0) {
+          setContracts([]);
+          setLoading(false);
+          return;
+        }
+
+        query = query.in("agency_id", visibleAgencyIds);
       }
 
       const { data, error } = await query;
 
       if (error) {
         console.error("契約取得エラー:", error);
+        setContracts([]);
         setLoading(false);
         return;
       }
 
-      setContracts((data as ContractRow[]) || []);
+      setContracts(toContracts(data));
       setLoading(false);
     };
 
-    fetchContracts();
-  }, []);
+    void fetchContracts();
+  }, [supabase]);
 
   const filteredContracts = useMemo(() => {
     if (statusFilter === "all") {
@@ -189,9 +245,7 @@ export default function ContractsPage() {
     const csvContent = [
       headers.join(","),
       ...rows.map((row) =>
-        row
-          .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
-          .join(",")
+        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
       ),
     ].join("\n");
 
@@ -278,9 +332,7 @@ export default function ContractsPage() {
                 <div className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
                   <p>金額: {(contract.amount ?? 0).toLocaleString()} 円</p>
                   <p>原価: {(contract.cost ?? 0).toLocaleString()} 円</p>
-                  <p>
-                    手数料: {(contract.commission ?? 0).toLocaleString()} 円
-                  </p>
+                  <p>手数料: {(contract.commission ?? 0).toLocaleString()} 円</p>
                   <p>粗利: {profit.toLocaleString()} 円</p>
                 </div>
 
