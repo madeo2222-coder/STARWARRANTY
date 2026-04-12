@@ -10,9 +10,9 @@ export default async function AuthCheckPage() {
     redirect("/login");
   }
 
-  if (profile.role === "headquarters") {
-    redirect("/dashboard/headquarters");
-  }
+ if (profile.role === "headquarters") {
+  redirect("/");
+}
 
   if (profile.role === "agency") {
     redirect("/dashboard/agency");

@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     }
 
     const authHeader = request.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { success: false, error: "認証トークンがありません" },
         { status: 401 }
@@ -241,9 +241,7 @@ export async function POST(request: Request) {
       }
 
       createdAgency = data;
-    }
-
-    if (invite.target_role === "sub_agency") {
+    } else {
       const { data, error } = await adminClient
         .from("agencies")
         .insert({

@@ -3,12 +3,14 @@ import {
   getCurrentProfile,
   type CurrentProfile,
 } from "@/lib/auth/getCurrentProfile";
+import BillingActionsClient from "./BillingActionsClient";
 
 export const dynamic = "force-dynamic";
 
 type AgencyRow = {
   id: string;
   name: string | null;
+  agency_name?: string | null;
   parent_agency_id: string | null;
 };
 
@@ -27,6 +29,7 @@ type BillingRow = {
     agencies: {
       id: string;
       name: string | null;
+      agency_name?: string | null;
       parent_agency_id: string | null;
     } | null;
   } | null;
@@ -58,7 +61,7 @@ async function resolveVisibleAgencyIds(
 
   const { data, error } = await supabase
     .from("agencies")
-    .select("id,name,parent_agency_id")
+    .select("id,name,agency_name,parent_agency_id")
     .eq("parent_agency_id", profile.agency_id);
 
   if (error) {
@@ -92,6 +95,7 @@ async function loadBillings(profile: CurrentProfile | null) {
         agencies:agency_id (
           id,
           name,
+          agency_name,
           parent_agency_id
         )
       )
@@ -133,6 +137,35 @@ async function loadBillings(profile: CurrentProfile | null) {
 
 function yen(value: number | null | undefined) {
   return `¥${Number(value ?? 0).toLocaleString()}`;
+}
+
+function agencyLabel(row: BillingRow) {
+  return (
+    row.customers?.agencies?.name ||
+    row.customers?.agencies?.agency_name ||
+    row.customers?.agency_id ||
+    "-"
+  );
+}
+
+function badgeClass(status: string | null) {
+  if (status === "paid") {
+    return "bg-green-100 text-green-700";
+  }
+  if (status === "pending") {
+    return "bg-yellow-100 text-yellow-700";
+  }
+  if (status === "failed") {
+    return "bg-red-100 text-red-700";
+  }
+  return "bg-gray-100 text-gray-600";
+}
+
+function statusLabel(status: string | null) {
+  if (status === "paid") return "回収済";
+  if (status === "pending") return "未回収";
+  if (status === "failed") return "回収不能";
+  return status ?? "-";
 }
 
 export default async function BillingsPage() {
@@ -180,6 +213,9 @@ export default async function BillingsPage() {
                 <span className="font-semibold">{profile.agency_id}</span>
               </>
             ) : null}
+          </p>
+          <p className="text-sm text-gray-500">
+            請求書・領収書の印刷 / PDF保存 / メール送信用データ出力に対応
           </p>
         </div>
 
@@ -248,36 +284,51 @@ export default async function BillingsPage() {
                   <th className="px-4 py-3 font-semibold">ステータス</th>
                   <th className="px-4 py-3 font-semibold">支払期限</th>
                   <th className="px-4 py-3 font-semibold">入金日</th>
+                  <th className="px-4 py-3 font-semibold">帳票</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className="border-t">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.billing_month ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.customers?.company_name ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.customers?.agencies?.name ??
-                        row.customers?.agency_id ??
-                        "-"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {yen(row.amount)}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.status ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.due_date ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.paid_date ?? "-"}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  const canReceipt = Boolean(row.paid_date);
+
+                  return (
+                    <tr key={row.id} className="border-t align-top">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.billing_month ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.customers?.company_name ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {agencyLabel(row)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {yen(row.amount)}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${badgeClass(
+                            row.status
+                          )}`}
+                        >
+                          {statusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.due_date ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.paid_date ?? "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <BillingActionsClient
+                          billingId={row.id}
+                          canReceipt={canReceipt}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
