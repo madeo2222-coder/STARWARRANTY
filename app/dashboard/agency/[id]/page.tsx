@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 type Agency = {
   id: string;
   agency_name: string | null;
+  email?: string | null;
 };
 
 type Billing = {
@@ -39,17 +40,9 @@ function normalizeMonthKey(value: string | null) {
 
   const trimmed = value.trim();
 
-  if (/^\d{4}-\d{2}$/.test(trimmed)) {
-    return trimmed;
-  }
-
-  if (/^\d{4}\/\d{2}$/.test(trimmed)) {
-    return trimmed.replace("/", "-");
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed.slice(0, 7);
-  }
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}\/\d{2}$/.test(trimmed)) return trimmed.replace("/", "-");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 7);
 
   return null;
 }
@@ -64,24 +57,92 @@ function getPreviousMonthKey() {
 
 function formatDateTime(value: string | null) {
   if (!value) return "-";
-
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-
   return date.toLocaleString("ja-JP");
 }
 
 function formatDateOnly(value: string | null) {
   if (!value) return "-";
-
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-
   return date.toLocaleDateString("ja-JP");
 }
 
 function getTodayLabel() {
   return new Date().toLocaleDateString("ja-JP");
+}
+
+function buildPreviewHtml(documentHtml: string) {
+  return `
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>精算書プレビュー</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #f5f5f5;
+      font-family: Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid #ddd;
+      border-radius: 12px;
+    }
+    .toolbar button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #111827;
+      color: white;
+    }
+    .sheet {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      .toolbar {
+        display: none !important;
+      }
+      .sheet {
+        max-width: none;
+        box-shadow: none;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">印刷 / PDF保存</button>
+    <button onclick="history.back()">戻る</button>
+  </div>
+  <div class="sheet">
+    ${documentHtml}
+  </div>
+</body>
+</html>
+  `.trim();
 }
 
 export default function AgencyDetailPage() {
@@ -93,7 +154,9 @@ export default function AgencyDetailPage() {
   const [payout, setPayout] = useState<Payout | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
   const [filter, setFilter] = useState<"previous_paid" | "all" | "unpaid">("previous_paid");
+  const [emailInput, setEmailInput] = useState("");
 
   const previousMonthKey = useMemo(() => getPreviousMonthKey(), []);
   const issuedDate = useMemo(() => getTodayLabel(), []);
@@ -107,14 +170,16 @@ export default function AgencyDetailPage() {
 
     const { data: agencyData, error: agencyError } = await supabase
       .from("agencies")
-      .select("id, agency_name")
+      .select("id, agency_name, email")
       .eq("id", agencyId)
       .maybeSingle();
 
     if (agencyError) {
       console.error("agency error:", agencyError);
     } else {
-      setAgency((agencyData || null) as Agency | null);
+      const agencyRow = (agencyData || null) as Agency | null;
+      setAgency(agencyRow);
+      setEmailInput(agencyRow?.email || "");
     }
 
     const { data: contractsData, error: contractsError } = await supabase
@@ -186,14 +251,8 @@ export default function AgencyDetailPage() {
   }, [billings, previousMonthKey]);
 
   const displayData = useMemo(() => {
-    if (filter === "previous_paid") {
-      return previousMonthPaidBillings;
-    }
-
-    if (filter === "unpaid") {
-      return billings.filter((billing) => billing.status === "pending");
-    }
-
+    if (filter === "previous_paid") return previousMonthPaidBillings;
+    if (filter === "unpaid") return billings.filter((billing) => billing.status === "pending");
     return billings;
   }, [billings, filter, previousMonthPaidBillings]);
 
@@ -311,6 +370,111 @@ export default function AgencyDetailPage() {
     }
   }
 
+  async function handleSendEmail() {
+    if (!agency?.agency_name) {
+      alert("代理店名が取得できません");
+      return;
+    }
+
+    if (!emailInput.trim()) {
+      alert("送信先メールアドレスを入力してください");
+      return;
+    }
+
+    setSending(true);
+
+    try {
+      const res = await fetch("/api/send-agency-statement", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agency_id: agencyId,
+          agency_name: agency.agency_name,
+          to_email: emailInput.trim(),
+          target_month: previousMonthKey,
+          issued_date: issuedDate,
+          previous_month_paid_amount: summary.previousMonthPaidAmount,
+          monthly_system_fee: summary.systemFee,
+          settlement_fee: summary.settlementFee,
+          provisional_payout: summary.provisionalPayout,
+          payout_status:
+            payout?.status === "done"
+              ? "振込済"
+              : payout?.status === "pending"
+              ? "未振込"
+              : "未作成",
+          paid_at: formatDateOnly(payout?.paid_at || null),
+          previous_month_count: summary.previousMonthCount,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        alert(json.error || "メール送信に失敗しました");
+        setSending(false);
+        return;
+      }
+
+      alert("メール送信しました");
+    } catch (error) {
+      console.error(error);
+      alert("メール送信でエラーが発生しました");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleOpenSettlement() {
+    const feeInput = window.prompt("振込手数料を入力してください（円）。未入力なら 0 円です。", "0");
+    const transferFee = Number(feeInput || 0);
+
+    if (Number.isNaN(transferFee) || transferFee < 0) {
+      alert("振込手数料は 0 以上の数値で入力してください");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/generate-settlement-document", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agency_id: agencyId,
+          target_month: previousMonthKey,
+          transfer_fee: transferFee,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        alert(json.error || "精算書生成に失敗しました");
+        return;
+      }
+
+      const html = buildPreviewHtml(String(json.html || ""));
+      const previewWindow = window.open("", "_blank");
+
+      if (previewWindow) {
+        previewWindow.document.open();
+        previewWindow.document.write(html);
+        previewWindow.document.close();
+        return;
+      }
+
+      document.open();
+      document.write(html);
+      document.close();
+    } catch (error) {
+      console.error(error);
+      alert("精算書生成でエラーが発生しました");
+    }
+  }
+
   function handlePrintPdf() {
     window.print();
   }
@@ -403,12 +567,48 @@ export default function AgencyDetailPage() {
             PDF出力
           </button>
 
+          <button
+            type="button"
+            onClick={() => void handleOpenSettlement()}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
+          >
+            精算書出力
+          </button>
+
           <Link
             href="/agencies"
             className="inline-flex rounded-lg border px-4 py-2 text-sm font-medium text-gray-700"
           >
             代理店一覧へ戻る
           </Link>
+        </div>
+      </div>
+
+      <div className="print-hidden rounded-xl border bg-white p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              送信先メールアドレス
+            </label>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="agency@example.com"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+            />
+          </div>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => void handleSendEmail()}
+              disabled={sending}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {sending ? "送信中..." : "メール送信"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -448,7 +648,7 @@ export default function AgencyDetailPage() {
             </div>
 
             <div className="rounded-lg bg-gray-50 p-4">
-              <p className="text-sm text-gray-500">決済手数料 3.0%</p>
+              <p className="text-sm text-gray-500">手数料 3.0%</p>
               <p className="mt-2 text-xl font-bold text-gray-900">
                 {formatYen(summary.settlementFee)}
               </p>
@@ -484,7 +684,7 @@ export default function AgencyDetailPage() {
                   <td className="px-4 py-3">{formatYen(summary.systemFee)}</td>
                 </tr>
                 <tr className="border-t">
-                  <td className="px-4 py-3">決済手数料</td>
+                  <td className="px-4 py-3">手数料 3.0%</td>
                   <td className="px-4 py-3">{formatYen(summary.settlementFee)}</td>
                 </tr>
                 <tr className="border-t">
@@ -547,9 +747,9 @@ export default function AgencyDetailPage() {
           </div>
 
           <div className="mt-6 text-xs leading-6 text-gray-500">
-            <p>※ 本書は請求書兼前月領収書として出力しています。</p>
-            <p>※ 差引振込予定額 ＝ 前月回収額 - 月額利用料11,000円 - 決済手数料3.0%</p>
-            <p>※ 振込手数料は本書では別途扱いです。</p>
+            <p>※ 本書は請求書兼前月領収書です。</p>
+            <p>※ 差引振込予定額 ＝ 前月回収額 - 月額利用料11,000円 - 手数料3.0%</p>
+            <p>※ 振込手数料は別途扱いです。</p>
           </div>
         </div>
 
@@ -569,7 +769,7 @@ export default function AgencyDetailPage() {
           </div>
 
           <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">決済手数料 3.0%</p>
+            <p className="text-sm text-gray-500">手数料 3.0%</p>
             <p className="mt-2 text-xl font-bold text-gray-900">
               {formatYen(summary.settlementFee)}
             </p>
@@ -618,7 +818,7 @@ export default function AgencyDetailPage() {
           </div>
 
           <p className="mt-4 text-xs text-gray-500">
-            ※ 仮振込予定額 ＝ 前月回収額 - 月額利用料11,000円 - 決済手数料3.0%
+            ※ 仮振込予定額 ＝ 前月回収額 - 月額利用料11,000円 - 手数料3.0%
             <br />
             ※ 振込手数料はこの画面ではまだ差し引いていません
           </p>

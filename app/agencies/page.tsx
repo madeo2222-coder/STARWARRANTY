@@ -104,6 +104,78 @@ function toCsvValue(value: string | number) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function buildPreviewHtml(documentHtml: string) {
+  return `
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>精算書プレビュー</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #f5f5f5;
+      font-family: Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid #ddd;
+      border-radius: 12px;
+    }
+    .toolbar button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #111827;
+      color: white;
+    }
+    .sheet {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      .toolbar {
+        display: none !important;
+      }
+      .sheet {
+        max-width: none;
+        box-shadow: none;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">印刷 / PDF保存</button>
+    <button onclick="history.back()">戻る</button>
+  </div>
+  <div class="sheet">
+    ${documentHtml}
+  </div>
+</body>
+</html>
+  `.trim();
+}
+
 export default function AgenciesPage() {
   const supabase = createClient();
 
@@ -337,6 +409,54 @@ export default function AgenciesPage() {
     }
   }
 
+  async function handleOpenSettlement(agencyId: string) {
+    const feeInput = window.prompt("振込手数料を入力してください（円）。未入力なら 0 円です。", "0");
+    const transferFee = Number(feeInput || 0);
+
+    if (Number.isNaN(transferFee) || transferFee < 0) {
+      alert("振込手数料は 0 以上の数値で入力してください");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/generate-settlement-document", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agency_id: agencyId,
+          target_month: previousMonthKey,
+          transfer_fee: transferFee,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        alert(json.error || "精算書生成に失敗しました");
+        return;
+      }
+
+      const html = buildPreviewHtml(String(json.html || ""));
+      const previewWindow = window.open("", "_blank");
+
+      if (previewWindow) {
+        previewWindow.document.open();
+        previewWindow.document.write(html);
+        previewWindow.document.close();
+        return;
+      }
+
+      document.open();
+      document.write(html);
+      document.close();
+    } catch (error) {
+      console.error(error);
+      alert("精算書生成でエラーが発生しました");
+    }
+  }
+
   function renderPayoutAction(agencyId: string, provisionalPayout: number) {
     const payout = getPayout(agencyId);
     const isSaving = savingAgencyId === agencyId;
@@ -447,7 +567,7 @@ export default function AgenciesPage() {
     }
 
     return rows;
-  }, [visibleParents, agencies, payouts, billings, contracts, filter, previousMonthKey]);
+  }, [visibleParents, payouts, billings, contracts, filter, previousMonthKey]);
 
   function handleExportCsv() {
     if (csvRows.length === 0) {
@@ -461,7 +581,7 @@ export default function AgenciesPage() {
       "対象月",
       "前月回収額",
       "月額利用料",
-      "決済手数料3.0%",
+      "手数料3.0%",
       "仮振込予定額",
       "振込状態",
       "振込日時",
@@ -595,12 +715,22 @@ export default function AgenciesPage() {
                     </p>
                   </div>
 
-                  <Link
-                    href={`/dashboard/agency/${parent.id}`}
-                    className="inline-flex rounded-lg bg-black px-4 py-2 text-sm font-medium text-white"
-                  >
-                    詳細を見る
-                  </Link>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenSettlement(parent.id)}
+                      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
+                    >
+                      精算書出力
+                    </button>
+
+                    <Link
+                      href={`/dashboard/agency/${parent.id}`}
+                      className="inline-flex rounded-lg bg-black px-4 py-2 text-sm font-medium text-white"
+                    >
+                      詳細を見る
+                    </Link>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-3 md:grid-cols-5">
@@ -619,7 +749,7 @@ export default function AgenciesPage() {
                   </div>
 
                   <div className="rounded-lg bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500">決済手数料 3.0%</p>
+                    <p className="text-xs text-gray-500">手数料 3.0%</p>
                     <p className="mt-1 text-base font-bold text-gray-900">
                       {formatYen(parentSummary.settlementFee)}
                     </p>
@@ -646,7 +776,7 @@ export default function AgenciesPage() {
                 </div>
 
                 <div className="mt-2 text-xs text-gray-500">
-                  ※ 振込手数料はこの画面ではまだ差し引いていません
+                  ※ 精算書は手数料 3.0% 表示です。決済会社原価は表示しません。
                 </div>
 
                 <div className="ml-6 mt-4 space-y-3">
@@ -674,12 +804,22 @@ export default function AgenciesPage() {
                               </p>
                             </div>
 
-                            <Link
-                              href={`/dashboard/agency/${child.id}`}
-                              className="inline-flex rounded-lg border px-3 py-2 text-xs font-medium text-gray-700"
-                            >
-                              詳細を見る
-                            </Link>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleOpenSettlement(child.id)}
+                                className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white"
+                              >
+                                精算書出力
+                              </button>
+
+                              <Link
+                                href={`/dashboard/agency/${child.id}`}
+                                className="inline-flex rounded-lg border px-3 py-2 text-xs font-medium text-gray-700"
+                              >
+                                詳細を見る
+                              </Link>
+                            </div>
                           </div>
 
                           <div className="mt-3 grid gap-2 md:grid-cols-5">
@@ -699,7 +839,7 @@ export default function AgenciesPage() {
 
                             <div className="rounded-lg bg-white p-2">
                               <p className="text-[11px] text-gray-500">
-                                決済手数料 3.0%
+                                手数料 3.0%
                               </p>
                               <p className="mt-1 text-sm font-bold text-gray-900">
                                 {formatYen(childSummary.settlementFee)}
@@ -727,7 +867,7 @@ export default function AgenciesPage() {
                           </div>
 
                           <div className="mt-2 text-[11px] text-gray-500">
-                            ※ 振込手数料は別途
+                            ※ 精算書は手数料 3.0% 表示です
                           </div>
                         </div>
                       );
