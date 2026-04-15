@@ -63,11 +63,35 @@ function buildPreviewHtml(documentHtml: string) {
       }
     }
   </style>
+  <script>
+    function goBackToBillings() {
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.close();
+          return;
+        }
+
+        if (window.history.length > 1) {
+          window.history.back();
+
+          setTimeout(function () {
+            window.location.href = "/billings";
+          }, 400);
+
+          return;
+        }
+
+        window.location.href = "/billings";
+      } catch (e) {
+        window.location.href = "/billings";
+      }
+    }
+  </script>
 </head>
 <body>
   <div class="toolbar">
     <button onclick="window.print()">印刷 / PDF保存</button>
-    <button onclick="history.back()">戻る</button>
+    <button onclick="goBackToBillings()">戻る</button>
   </div>
   <div class="sheet">
     ${documentHtml}

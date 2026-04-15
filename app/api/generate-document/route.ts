@@ -9,6 +9,22 @@ export const dynamic = "force-dynamic";
 
 type DocumentType = "invoice" | "receipt";
 
+type BillingCustomerRow = {
+  id: string;
+  company_name: string | null;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  agency_id: string | null;
+};
+
+type BillingContractRow = {
+  id: string;
+  contract_name: string | null;
+  amount: number | null;
+  agency_id: string | null;
+};
+
 type BillingRow = {
   id: string;
   contract_id: string | null;
@@ -19,44 +35,47 @@ type BillingRow = {
   due_date: string | null;
   created_at: string | null;
   paid_date: string | null;
-  customers:
-    | {
-        id: string;
-        company_name: string | null;
-        name?: string | null;
-        email?: string | null;
-        phone?: string | null;
-        agency_id: string | null;
-      }
-    | null;
-  contracts:
-    | {
-        id: string;
-        contract_name: string | null;
-        amount: number | null;
-        agency_id: string | null;
-      }
-    | null;
+  customers: BillingCustomerRow | BillingCustomerRow[] | null;
+  contracts: BillingContractRow | BillingContractRow[] | null;
 };
 
 type AgencyRow = {
   id: string;
+  agency_name: string | null;
   name: string | null;
-  agency_name?: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
   parent_agency_id: string | null;
 };
 
 type GenerateDocumentBody = {
   document_type?: DocumentType;
   billing_id?: string;
+  billingId?: string;
 };
 
-const COMPANY_NAME = "StarRevenue株式会社";
-const COMPANY_POSTAL = "〒101-0048";
-const COMPANY_ADDRESS = "東京都千代田区神田司町2-14 大鷹ビル801";
-const COMPANY_TEL = "090-3325-2664";
-const COMPANY_EMAIL = "fusumada@star-group2014.com";
-const COMPANY_INVOICE_NO = "T9290001093717";
+const HEADQUARTERS_COMPANY = {
+  name: "StarRevenue株式会社",
+  address: "〒101-0048 東京都千代田区神田司町2-14 大鷹ビル801",
+  phone: "090-3325-2664",
+  email: "fusumada@star-group2014.com",
+  invoice_number: "T9290001093717",
+};
+
+function getCustomerRow(
+  value: BillingCustomerRow | BillingCustomerRow[] | null
+): BillingCustomerRow | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function getContractRow(
+  value: BillingContractRow | BillingContractRow[] | null
+): BillingContractRow | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
 
 function escapeHtml(value: string) {
   return value
@@ -90,12 +109,8 @@ function formatMonthLabel(value: string | null | undefined) {
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    const d = new Date(normalized);
-    if (!Number.isNaN(d.getTime())) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      return `${y}年${m}月分`;
-    }
+    const [y, m] = normalized.split("-");
+    return `${y}年${m}月分`;
   }
 
   return value;
@@ -132,7 +147,7 @@ async function resolveVisibleAgencyIds(
 
   const { data, error } = await supabase
     .from("agencies")
-    .select("id, name, agency_name, parent_agency_id")
+    .select("id, parent_agency_id")
     .eq("parent_agency_id", profile.agency_id);
 
   if (error) {
@@ -140,9 +155,8 @@ async function resolveVisibleAgencyIds(
     return [];
   }
 
-  const children = (Array.isArray(data) ? data : []) as AgencyRow[];
-
-  return [profile.agency_id, ...children.map((row) => row.id)];
+  const childIds = (data || []).map((row: { id: string }) => row.id);
+  return [profile.agency_id, ...childIds];
 }
 
 function sharedDocumentStyles() {
@@ -188,10 +202,17 @@ function sharedDocumentStyles() {
       font-weight: 700;
       margin-bottom: 8px;
     }
-    .invoice-box {
-      margin-top: 8px;
+    .company-line {
       font-size: 13px;
       color: #374151;
+      margin: 2px 0;
+      white-space: pre-wrap;
+    }
+    .company-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #4b5563;
+      line-height: 1.6;
     }
     .customer-box {
       margin-top: 20px;
@@ -278,6 +299,29 @@ function sharedDocumentStyles() {
   `;
 }
 
+function createCompanyBoxHtml(params: {
+  issuerName: string;
+  issuerAddress: string;
+  issuerPhone: string;
+  issuerEmail: string;
+  issuerInvoiceNumber: string;
+}) {
+  return `
+    <div class="company-box">
+      <div class="company-name">${escapeHtml(params.issuerName)}</div>
+      <div class="company-line">${escapeHtml(params.issuerAddress || "-")}</div>
+      <div class="company-line">TEL：${escapeHtml(params.issuerPhone || "-")}</div>
+      <div class="company-line">Email：${escapeHtml(params.issuerEmail || "-")}</div>
+      <div class="company-line">登録番号：${escapeHtml(
+        params.issuerInvoiceNumber || "未登録"
+      )}</div>
+      <div class="company-note">
+        ※決済はStarRevenue株式会社を通じて行われます
+      </div>
+    </div>
+  `.trim();
+}
+
 function createInvoiceHtml(params: {
   customerName: string;
   customerEmail: string;
@@ -288,7 +332,11 @@ function createInvoiceHtml(params: {
   issuedDate: string;
   dueDate: string;
   amount: string;
-  agencyName: string;
+  issuerName: string;
+  issuerAddress: string;
+  issuerPhone: string;
+  issuerEmail: string;
+  issuerInvoiceNumber: string;
 }) {
   return `
 <!doctype html>
@@ -308,15 +356,13 @@ function createInvoiceHtml(params: {
         <div class="subline">請求対象：${escapeHtml(params.billingMonthLabel)}</div>
       </div>
 
-      <div class="company-box">
-        <div class="company-name">${escapeHtml(COMPANY_NAME)}</div>
-        <div>${escapeHtml(COMPANY_POSTAL)}</div>
-        <div>${escapeHtml(COMPANY_ADDRESS)}</div>
-        <div>TEL：${escapeHtml(COMPANY_TEL)}</div>
-        <div>Email：${escapeHtml(COMPANY_EMAIL)}</div>
-        <div class="invoice-box">登録番号：${escapeHtml(COMPANY_INVOICE_NO)}</div>
-        <div class="invoice-box">代理店：${escapeHtml(params.agencyName)}</div>
-      </div>
+      ${createCompanyBoxHtml({
+        issuerName: params.issuerName,
+        issuerAddress: params.issuerAddress,
+        issuerPhone: params.issuerPhone,
+        issuerEmail: params.issuerEmail,
+        issuerInvoiceNumber: params.issuerInvoiceNumber,
+      })}
     </div>
 
     <div class="customer-box">
@@ -361,10 +407,9 @@ function createInvoiceHtml(params: {
     </table>
 
     <div class="note-box">
-      <div><strong>お支払条件</strong></div>
-      <div>クレジットカード：月末締め翌々月15日入金</div>
-      <div>口座振替：月末締め翌月15日入金</div>
-      <div style="margin-top:8px;">※ お支払方法はご登録の決済方法にて処理されます。</div>
+      <div><strong>ご案内</strong></div>
+      <div>※ お支払方法はご登録の決済方法にて処理されます。</div>
+      <div>※ 本請求書はサービス利用料に関するご案内です。</div>
     </div>
   </div>
 </body>
@@ -382,7 +427,11 @@ function createReceiptHtml(params: {
   issuedDate: string;
   paidDate: string;
   amount: string;
-  agencyName: string;
+  issuerName: string;
+  issuerAddress: string;
+  issuerPhone: string;
+  issuerEmail: string;
+  issuerInvoiceNumber: string;
 }) {
   return `
 <!doctype html>
@@ -402,15 +451,13 @@ function createReceiptHtml(params: {
         <div class="subline">領収日：${escapeHtml(params.paidDate)}</div>
       </div>
 
-      <div class="company-box">
-        <div class="company-name">${escapeHtml(COMPANY_NAME)}</div>
-        <div>${escapeHtml(COMPANY_POSTAL)}</div>
-        <div>${escapeHtml(COMPANY_ADDRESS)}</div>
-        <div>TEL：${escapeHtml(COMPANY_TEL)}</div>
-        <div>Email：${escapeHtml(COMPANY_EMAIL)}</div>
-        <div class="invoice-box">登録番号：${escapeHtml(COMPANY_INVOICE_NO)}</div>
-        <div class="invoice-box">代理店：${escapeHtml(params.agencyName)}</div>
-      </div>
+      ${createCompanyBoxHtml({
+        issuerName: params.issuerName,
+        issuerAddress: params.issuerAddress,
+        issuerPhone: params.issuerPhone,
+        issuerEmail: params.issuerEmail,
+        issuerInvoiceNumber: params.issuerInvoiceNumber,
+      })}
     </div>
 
     <div class="customer-box">
@@ -455,10 +502,9 @@ function createReceiptHtml(params: {
     </table>
 
     <div class="note-box">
-      <div><strong>お支払条件</strong></div>
-      <div>クレジットカード：月末締め翌々月15日入金</div>
-      <div>口座振替：月末締め翌月15日入金</div>
-      <div style="margin-top:8px;">※ 本書は前月領収書として発行しています。</div>
+      <div><strong>ご案内</strong></div>
+      <div>※ 本書はサービス利用料に関する領収書です。</div>
+      <div>※ 決済はご登録の決済方法にて処理されています。</div>
     </div>
   </div>
 </body>
@@ -466,8 +512,9 @@ function createReceiptHtml(params: {
   `.trim();
 }
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
+    const supabase = await createClient();
     const profile = await getCurrentProfile();
 
     if (!profile) {
@@ -477,25 +524,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as GenerateDocumentBody;
+    const body = (await req.json()) as GenerateDocumentBody;
     const documentType = body.document_type;
-    const billingId = body.billing_id?.trim();
+    const billingId = body.billing_id?.trim() || body.billingId?.trim();
 
     if (!documentType || (documentType !== "invoice" && documentType !== "receipt")) {
       return NextResponse.json(
-        { success: false, error: "document_type は invoice または receipt が必要です" },
+        { success: false, error: "document_type が不正です" },
         { status: 400 }
       );
     }
 
     if (!billingId) {
       return NextResponse.json(
-        { success: false, error: "billing_id は必須です" },
+        { success: false, error: "billing_id がありません" },
         { status: 400 }
       );
     }
-
-    const supabase = await createClient();
 
     const { data, error } = await supabase
       .from("billings")
@@ -541,15 +586,18 @@ export async function POST(request: Request) {
 
     if (!billing) {
       return NextResponse.json(
-        { success: false, error: "対象の請求データが見つかりません" },
+        { success: false, error: "対象請求が見つかりません" },
         { status: 404 }
       );
     }
 
-    const visibleAgencyIds = await resolveVisibleAgencyIds(profile);
+    const customerRow = getCustomerRow(billing.customers);
+    const contractRow = getContractRow(billing.contracts);
 
     const billingAgencyId =
-      billing.contracts?.agency_id ?? billing.customers?.agency_id ?? null;
+      contractRow?.agency_id ?? customerRow?.agency_id ?? null;
+
+    const visibleAgencyIds = await resolveVisibleAgencyIds(profile);
 
     if (profile.role !== "headquarters") {
       if (!billingAgencyId || !(visibleAgencyIds || []).includes(billingAgencyId)) {
@@ -567,62 +615,50 @@ export async function POST(request: Request) {
       );
     }
 
-    let agencyName = "代理店未設定";
+    let issuerName = HEADQUARTERS_COMPANY.name;
+    let issuerAddress = HEADQUARTERS_COMPANY.address;
+    let issuerPhone = HEADQUARTERS_COMPANY.phone;
+    let issuerEmail = HEADQUARTERS_COMPANY.email;
+    let issuerInvoiceNumber = HEADQUARTERS_COMPANY.invoice_number;
 
-    if (billingAgencyId) {
+    if (profile.role !== "headquarters" && profile.agency_id) {
       const { data: agencyData } = await supabase
         .from("agencies")
-        .select("id, name, agency_name, parent_agency_id")
-        .eq("id", billingAgencyId)
+        .select(
+          `
+          id,
+          agency_name,
+          name,
+          address,
+          phone,
+          email,
+          parent_agency_id
+        `
+        )
+        .eq("id", profile.agency_id)
         .maybeSingle();
 
       const agency = agencyData as AgencyRow | null;
-      agencyName = agency?.name || agency?.agency_name || "代理店未設定";
+
+      if (agency) {
+        issuerName = agency.agency_name || agency.name || "代理店未設定";
+        issuerAddress = agency.address || "";
+        issuerPhone = agency.phone || "";
+        issuerEmail = agency.email || "";
+        issuerInvoiceNumber = "未登録";
+      }
     }
 
     const customerName =
-      billing.customers?.company_name ||
-      billing.customers?.name ||
-      "顧客名未設定";
-
-    const customerEmail = billing.customers?.email || "";
-    const customerPhone = billing.customers?.phone || "";
-
-    const contractName =
-      billing.contracts?.contract_name || "サービス利用料";
-
+      customerRow?.company_name || customerRow?.name || "顧客名未設定";
+    const customerEmail = customerRow?.email || "";
+    const customerPhone = customerRow?.phone || "";
+    const contractName = contractRow?.contract_name || "サービス利用料";
     const amount = formatYen(billing.amount);
     const issuedDate = formatDate(new Date().toISOString());
     const billingMonthLabel = formatMonthLabel(billing.billing_month);
-
     const invoiceNo = buildInvoiceNo(billing.id, billing.billing_month);
     const receiptNo = buildReceiptNo(billing.id, billing.paid_date);
-
-    const documentData = {
-      document_type: documentType,
-      billing_id: billing.id,
-      customer_id: billing.customer_id,
-      contract_id: billing.contract_id,
-      customer_name: customerName,
-      customer_email: customerEmail,
-      customer_phone: customerPhone,
-      contract_name: contractName,
-      agency_name: agencyName,
-      billing_month: billing.billing_month,
-      billing_month_label: billingMonthLabel,
-      amount,
-      raw_amount: Number(billing.amount ?? 0),
-      due_date: formatDate(billing.due_date),
-      paid_date: formatDate(billing.paid_date),
-      issued_date: issuedDate,
-      invoice_no: invoiceNo,
-      receipt_no: receiptNo,
-      status: billing.status ?? "-",
-      note:
-        documentType === "invoice"
-          ? "お支払方法はご登録の決済方法にて処理されます。"
-          : `${billingMonthLabel} サービス利用料として`,
-    };
 
     const html =
       documentType === "invoice"
@@ -636,7 +672,11 @@ export async function POST(request: Request) {
             issuedDate,
             dueDate: formatDate(billing.due_date),
             amount,
-            agencyName,
+            issuerName,
+            issuerAddress,
+            issuerPhone,
+            issuerEmail,
+            issuerInvoiceNumber,
           })
         : createReceiptHtml({
             customerName,
@@ -648,12 +688,15 @@ export async function POST(request: Request) {
             issuedDate,
             paidDate: formatDate(billing.paid_date),
             amount,
-            agencyName,
+            issuerName,
+            issuerAddress,
+            issuerPhone,
+            issuerEmail,
+            issuerInvoiceNumber,
           });
 
     return NextResponse.json({
       success: true,
-      document: documentData,
       html,
     });
   } catch (error) {
@@ -665,7 +708,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "帳票データ生成中に不明なエラーが発生しました",
+            : "帳票生成中に不明なエラーが発生しました",
       },
       { status: 500 }
     );
