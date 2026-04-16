@@ -3,29 +3,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+type AppRole = "headquarters" | "agency" | "sub_agency";
+
+type Profile = {
+  role: AppRole;
+  agency_id: string | null;
+};
+
 type Agency = {
   id: string;
-  name: string;
+  agency_name?: string | null;
+  name?: string | null;
   parent_agency_id: string | null;
   created_at?: string | null;
 };
 
 type InviteRow = {
-  id?: string;
-  email?: string | null;
-  invite_email?: string | null;
-  agency_name?: string | null;
-  target_role?: "agency" | "sub_agency" | string | null;
-  status?: string | null;
-  token?: string | null;
-  invite_token?: string | null;
-  created_at?: string | null;
-  used_at?: string | null;
-};
-
-type Profile = {
-  role: "headquarters" | "agency" | "sub_agency" | string;
-  agency_id: string | null;
+  id: string;
+  token: string | null;
+  agency_name: string | null;
+  invite_email: string | null;
+  target_role: "agency" | "sub_agency" | string | null;
+  status: string | null;
+  created_at: string | null;
+  used_at: string | null;
+  issued_by_agency_id: string | null;
 };
 
 export default function AgenciesPage() {
@@ -35,7 +37,6 @@ export default function AgenciesPage() {
   const [saving, setSaving] = useState(false);
 
   const [profile, setProfile] = useState<Profile | null>(null);
-
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [invites, setInvites] = useState<InviteRow[]>([]);
 
@@ -43,73 +44,53 @@ export default function AgenciesPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-
   const [generatedLink, setGeneratedLink] = useState("");
 
   const canCreateAgencyInvite =
     profile?.role === "headquarters" || profile?.role === "agency";
 
-  const inviteTargetRole =
+  const inviteTargetRole: "agency" | "sub_agency" =
     profile?.role === "headquarters" ? "agency" : "sub_agency";
 
-  function isMissingInvitesTableError(message: string) {
-    const normalized = message.toLowerCase();
-    return (
-      normalized.includes("could not find the table") &&
-      normalized.includes("invites")
-    );
+  function getAgencyLabel(agency: Agency) {
+    return agency.agency_name || agency.name || "名称未設定";
   }
 
-  async function fetchInvitesSafe(role: string, agencyId: string | null) {
-    try {
-      if (role === "headquarters") {
-        const { data, error } = await supabase
-          .from("invites")
-          .select("*")
-          .order("created_at", { ascending: false });
+  async function fetchInvitesSafe(role: AppRole, agencyId: string | null) {
+    if (role === "headquarters") {
+      const { data, error } = await supabase
+        .from("agency_invites")
+        .select(
+          "id, token, agency_name, invite_email, target_role, status, created_at, used_at, issued_by_agency_id"
+        )
+        .order("created_at", { ascending: false });
 
-        if (error) {
-          if (isMissingInvitesTableError(error.message)) {
-            return [];
-          }
-          throw error;
-        }
-
-        return (data ?? []) as InviteRow[];
+      if (error) {
+        throw new Error(error.message);
       }
 
-      if (role === "agency") {
-        if (!agencyId) {
-          return [];
-        }
-
-        const { data, error } = await supabase
-          .from("invites")
-          .select("*")
-          .eq("created_by_agency_id", agencyId)
-          .order("created_at", { ascending: false });
-
-        if (error) {
-          if (isMissingInvitesTableError(error.message)) {
-            return [];
-          }
-          throw error;
-        }
-
-        return (data ?? []) as InviteRow[];
-      }
-
-      return [];
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "招待一覧の取得に失敗しました";
-
-      if (isMissingInvitesTableError(message)) {
-        return [];
-      }
-
-      throw error;
+      return (data ?? []) as InviteRow[];
     }
+
+    if (role === "agency") {
+      if (!agencyId) return [];
+
+      const { data, error } = await supabase
+        .from("agency_invites")
+        .select(
+          "id, token, agency_name, invite_email, target_role, status, created_at, used_at, issued_by_agency_id"
+        )
+        .eq("issued_by_agency_id", agencyId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return (data ?? []) as InviteRow[];
+    }
+
+    return [];
   }
 
   async function loadPageData() {
@@ -135,18 +116,30 @@ export default function AgenciesPage() {
         .from("profiles")
         .select("role, agency_id")
         .eq("user_id", user.id)
-        .single();
+        .maybeSingle();
 
       if (profileError) {
         throw new Error(profileError.message);
       }
 
-      setProfile(profileData);
+      if (!profileData) {
+        setProfile(null);
+        setAgencies([]);
+        setInvites([]);
+        setErrorMessage(
+          "プロフィールがまだ作成されていません。招待受け取りが完了してから再度開いてください。"
+        );
+        setLoading(false);
+        return;
+      }
 
-      if (profileData.role === "headquarters") {
+      const currentProfile = profileData as Profile;
+      setProfile(currentProfile);
+
+      if (currentProfile.role === "headquarters") {
         const { data: agenciesData, error: agenciesError } = await supabase
           .from("agencies")
-          .select("id, name, parent_agency_id, created_at")
+          .select("id, agency_name, name, parent_agency_id, created_at")
           .order("created_at", { ascending: false });
 
         if (agenciesError) {
@@ -154,14 +147,14 @@ export default function AgenciesPage() {
         }
 
         const invitesData = await fetchInvitesSafe(
-          profileData.role,
-          profileData.agency_id
+          currentProfile.role,
+          currentProfile.agency_id
         );
 
         setAgencies((agenciesData ?? []) as Agency[]);
         setInvites(invitesData);
-      } else if (profileData.role === "agency") {
-        const myAgencyId = profileData.agency_id;
+      } else if (currentProfile.role === "agency") {
+        const myAgencyId = currentProfile.agency_id;
 
         if (!myAgencyId) {
           setAgencies([]);
@@ -172,7 +165,7 @@ export default function AgenciesPage() {
 
         const { data: agenciesData, error: agenciesError } = await supabase
           .from("agencies")
-          .select("id, name, parent_agency_id, created_at")
+          .select("id, agency_name, name, parent_agency_id, created_at")
           .eq("parent_agency_id", myAgencyId)
           .order("created_at", { ascending: false });
 
@@ -181,8 +174,8 @@ export default function AgenciesPage() {
         }
 
         const invitesData = await fetchInvitesSafe(
-          profileData.role,
-          profileData.agency_id
+          currentProfile.role,
+          currentProfile.agency_id
         );
 
         setAgencies((agenciesData ?? []) as Agency[]);
@@ -201,7 +194,7 @@ export default function AgenciesPage() {
   }
 
   useEffect(() => {
-    loadPageData();
+    void loadPageData();
   }, []);
 
   async function handleCreateInvite(e: React.FormEvent<HTMLFormElement>) {
@@ -247,7 +240,7 @@ export default function AgenciesPage() {
         },
         body: JSON.stringify({
           agency_name: agencyName.trim(),
-          email: inviteEmail.trim() || null,
+          invite_email: inviteEmail.trim() || null,
           target_role: inviteTargetRole,
         }),
       });
@@ -260,15 +253,16 @@ export default function AgenciesPage() {
         throw new Error(message);
       }
 
-      const token =
-        result?.token ?? result?.invite?.token ?? result?.invite_token ?? null;
-
+      const token = result?.token ?? result?.invite?.token ?? null;
       const link =
         result?.invite_url ??
-        result?.url ??
         (token ? `${window.location.origin}/invite/${token}` : "");
 
-      setSuccessMessage("招待を作成しました");
+      setSuccessMessage(
+        inviteTargetRole === "agency"
+          ? "一次代理店招待を作成しました"
+          : "二次代理店招待を作成しました"
+      );
       setGeneratedLink(link);
       setAgencyName("");
       setInviteEmail("");
@@ -292,9 +286,8 @@ export default function AgenciesPage() {
   }
 
   function getInviteLink(invite: InviteRow) {
-    const token = invite.token || invite.invite_token;
-    if (!token) return "";
-    return `${typeof window !== "undefined" ? window.location.origin : ""}/invite/${token}`;
+    if (!invite.token) return "";
+    return `${window.location.origin}/invite/${invite.token}`;
   }
 
   return (
@@ -324,17 +317,19 @@ export default function AgenciesPage() {
         </div>
       ) : (
         <>
-          {canCreateAgencyInvite ? (
-            <section className="rounded-2xl border bg-white p-6 shadow-sm">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold">招待発行</h2>
-                <p className="mt-1 text-sm text-gray-600">
-                  {profile?.role === "headquarters"
-                    ? "一次代理店の招待を発行します"
-                    : "二次代理店の招待を発行します"}
-                </p>
-              </div>
+          <section className="rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold">招待発行</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                {profile?.role === "headquarters"
+                  ? "一次代理店の招待を発行します"
+                  : profile?.role === "agency"
+                  ? "二次代理店の招待を発行します"
+                  : "このロールでは招待作成はできません"}
+              </p>
+            </div>
 
+            {canCreateAgencyInvite ? (
               <form onSubmit={handleCreateInvite} className="space-y-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -362,36 +357,27 @@ export default function AgenciesPage() {
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-xl bg-black px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {saving ? "発行中..." : "招待を発行する"}
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-xl bg-black px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {saving ? "作成中..." : "招待を発行する"}
+                </button>
               </form>
-
-              {generatedLink ? (
-                <div className="mt-4 rounded-xl border bg-gray-50 p-4">
-                  <div className="mb-2 text-sm font-medium text-gray-700">
-                    発行済みリンク
-                  </div>
-                  <div className="break-all rounded-lg bg-white p-3 text-sm text-gray-800">
-                    {generatedLink}
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          ) : (
-            <section className="rounded-2xl border bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold">招待発行</h2>
-              <p className="mt-2 text-sm text-gray-600">
+            ) : (
+              <div className="rounded-xl border px-4 py-3 text-sm text-gray-700">
                 このロールでは招待作成はできません
-              </p>
-            </section>
-          )}
+              </div>
+            )}
+
+            {generatedLink ? (
+              <div className="mt-4 rounded-xl border p-4">
+                <p className="mb-2 text-sm font-medium text-gray-700">発行済みリンク</p>
+                <p className="break-all text-sm text-gray-700">{generatedLink}</p>
+              </div>
+            ) : null}
+          </section>
 
           <section className="rounded-2xl border bg-white p-6 shadow-sm">
             <div className="mb-4">
@@ -406,23 +392,25 @@ export default function AgenciesPage() {
             </div>
 
             {agencies.length === 0 ? (
-              <div className="text-sm text-gray-500">代理店データはありません</div>
+              <p className="text-sm text-gray-500">代理店データはありません</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-sm">
+                <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-gray-50 text-left">
-                      <th className="px-4 py-3 font-medium">代理店名</th>
-                      <th className="px-4 py-3 font-medium">親代理店ID</th>
-                      <th className="px-4 py-3 font-medium">作成日</th>
+                    <tr className="border-b text-left text-gray-500">
+                      <th className="px-3 py-2">代理店名</th>
+                      <th className="px-3 py-2">親代理店ID</th>
+                      <th className="px-3 py-2">作成日</th>
                     </tr>
                   </thead>
                   <tbody>
                     {agencies.map((agency) => (
-                      <tr key={agency.id} className="border-b">
-                        <td className="px-4 py-3">{agency.name}</td>
-                        <td className="px-4 py-3">{agency.parent_agency_id || "-"}</td>
-                        <td className="px-4 py-3">
+                      <tr key={agency.id} className="border-b last:border-0">
+                        <td className="px-3 py-3">{getAgencyLabel(agency)}</td>
+                        <td className="px-3 py-3 text-gray-600">
+                          {agency.parent_agency_id || "-"}
+                        </td>
+                        <td className="px-3 py-3 text-gray-600">
                           {agency.created_at
                             ? new Date(agency.created_at).toLocaleString("ja-JP")
                             : "-"}
@@ -444,68 +432,44 @@ export default function AgenciesPage() {
             </div>
 
             {invites.length === 0 ? (
-              <div className="text-sm text-gray-500">招待データはありません</div>
+              <p className="text-sm text-gray-500">招待データはありません</p>
             ) : (
               <div className="space-y-3">
-                {invites.map((invite, index) => {
-                  const inviteLink = getInviteLink(invite);
-
-                  return (
-                    <div
-                      key={`${invite.id ?? "invite"}-${index}`}
-                      className="rounded-xl border p-4"
-                    >
-                      <div className="grid gap-2 text-sm md:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-gray-700">代理店名：</span>
-                          <span>{invite.agency_name || "-"}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">メール：</span>
-                          <span>{invite.email || invite.invite_email || "-"}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">対象ロール：</span>
-                          <span>{invite.target_role || "-"}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">ステータス：</span>
-                          <span>{getInviteStatusLabel(invite)}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">発行日時：</span>
-                          <span>
-                            {invite.created_at
-                              ? new Date(invite.created_at).toLocaleString("ja-JP")
-                              : "-"}
-                          </span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">使用日時：</span>
-                          <span>
-                            {invite.used_at
-                              ? new Date(invite.used_at).toLocaleString("ja-JP")
-                              : "-"}
-                          </span>
-                        </div>
+                {invites.map((invite) => (
+                  <div key={invite.id} className="rounded-xl border p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-medium text-gray-900">
+                        {invite.agency_name || "名称未設定"}
                       </div>
-
-                      <div className="mt-3">
-                        <div className="mb-1 text-sm font-medium text-gray-700">
-                          招待リンク
-                        </div>
-                        <div className="break-all rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
-                          {inviteLink || "トークン未取得"}
-                        </div>
-                      </div>
+                      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                        {getInviteStatusLabel(invite)}
+                      </span>
                     </div>
-                  );
-                })}
+
+                    <div className="mt-2 space-y-1 text-sm text-gray-600">
+                      <p>対象ロール: {invite.target_role || "-"}</p>
+                      <p>招待先メール: {invite.invite_email || "-"}</p>
+                      <p>
+                        作成日:{" "}
+                        {invite.created_at
+                          ? new Date(invite.created_at).toLocaleString("ja-JP")
+                          : "-"}
+                      </p>
+                      <p>
+                        使用日:{" "}
+                        {invite.used_at
+                          ? new Date(invite.used_at).toLocaleString("ja-JP")
+                          : "-"}
+                      </p>
+                    </div>
+
+                    {getInviteLink(invite) ? (
+                      <div className="mt-3 break-all rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                        {getInviteLink(invite)}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             )}
           </section>
