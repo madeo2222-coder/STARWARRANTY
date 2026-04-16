@@ -1,516 +1,836 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type Agency = {
-  id: string;
-  name: string;
-  parent_agency_id: string | null;
-  created_at?: string | null;
-};
-
-type InviteRow = {
-  id?: string;
-  email?: string | null;
-  invite_email?: string | null;
-  agency_name?: string | null;
-  target_role?: "agency" | "sub_agency" | string | null;
-  status?: string | null;
-  token?: string | null;
-  invite_token?: string | null;
-  created_at?: string | null;
-  used_at?: string | null;
-};
+type AppRole = "headquarters" | "agency" | "sub_agency";
 
 type Profile = {
-  role: "headquarters" | "agency" | "sub_agency" | string;
+  role: AppRole;
   agency_id: string | null;
 };
 
-export default function AgenciesPage() {
-  const supabase = useMemo(() => createClient(), []);
+type Agency = {
+  id: string;
+  agency_name?: string | null;
+  name?: string | null;
+  parent_agency_id?: string | null;
+};
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+type Customer = {
+  id: string;
+  name: string | null;
+  agency_id: string | null;
+};
 
-  const [profile, setProfile] = useState<Profile | null>(null);
+type Contract = {
+  id: string;
+  agency_id: string | null;
+  customer_id: string | null;
+  amount: number | null;
+  cost: number | null;
+  commission: number | null;
+};
 
-  const [agencies, setAgencies] = useState<Agency[]>([]);
-  const [invites, setInvites] = useState<InviteRow[]>([]);
+type Billing = {
+  id: string;
+  contract_id: string;
+  status: "pending" | "paid" | "failed" | string;
+  amount: number | null;
+  due_date: string | null;
+  paid_date: string | null;
+};
 
-  const [agencyName, setAgencyName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+type AgencyRow = {
+  id: string;
+  name: string;
+  sales: number;
+  grossProfit: number;
+  unpaid: number;
+  totalBillings: number;
+  paidBillings: number;
+  collectionRate: number;
+  warningLevel: "danger" | "warning" | "normal";
+  contractCount: number;
+};
 
-  const [generatedLink, setGeneratedLink] = useState("");
+type MonthlySummary = {
+  month: string;
+  label: string;
+  sales: number;
+  totalBillings: number;
+  paidBillings: number;
+  collectionRate: number;
+};
 
-  const canCreateAgencyInvite =
-    profile?.role === "headquarters" || profile?.role === "agency";
+function formatYen(value: number) {
+  return `¥${value.toLocaleString()}`;
+}
 
-  const inviteTargetRole =
-    profile?.role === "headquarters" ? "agency" : "sub_agency";
+function getMonthKey(dateStr: string) {
+  return dateStr.slice(0, 7);
+}
 
-  function isMissingInvitesTableError(message: string) {
-    const normalized = message.toLowerCase();
+function getMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-");
+  return `${year}/${month}`;
+}
+
+function getRecentMonthKeys(count: number) {
+  const result: string[] = [];
+  const now = new Date();
+
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    result.push(`${y}-${m}`);
+  }
+
+  return result;
+}
+
+function getAlertLevel(billings: Billing[]): "danger" | "warning" | "normal" {
+  const today = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  let hasWarning = false;
+  let hasDanger = false;
+
+  for (const billing of billings) {
+    if (billing.status !== "pending") continue;
+    if (!billing.due_date) continue;
+
+    const due = new Date(billing.due_date);
+    const diffDays = Math.ceil((due.getTime() - today.getTime()) / msPerDay);
+
+    if (diffDays < 0 || diffDays <= -30) {
+      hasDanger = true;
+      continue;
+    }
+
+    if (diffDays <= 3) {
+      hasDanger = true;
+      continue;
+    }
+
+    if (diffDays <= 14) {
+      hasWarning = true;
+    }
+  }
+
+  if (hasDanger) return "danger";
+  if (hasWarning) return "warning";
+  return "normal";
+}
+
+function alertBadge(level: "danger" | "warning" | "normal") {
+  if (level === "danger") {
     return (
-      normalized.includes("could not find the table") &&
-      normalized.includes("invites")
+      <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+        危険
+      </span>
     );
   }
 
-  async function fetchInvitesSafe(role: string, agencyId: string | null) {
-    try {
-      if (role === "headquarters") {
-        const { data, error } = await supabase
-          .from("invites")
-          .select("*")
-          .order("created_at", { ascending: false });
-
-        if (error) {
-          if (isMissingInvitesTableError(error.message)) {
-            return [];
-          }
-          throw error;
-        }
-
-        return (data ?? []) as InviteRow[];
-      }
-
-      if (role === "agency") {
-        if (!agencyId) {
-          return [];
-        }
-
-        const { data, error } = await supabase
-          .from("invites")
-          .select("*")
-          .eq("created_by_agency_id", agencyId)
-          .order("created_at", { ascending: false });
-
-        if (error) {
-          if (isMissingInvitesTableError(error.message)) {
-            return [];
-          }
-          throw error;
-        }
-
-        return (data ?? []) as InviteRow[];
-      }
-
-      return [];
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "招待一覧の取得に失敗しました";
-
-      if (isMissingInvitesTableError(message)) {
-        return [];
-      }
-
-      throw error;
-    }
-  }
-
-  async function loadPageData() {
-    setLoading(true);
-    setErrorMessage("");
-    setSuccessMessage("");
-
-    try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError) {
-        throw new Error(userError.message);
-      }
-
-      if (!user) {
-        throw new Error("ログイン情報が取得できませんでした");
-      }
-
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("role, agency_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (profileError) {
-        throw new Error(profileError.message);
-      }
-
-      setProfile(profileData);
-
-      if (profileData.role === "headquarters") {
-        const { data: agenciesData, error: agenciesError } = await supabase
-          .from("agencies")
-          .select("id, name, parent_agency_id, created_at")
-          .order("created_at", { ascending: false });
-
-        if (agenciesError) {
-          throw new Error(agenciesError.message);
-        }
-
-        const invitesData = await fetchInvitesSafe(
-          profileData.role,
-          profileData.agency_id
-        );
-
-        setAgencies((agenciesData ?? []) as Agency[]);
-        setInvites(invitesData);
-      } else if (profileData.role === "agency") {
-        const myAgencyId = profileData.agency_id;
-
-        if (!myAgencyId) {
-          setAgencies([]);
-          setInvites([]);
-          setLoading(false);
-          return;
-        }
-
-        const { data: agenciesData, error: agenciesError } = await supabase
-          .from("agencies")
-          .select("id, name, parent_agency_id, created_at")
-          .eq("parent_agency_id", myAgencyId)
-          .order("created_at", { ascending: false });
-
-        if (agenciesError) {
-          throw new Error(agenciesError.message);
-        }
-
-        const invitesData = await fetchInvitesSafe(
-          profileData.role,
-          profileData.agency_id
-        );
-
-        setAgencies((agenciesData ?? []) as Agency[]);
-        setInvites(invitesData);
-      } else {
-        setAgencies([]);
-        setInvites([]);
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "データ取得に失敗しました";
-      setErrorMessage(message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadPageData();
-  }, []);
-
-  async function handleCreateInvite(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    setErrorMessage("");
-    setSuccessMessage("");
-    setGeneratedLink("");
-
-    if (!canCreateAgencyInvite) {
-      setErrorMessage("このロールでは招待を作成できません");
-      return;
-    }
-
-    if (!agencyName.trim()) {
-      setErrorMessage("代理店名を入力してください");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError) {
-        throw new Error(sessionError.message);
-      }
-
-      const accessToken = session?.access_token;
-
-      if (!accessToken) {
-        throw new Error("認証トークンがありません");
-      }
-
-      const response = await fetch("/api/invites", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          agency_name: agencyName.trim(),
-          email: inviteEmail.trim() || null,
-          target_role: inviteTargetRole,
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const message =
-          result?.error || result?.message || "招待の作成に失敗しました";
-        throw new Error(message);
-      }
-
-      const token =
-        result?.token ?? result?.invite?.token ?? result?.invite_token ?? null;
-
-      const link =
-        result?.invite_url ??
-        result?.url ??
-        (token ? `${window.location.origin}/invite/${token}` : "");
-
-      setSuccessMessage("招待を作成しました");
-      setGeneratedLink(link);
-      setAgencyName("");
-      setInviteEmail("");
-
-      await loadPageData();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "招待作成に失敗しました";
-      setErrorMessage(message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function getInviteStatusLabel(invite: InviteRow) {
-    if (invite.used_at) return "使用済み";
-    if (invite.status === "used") return "使用済み";
-    if (invite.status === "expired") return "期限切れ";
-    if (invite.status === "revoked") return "無効";
-    return "未使用";
-  }
-
-  function getInviteLink(invite: InviteRow) {
-    const token = invite.token || invite.invite_token;
-    if (!token) return "";
-    return `${typeof window !== "undefined" ? window.location.origin : ""}/invite/${token}`;
+  if (level === "warning") {
+    return (
+      <span className="rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-700">
+        要注意
+      </span>
+    );
   }
 
   return (
-    <div className="space-y-8 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">代理店管理</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          代理店一覧と招待発行をこの画面で管理します
-        </p>
-      </div>
+    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+      通常
+    </span>
+  );
+}
 
-      {errorMessage ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {errorMessage}
-        </div>
-      ) : null}
+function rankingBadge(index: number) {
+  if (index === 0) {
+    return (
+      <span className="rounded-full bg-yellow-100 px-2 py-1 text-xs font-bold text-yellow-700">
+        1位
+      </span>
+    );
+  }
 
-      {successMessage ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {successMessage}
-        </div>
-      ) : null}
+  if (index === 1) {
+    return (
+      <span className="rounded-full bg-gray-200 px-2 py-1 text-xs font-bold text-gray-700">
+        2位
+      </span>
+    );
+  }
 
-      {loading ? (
-        <div className="rounded-2xl border bg-white p-6 text-sm text-gray-600">
-          読み込み中...
-        </div>
-      ) : (
-        <>
-          {canCreateAgencyInvite ? (
-            <section className="rounded-2xl border bg-white p-6 shadow-sm">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold">招待発行</h2>
-                <p className="mt-1 text-sm text-gray-600">
-                  {profile?.role === "headquarters"
-                    ? "一次代理店の招待を発行します"
-                    : "二次代理店の招待を発行します"}
-                </p>
-              </div>
+  if (index === 2) {
+    return (
+      <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700">
+        3位
+      </span>
+    );
+  }
 
-              <form onSubmit={handleCreateInvite} className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    代理店名 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={agencyName}
-                    onChange={(e) => setAgencyName(e.target.value)}
-                    placeholder="例：テスト代理店"
-                    className="w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-black"
-                  />
-                </div>
+  return (
+    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+      {index + 1}位
+    </span>
+  );
+}
 
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    メールアドレス（任意）
-                  </label>
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="例：test@example.com"
-                    className="w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-black"
-                  />
-                </div>
+export default function HomePage() {
+  const router = useRouter();
+  const supabase = createClient();
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-xl bg-black px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {saving ? "発行中..." : "招待を発行する"}
-                  </button>
-                </div>
-              </form>
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [billings, setBillings] = useState<Billing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
-              {generatedLink ? (
-                <div className="mt-4 rounded-xl border bg-gray-50 p-4">
-                  <div className="mb-2 text-sm font-medium text-gray-700">
-                    発行済みリンク
-                  </div>
-                  <div className="break-all rounded-lg bg-white p-3 text-sm text-gray-800">
-                    {generatedLink}
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          ) : (
-            <section className="rounded-2xl border bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold">招待発行</h2>
-              <p className="mt-2 text-sm text-gray-600">
-                このロールでは招待作成はできません
-              </p>
-            </section>
-          )}
+  useEffect(() => {
+    void fetchData();
+  }, []);
 
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold">代理店一覧</h2>
-              <p className="mt-1 text-sm text-gray-600">
+  async function handleLogout() {
+    setLogoutLoading(true);
+
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      alert(`ログアウト失敗: ${error.message}`);
+      setLogoutLoading(false);
+      return;
+    }
+
+    router.push("/login");
+    router.refresh();
+  }
+
+  async function fetchData() {
+    setLoading(true);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      router.push("/login");
+      router.refresh();
+      return;
+    }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("role, agency_id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (profileError || !profileData) {
+      router.push("/login");
+      router.refresh();
+      return;
+    }
+
+    const currentProfile: Profile = {
+      role: profileData.role as AppRole,
+      agency_id: profileData.agency_id,
+    };
+
+    setProfile(currentProfile);
+
+    const { data: allAgencies, error: agenciesError } = await supabase
+      .from("agencies")
+      .select("id, agency_name, name, parent_agency_id")
+      .order("created_at", { ascending: true });
+
+    if (agenciesError) {
+      console.error("agencies error:", agenciesError);
+      setLoading(false);
+      return;
+    }
+
+    const agenciesList = (allAgencies || []) as Agency[];
+    setAgencies(agenciesList);
+
+    let visibleAgencyIds: string[] = [];
+
+    if (currentProfile.role === "headquarters") {
+      visibleAgencyIds = agenciesList.map((agency) => agency.id);
+    } else if (currentProfile.role === "agency") {
+      const myAgencyId = currentProfile.agency_id;
+      const childAgencyIds = agenciesList
+        .filter((agency) => agency.parent_agency_id === myAgencyId)
+        .map((agency) => agency.id);
+
+      visibleAgencyIds = myAgencyId ? [myAgencyId, ...childAgencyIds] : [];
+    } else {
+      visibleAgencyIds = currentProfile.agency_id ? [currentProfile.agency_id] : [];
+    }
+
+    const [customersRes, contractsRes] = await Promise.all([
+      visibleAgencyIds.length > 0
+        ? supabase
+            .from("customers")
+            .select("id, name, agency_id")
+            .in("agency_id", visibleAgencyIds)
+        : Promise.resolve({ data: [], error: null }),
+      visibleAgencyIds.length > 0
+        ? supabase
+            .from("contracts")
+            .select("id, agency_id, customer_id, amount, cost, commission")
+            .in("agency_id", visibleAgencyIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (customersRes.error) {
+      console.error("customers error:", customersRes.error);
+    }
+
+    if (contractsRes.error) {
+      console.error("contracts error:", contractsRes.error);
+    }
+
+    const contractsList = (contractsRes.data || []) as Contract[];
+    const contractIds = contractsList.map((contract) => contract.id);
+
+    const billingsRes =
+      contractIds.length > 0
+        ? await supabase
+            .from("billings")
+            .select("id, contract_id, status, amount, due_date, paid_date")
+            .in("contract_id", contractIds)
+        : { data: [], error: null };
+
+    if (billingsRes.error) {
+      console.error("billings error:", billingsRes.error);
+    }
+
+    setCustomers((customersRes.data || []) as Customer[]);
+    setContracts(contractsList);
+    setBillings((billingsRes.data || []) as Billing[]);
+    setLoading(false);
+  }
+
+  const visibleAgencies = useMemo(() => {
+    if (!profile) return [];
+
+    if (profile.role === "headquarters") {
+      return agencies;
+    }
+
+    if (profile.role === "agency") {
+      return agencies.filter(
+        (agency) =>
+          agency.id === profile.agency_id || agency.parent_agency_id === profile.agency_id
+      );
+    }
+
+    return agencies.filter((agency) => agency.id === profile.agency_id);
+  }, [agencies, profile]);
+
+  const rows = useMemo<AgencyRow[]>(() => {
+    return visibleAgencies.map((agency) => {
+      const agencyName = agency.agency_name || agency.name || "名称未設定";
+
+      const agencyContracts = contracts.filter((contract) => contract.agency_id === agency.id);
+      const contractIds = agencyContracts.map((contract) => contract.id);
+
+      const agencyBillings = billings.filter((billing) =>
+        contractIds.includes(billing.contract_id)
+      );
+
+      const sales = agencyContracts.reduce(
+        (sum, contract) => sum + (contract.amount || 0),
+        0
+      );
+
+      const grossProfit = agencyContracts.reduce((sum, contract) => {
+        const amount = contract.amount || 0;
+        const cost = contract.cost || 0;
+        const commission = contract.commission || 0;
+        return sum + (amount - cost - commission);
+      }, 0);
+
+      const unpaid = agencyBillings
+        .filter((billing) => billing.status === "pending")
+        .reduce((sum, billing) => sum + (billing.amount || 0), 0);
+
+      const totalBillings = agencyBillings.length;
+      const paidBillings = agencyBillings.filter(
+        (billing) => billing.status === "paid"
+      ).length;
+
+      const collectionRate =
+        totalBillings === 0
+          ? 0
+          : Math.round((paidBillings / totalBillings) * 1000) / 10;
+
+      const warningLevel = getAlertLevel(agencyBillings);
+
+      return {
+        id: agency.id,
+        name: agencyName,
+        sales,
+        grossProfit,
+        unpaid,
+        totalBillings,
+        paidBillings,
+        collectionRate,
+        warningLevel,
+        contractCount: agencyContracts.length,
+      };
+    });
+  }, [visibleAgencies, contracts, billings]);
+
+  const totalSales = rows.reduce((sum, row) => sum + row.sales, 0);
+  const totalGrossProfit = rows.reduce((sum, row) => sum + row.grossProfit, 0);
+  const totalUnpaid = rows.reduce((sum, row) => sum + row.unpaid, 0);
+  const totalContracts = rows.reduce((sum, row) => sum + row.contractCount, 0);
+  const totalBillings = rows.reduce((sum, row) => sum + row.totalBillings, 0);
+  const totalPaidBillings = rows.reduce((sum, row) => sum + row.paidBillings, 0);
+
+  const overallCollectionRate =
+    totalBillings === 0
+      ? 0
+      : Math.round((totalPaidBillings / totalBillings) * 1000) / 10;
+
+  const totalCustomers = customers.length;
+
+  const customersWithContracts = useMemo(() => {
+    const customerIds = new Set(
+      contracts
+        .map((contract) => contract.customer_id)
+        .filter((customerId): customerId is string => Boolean(customerId))
+    );
+    return customerIds.size;
+  }, [contracts]);
+
+  const totalAgencies = visibleAgencies.length;
+
+  const dangerRows = useMemo(() => {
+    return [...rows]
+      .filter((row) => row.warningLevel === "danger")
+      .sort((a, b) => b.unpaid - a.unpaid)
+      .slice(0, 5);
+  }, [rows]);
+
+  const salesRanking = useMemo(() => {
+    return [...rows].sort((a, b) => b.sales - a.sales).slice(0, 5);
+  }, [rows]);
+
+  const unpaidRanking = useMemo(() => {
+    return [...rows].sort((a, b) => b.unpaid - a.unpaid).slice(0, 5);
+  }, [rows]);
+
+  const recentMonthKeys = useMemo(() => {
+    return getRecentMonthKeys(6);
+  }, []);
+
+  const monthlySummary = useMemo<MonthlySummary[]>(() => {
+    return recentMonthKeys.map((monthKey) => {
+      const monthlyBillings = billings.filter((billing) => {
+        if (!billing.due_date) return false;
+        return getMonthKey(billing.due_date) === monthKey;
+      });
+
+      const sales = monthlyBillings.reduce(
+        (sum, billing) => sum + (billing.amount || 0),
+        0
+      );
+
+      const monthTotalBillings = monthlyBillings.length;
+      const monthPaidBillings = monthlyBillings.filter(
+        (billing) => billing.status === "paid"
+      ).length;
+
+      const collectionRate =
+        monthTotalBillings === 0
+          ? 0
+          : Math.round((monthPaidBillings / monthTotalBillings) * 1000) / 10;
+
+      return {
+        month: monthKey,
+        label: getMonthLabel(monthKey),
+        sales,
+        totalBillings: monthTotalBillings,
+        paidBillings: monthPaidBillings,
+        collectionRate,
+      };
+    });
+  }, [billings, recentMonthKeys]);
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">ダッシュボード</h1>
+              <p className="mt-1 text-sm text-gray-500">
                 {profile?.role === "headquarters"
-                  ? "全代理店を表示"
+                  ? "Star Revenue 本部ビュー"
                   : profile?.role === "agency"
-                  ? "自社配下の二次代理店を表示"
-                  : "閲覧権限がありません"}
+                  ? "一次代理店ビュー"
+                  : "二次代理店ビュー"}
               </p>
             </div>
 
-            {agencies.length === 0 ? (
-              <div className="text-sm text-gray-500">代理店データはありません</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b bg-gray-50 text-left">
-                      <th className="px-4 py-3 font-medium">代理店名</th>
-                      <th className="px-4 py-3 font-medium">親代理店ID</th>
-                      <th className="px-4 py-3 font-medium">作成日</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agencies.map((agency) => (
-                      <tr key={agency.id} className="border-b">
-                        <td className="px-4 py-3">{agency.name}</td>
-                        <td className="px-4 py-3">{agency.parent_agency_id || "-"}</td>
-                        <td className="px-4 py-3">
-                          {agency.created_at
-                            ? new Date(agency.created_at).toLocaleString("ja-JP")
-                            : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/customers/new"
+                className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm"
+              >
+                新規顧客
+              </Link>
+              <Link
+                href="/contracts/new"
+                className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm"
+              >
+                新規契約
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={logoutLoading}
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
+              >
+                {logoutLoading ? "ログアウト中..." : "ログアウト"}
+              </button>
+            </div>
+          </div>
 
-          <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold">招待一覧</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                発行済みリンクと利用状況を確認できます
-              </p>
+          <div className="rounded-2xl bg-white p-3 shadow-sm">
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/customers"
+                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+              >
+                顧客一覧へ
+              </Link>
+              <Link
+                href="/contracts"
+                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+              >
+                契約一覧へ
+              </Link>
+              <Link
+                href="/agencies"
+                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+              >
+                代理店一覧へ
+              </Link>
+              <Link
+                href="/billings"
+                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+              >
+                請求一覧へ
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">総売上</p>
+            <p className="mt-2 text-xl font-bold text-gray-900">
+              {formatYen(totalSales)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">総粗利</p>
+            <p className="mt-2 text-xl font-bold text-gray-900">
+              {formatYen(totalGrossProfit)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">未回収額</p>
+            <p className="mt-2 text-xl font-bold text-red-600">
+              {formatYen(totalUnpaid)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">全体回収率</p>
+            <p className="mt-2 text-xl font-bold text-blue-600">
+              {overallCollectionRate.toFixed(1)}%
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">契約件数</p>
+            <p className="mt-2 text-xl font-bold text-gray-900">
+              {totalContracts.toLocaleString()}件
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">顧客数</p>
+            <p className="mt-2 text-xl font-bold text-gray-900">
+              {totalCustomers.toLocaleString()}件
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">契約あり顧客数</p>
+            <p className="mt-2 text-xl font-bold text-gray-900">
+              {customersWithContracts.toLocaleString()}件
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-sm text-gray-500">表示対象代理店数</p>
+            <p className="mt-2 text-xl font-bold text-gray-900">
+              {totalAgencies.toLocaleString()}件
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-4">
+          <Link
+            href="/customers"
+            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
+          >
+            <p className="text-sm font-semibold text-gray-900">顧客管理</p>
+            <p className="mt-1 text-sm text-gray-500">顧客の登録・編集・確認</p>
+          </Link>
+
+          <Link
+            href="/contracts"
+            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
+          >
+            <p className="text-sm font-semibold text-gray-900">契約管理</p>
+            <p className="mt-1 text-sm text-gray-500">契約一覧・新規契約登録</p>
+          </Link>
+
+          <Link
+            href="/billings"
+            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
+          >
+            <p className="text-sm font-semibold text-gray-900">請求管理</p>
+            <p className="mt-1 text-sm text-gray-500">ステータス更新・未回収管理</p>
+          </Link>
+
+          <Link
+            href="/agencies"
+            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
+          >
+            <p className="text-sm font-semibold text-gray-900">代理店管理</p>
+            <p className="mt-1 text-sm text-gray-500">代理店分析・回収率確認</p>
+          </Link>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">危険案件 TOP5</h2>
+              <Link href="/agencies" className="text-xs text-gray-500 underline">
+                代理店一覧を見る
+              </Link>
             </div>
 
-            {invites.length === 0 ? (
-              <div className="text-sm text-gray-500">招待データはありません</div>
+            {loading ? (
+              <p className="text-sm text-gray-500">読み込み中...</p>
+            ) : dangerRows.length === 0 ? (
+              <p className="text-sm text-gray-500">危険案件はありません</p>
             ) : (
               <div className="space-y-3">
-                {invites.map((invite, index) => {
-                  const inviteLink = getInviteLink(invite);
-
-                  return (
-                    <div
-                      key={`${invite.id ?? "invite"}-${index}`}
-                      className="rounded-xl border p-4"
-                    >
-                      <div className="grid gap-2 text-sm md:grid-cols-2">
-                        <div>
-                          <span className="font-medium text-gray-700">代理店名：</span>
-                          <span>{invite.agency_name || "-"}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">メール：</span>
-                          <span>{invite.email || invite.invite_email || "-"}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">対象ロール：</span>
-                          <span>{invite.target_role || "-"}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">ステータス：</span>
-                          <span>{getInviteStatusLabel(invite)}</span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">発行日時：</span>
-                          <span>
-                            {invite.created_at
-                              ? new Date(invite.created_at).toLocaleString("ja-JP")
-                              : "-"}
-                          </span>
-                        </div>
-
-                        <div>
-                          <span className="font-medium text-gray-700">使用日時：</span>
-                          <span>
-                            {invite.used_at
-                              ? new Date(invite.used_at).toLocaleString("ja-JP")
-                              : "-"}
-                          </span>
-                        </div>
+                {dangerRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="rounded-2xl border border-red-200 bg-red-50 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">{row.name}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          契約 {row.contractCount}件 / 回収率 {row.collectionRate.toFixed(1)}%
+                        </p>
                       </div>
-
-                      <div className="mt-3">
-                        <div className="mb-1 text-sm font-medium text-gray-700">
-                          招待リンク
-                        </div>
-                        <div className="break-all rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
-                          {inviteLink || "トークン未取得"}
-                        </div>
-                      </div>
+                      {alertBadge(row.warningLevel)}
                     </div>
-                  );
-                })}
+                    <p className="mt-3 text-sm text-red-600">
+                      未回収額：
+                      <span className="font-semibold">{formatYen(row.unpaid)}</span>
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
-          </section>
-        </>
-      )}
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">
+                月別サマリー（直近6ヶ月）
+              </h2>
+              <Link href="/agencies" className="text-xs text-gray-500 underline">
+                詳細分析へ
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {monthlySummary.map((month) => (
+                <div key={month.month} className="rounded-2xl bg-gray-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{month.label}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        請求 {month.totalBillings}件 / 入金済 {month.paidBillings}件
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-gray-900">
+                        {formatYen(month.sales)}
+                      </p>
+                      <p className="mt-1 text-xs text-blue-600">
+                        回収率 {month.collectionRate.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                    <div
+                      className="h-2 rounded-full bg-blue-500"
+                      style={{ width: `${Math.min(month.collectionRate, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">売上ランキング TOP5</h2>
+              <Link href="/agencies" className="text-xs text-gray-500 underline">
+                代理店一覧へ
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {salesRanking.map((row, index) => (
+                <div
+                  key={`sales-${row.id}`}
+                  className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
+                >
+                  <div className="flex items-center gap-2">
+                    {rankingBadge(index)}
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                      <p className="text-xs text-gray-500">粗利 {formatYen(row.grossProfit)}</p>
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-gray-900">{formatYen(row.sales)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-900">未回収ランキング TOP5</h2>
+              <Link href="/billings" className="text-xs text-gray-500 underline">
+                請求一覧へ
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {unpaidRanking.map((row, index) => (
+                <div
+                  key={`unpaid-${row.id}`}
+                  className="flex items-center justify-between rounded-2xl bg-red-50 p-3"
+                >
+                  <div className="flex items-center gap-2">
+                    {rankingBadge(index)}
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                      <p className="text-xs text-gray-500">
+                        回収率 {row.collectionRate.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-red-600">{formatYen(row.unpaid)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white shadow-sm">
+          <div className="border-b border-gray-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-gray-900">代理店サマリー</h2>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-gray-500">
+                  <th className="px-4 py-3 font-medium">状態</th>
+                  <th className="px-4 py-3 font-medium">代理店名</th>
+                  <th className="px-4 py-3 font-medium">総売上</th>
+                  <th className="px-4 py-3 font-medium">総粗利</th>
+                  <th className="px-4 py-3 font-medium">未回収額</th>
+                  <th className="px-4 py-3 font-medium">回収率</th>
+                  <th className="px-4 py-3 font-medium">詳細</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      読み込み中...
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      データがありません
+                    </td>
+                  </tr>
+                ) : (
+                  [...rows]
+                    .sort((a, b) => b.sales - a.sales)
+                    .slice(0, 10)
+                    .map((row) => (
+                      <tr key={row.id} className="border-b border-gray-50">
+                        <td className="px-4 py-4">{alertBadge(row.warningLevel)}</td>
+                        <td className="px-4 py-4 font-medium text-gray-900">{row.name}</td>
+                        <td className="px-4 py-4 text-gray-700">{formatYen(row.sales)}</td>
+                        <td className="px-4 py-4 text-gray-700">
+                          {formatYen(row.grossProfit)}
+                        </td>
+                        <td className="px-4 py-4 text-red-600">{formatYen(row.unpaid)}</td>
+                        <td className="px-4 py-4 font-medium text-blue-600">
+                          {row.collectionRate.toFixed(1)}%
+                        </td>
+                        <td className="px-4 py-4">
+                          <Link
+                            href={`/agencies/${row.id}`}
+                            className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700"
+                          >
+                            詳細を見る
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
