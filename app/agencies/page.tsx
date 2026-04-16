@@ -127,7 +127,7 @@ export default function AgenciesPage() {
         setAgencies([]);
         setInvites([]);
         setErrorMessage(
-          "プロフィールがまだ作成されていません。招待受け取りが完了してから再度開いてください。"
+          "プロフィールがまだ作成されていません。招待受け取り完了後に再度開いてください。"
         );
         setLoading(false);
         return;
@@ -382,13 +382,6 @@ export default function AgenciesPage() {
           <section className="rounded-2xl border bg-white p-6 shadow-sm">
             <div className="mb-4">
               <h2 className="text-lg font-semibold">代理店一覧</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                {profile?.role === "headquarters"
-                  ? "全代理店を表示"
-                  : profile?.role === "agency"
-                  ? "自社配下の二次代理店を表示"
-                  : "閲覧権限がありません"}
-              </p>
             </div>
 
             {agencies.length === 0 ? (
@@ -426,9 +419,6 @@ export default function AgenciesPage() {
           <section className="rounded-2xl border bg-white p-6 shadow-sm">
             <div className="mb-4">
               <h2 className="text-lg font-semibold">招待一覧</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                発行済みリンクと利用状況を確認できます
-              </p>
             </div>
 
             {invites.length === 0 ? (
