@@ -1,17 +1,25 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  const nextPath = useMemo(() => {
+    const raw = searchParams.get("next");
+    if (!raw) return "/";
+    if (!raw.startsWith("/")) return "/";
+    return raw;
+  }, [searchParams]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -39,7 +47,7 @@ export default function LoginPage() {
           return;
         }
 
-        router.push("/");
+        router.push(nextPath);
         router.refresh();
         return;
       }
@@ -60,9 +68,7 @@ export default function LoginPage() {
       <div className="mx-auto max-w-md rounded-2xl bg-white p-6 shadow-sm">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">StarRevenue ログイン</h1>
-          <p className="mt-2 text-sm text-gray-500">
-            本部・代理店向け管理画面
-          </p>
+          <p className="mt-2 text-sm text-gray-500">本部・代理店向け管理画面</p>
         </div>
 
         <div className="mb-4 flex gap-2">

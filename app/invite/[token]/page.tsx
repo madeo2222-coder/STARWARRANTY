@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -40,6 +40,11 @@ export default function InvitePage() {
     return `${window.location.origin}/invite/${token}`;
   }, [token]);
 
+  const loginUrl = useMemo(() => {
+    if (!token) return "/login";
+    return `/login?next=${encodeURIComponent(`/invite/${token}`)}`;
+  }, [token]);
+
   async function acceptInviteWithAccessToken(accessToken: string) {
     const acceptResponse = await fetch("/api/invites/accept", {
       method: "POST",
@@ -66,6 +71,48 @@ export default function InvitePage() {
       `招待受け取りが完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。`
     );
   }
+
+  async function tryAcceptWithCurrentSession() {
+    if (!token || isCompleted) return;
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      throw new Error(sessionError.message);
+    }
+
+    if (!session?.access_token) {
+      return false;
+    }
+
+    await acceptInviteWithAccessToken(session.access_token);
+    return true;
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function boot() {
+      try {
+        const accepted = await tryAcceptWithCurrentSession();
+        if (!active || !accepted) return;
+      } catch (error) {
+        if (!active) return;
+        const message =
+          error instanceof Error ? error.message : "不明なエラーが発生しました";
+        setErrorMessage(message);
+      }
+    }
+
+    void boot();
+
+    return () => {
+      active = false;
+    };
+  }, [token, isCompleted]);
 
   async function handleAcceptInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,7 +170,7 @@ export default function InvitePage() {
       if (!session?.access_token) {
         setNeedsEmailConfirmation(true);
         setMessage(
-          "確認メールを送信しました。メール内リンクを開くと、この招待ページに戻ります。戻ったあと、ログイン済み状態で『ログイン済みユーザーとして招待を受け取る』を押してください。"
+          "確認メールを送信しました。メール内リンクを開くと、この招待ページに戻ります。戻ったあと、必要ならログインして『ログイン済みユーザーとして招待を受け取る』を押してください。"
         );
         return;
       }
@@ -159,7 +206,7 @@ export default function InvitePage() {
 
       if (!session?.access_token) {
         throw new Error(
-          "現在ログインしていません。メール確認後、この招待URLに戻ってログイン済み状態で再度お試しください。"
+          "現在ログインしていません。ログイン後にこの招待URLへ戻って再度お試しください。"
         );
       }
 
@@ -196,9 +243,7 @@ export default function InvitePage() {
 
       <form onSubmit={handleAcceptInvite} className="mt-6 space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium">
-            メールアドレス
-          </label>
+          <label className="mb-1 block text-sm font-medium">メールアドレス</label>
           <input
             type="email"
             value={email}
@@ -252,7 +297,7 @@ export default function InvitePage() {
 
       {needsEmailConfirmation ? (
         <div className="mt-4 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-          メール認証が完了するまでは、招待はまだ消化されません。認証メールのリンクからこの招待ページに戻ったあと、ログイン済み状態で招待受け取りを実行してください。
+          メール認証が完了するまでは、招待はまだ消化されません。認証メールのリンクからこの招待ページに戻ったあと、必要ならログインして招待受け取りを実行してください。
         </div>
       ) : null}
 
@@ -263,7 +308,7 @@ export default function InvitePage() {
       ) : null}
 
       <div className="mt-6 text-sm">
-        <Link href="/login" className="text-blue-600 underline">
+        <Link href={loginUrl} className="text-blue-600 underline">
           ログイン画面へ
         </Link>
       </div>
