@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type AcceptResponse = {
@@ -17,6 +17,9 @@ type AcceptResponse = {
 
 export default function InvitePage() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const token = useMemo(() => {
     const raw = params?.token;
     if (Array.isArray(raw)) return raw[0] ?? "";
@@ -35,6 +38,8 @@ export default function InvitePage() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
 
+  const acceptStartedRef = useRef(false);
+
   const inviteUrl = useMemo(() => {
     if (typeof window === "undefined" || !token) return "";
     return `${window.location.origin}/invite/${token}`;
@@ -44,6 +49,10 @@ export default function InvitePage() {
     if (!token) return "/login";
     return `/login?next=${encodeURIComponent(`/invite/${token}`)}`;
   }, [token]);
+
+  const confirmedFlag = searchParams.get("confirmed");
+  const errorCode = searchParams.get("error_code");
+  const errorDescription = searchParams.get("error_description");
 
   async function acceptInviteWithAccessToken(accessToken: string) {
     const acceptResponse = await fetch("/api/invites/accept", {
@@ -67,13 +76,20 @@ export default function InvitePage() {
 
     setIsCompleted(true);
     setNeedsEmailConfirmation(false);
+    setErrorMessage("");
     setMessage(
       `招待受け取りが完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。`
     );
+
+    setTimeout(() => {
+      router.push("/agencies");
+      router.refresh();
+    }, 800);
   }
 
   async function tryAcceptWithCurrentSession() {
-    if (!token || isCompleted) return;
+    if (!token || isCompleted) return false;
+    if (acceptStartedRef.current) return false;
 
     const {
       data: { session },
@@ -88,17 +104,51 @@ export default function InvitePage() {
       return false;
     }
 
-    await acceptInviteWithAccessToken(session.access_token);
-    return true;
+    acceptStartedRef.current = true;
+
+    try {
+      await acceptInviteWithAccessToken(session.access_token);
+      return true;
+    } finally {
+      acceptStartedRef.current = false;
+    }
   }
+
+  useEffect(() => {
+    if (errorCode) {
+      setErrorMessage(
+        errorDescription
+          ? decodeURIComponent(errorDescription.replace(/\+/g, " "))
+          : "認証リンクが無効または期限切れです。もう一度招待登録をやり直してください。"
+      );
+    }
+  }, [errorCode, errorDescription]);
 
   useEffect(() => {
     let active = true;
 
     async function boot() {
       try {
+        if (confirmedFlag === "1") {
+          setMessage(
+            "メール確認が完了しました。ログイン済みなら自動で招待受け取りを試します。"
+          );
+        }
+
         const accepted = await tryAcceptWithCurrentSession();
-        if (!active || !accepted) return;
+        if (!active) return;
+
+        if (accepted) return;
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session && confirmedFlag === "1") {
+          setMessage(
+            "メール確認は完了しています。まだログイン状態が取れていない場合は、下の『ログイン画面へ』からログイン後、このページで招待受け取りを実行してください。"
+          );
+        }
       } catch (error) {
         if (!active) return;
         const message =
@@ -109,10 +159,31 @@ export default function InvitePage() {
 
     void boot();
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event) => {
+      if (!active) return;
+
+      if (
+        event === "SIGNED_IN" ||
+        event === "TOKEN_REFRESHED" ||
+        event === "INITIAL_SESSION"
+      ) {
+        try {
+          await tryAcceptWithCurrentSession();
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "不明なエラーが発生しました";
+          setErrorMessage(message);
+        }
+      }
+    });
+
     return () => {
       active = false;
+      subscription.unsubscribe();
     };
-  }, [token, isCompleted]);
+  }, [token, isCompleted, confirmedFlag, supabase]);
 
   async function handleAcceptInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -155,7 +226,9 @@ export default function InvitePage() {
         email: normalizedEmail,
         password,
         options: {
-          emailRedirectTo: inviteUrl || undefined,
+          emailRedirectTo: inviteUrl
+            ? `${inviteUrl}?confirmed=1`
+            : undefined,
         },
       });
 
@@ -170,7 +243,7 @@ export default function InvitePage() {
       if (!session?.access_token) {
         setNeedsEmailConfirmation(true);
         setMessage(
-          "確認メールを送信しました。メール内リンクを開くと、この招待ページに戻ります。戻ったあと、必要ならログインして『ログイン済みユーザーとして招待を受け取る』を押してください。"
+          "確認メールを送信しました。メール内リンクを開いたあと、この招待ページに戻ります。戻った時点で自動受け取りを試します。うまくいかない場合はログイン後に『ログイン済みユーザーとして招待を受け取る』を押してください。"
         );
         return;
       }
