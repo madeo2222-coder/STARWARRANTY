@@ -35,6 +35,38 @@ export default function InvitePage() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
 
+  const inviteUrl = useMemo(() => {
+    if (typeof window === "undefined" || !token) return "";
+    return `${window.location.origin}/invite/${token}`;
+  }, [token]);
+
+  async function acceptInviteWithAccessToken(accessToken: string) {
+    const acceptResponse = await fetch("/api/invites/accept", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ token }),
+    });
+
+    const acceptData = (await acceptResponse.json()) as AcceptResponse;
+
+    if (!acceptResponse.ok || !acceptData.success) {
+      throw new Error(
+        acceptData.error ||
+          acceptData.details ||
+          "招待受け取り処理に失敗しました。"
+      );
+    }
+
+    setIsCompleted(true);
+    setNeedsEmailConfirmation(false);
+    setMessage(
+      `招待受け取りが完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。`
+    );
+  }
+
   async function handleAcceptInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -75,6 +107,9 @@ export default function InvitePage() {
       const signUpResult = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
+        options: {
+          emailRedirectTo: inviteUrl || undefined,
+        },
       });
 
       if (signUpResult.error) {
@@ -88,34 +123,12 @@ export default function InvitePage() {
       if (!session?.access_token) {
         setNeedsEmailConfirmation(true);
         setMessage(
-          "確認メールを送信しました。メール内リンクを開いて認証後、ログインしてからこの招待URLに戻り、『ログイン済みユーザーとして招待を受け取る』を押してください。"
+          "確認メールを送信しました。メール内リンクを開くと、この招待ページに戻ります。戻ったあと、ログイン済み状態で『ログイン済みユーザーとして招待を受け取る』を押してください。"
         );
         return;
       }
 
-      const acceptResponse = await fetch("/api/invites/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ token }),
-      });
-
-      const acceptData = (await acceptResponse.json()) as AcceptResponse;
-
-      if (!acceptResponse.ok || !acceptData.success) {
-        throw new Error(
-          acceptData.error ||
-            acceptData.details ||
-            "招待受け取り処理に失敗しました。"
-        );
-      }
-
-      setIsCompleted(true);
-      setMessage(
-        `登録が完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。`
-      );
+      await acceptInviteWithAccessToken(session.access_token);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "不明なエラーが発生しました";
@@ -145,33 +158,12 @@ export default function InvitePage() {
       }
 
       if (!session?.access_token) {
-        throw new Error("現在ログインしていません。ログイン後に再度お試しください。");
-      }
-
-      const acceptResponse = await fetch("/api/invites/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ token }),
-      });
-
-      const acceptData = (await acceptResponse.json()) as AcceptResponse;
-
-      if (!acceptResponse.ok || !acceptData.success) {
         throw new Error(
-          acceptData.error ||
-            acceptData.details ||
-            "招待受け取り処理に失敗しました。"
+          "現在ログインしていません。メール確認後、この招待URLに戻ってログイン済み状態で再度お試しください。"
         );
       }
 
-      setIsCompleted(true);
-      setNeedsEmailConfirmation(false);
-      setMessage(
-        `招待受け取りが完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。`
-      );
+      await acceptInviteWithAccessToken(session.access_token);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "不明なエラーが発生しました";
@@ -260,7 +252,7 @@ export default function InvitePage() {
 
       {needsEmailConfirmation ? (
         <div className="mt-4 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-          メール認証が完了するまでは、招待はまだ消化されません。認証後にログインして、このページでもう一度招待受け取りを実行してください。
+          メール認証が完了するまでは、招待はまだ消化されません。認証メールのリンクからこの招待ページに戻ったあと、ログイン済み状態で招待受け取りを実行してください。
         </div>
       ) : null}
 
