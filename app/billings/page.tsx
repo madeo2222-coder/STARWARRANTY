@@ -375,46 +375,53 @@ export default function BillingsPage() {
                 </td>
               </tr>
             ) : (
-              filteredBillings.map((billing) => (
-                <tr key={billing.id} className="border-t">
-                  <td className="px-4 py-3">{billing.billing_month || "-"}</td>
-                  <td className="px-4 py-3">{getCustomerLabel(billing)}</td>
-                  <td className="px-4 py-3">{getAgencyLabel(billing)}</td>
-                  <td className="px-4 py-3">
-                    ¥{Number(billing.amount ?? 0).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3">{billing.due_date || "-"}</td>
-                  <td className="px-4 py-3">{billing.paid_date || "-"}</td>
-                  <td className="px-4 py-3">{getStatusLabel(billing.status)}</td>
-                  <td className="px-4 py-3">
-                    <BillingActionsClient billingId={billing.id} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <Link
-                        href={`/billings/${billing.id}`}
-                        className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
-                      >
-                        詳細
-                      </Link>
-                      <Link
-                        href={`/billings/${billing.id}/edit`}
-                        className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
-                      >
-                        編集
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteBilling(billing)}
-                        disabled={deletingId === billing.id}
-                        className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {deletingId === billing.id ? "削除中..." : "削除"}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+              filteredBillings.map((billing) => {
+                const canReceipt = Boolean(billing.paid_date);
+
+                return (
+                  <tr key={billing.id} className="border-t">
+                    <td className="px-4 py-3">{billing.billing_month || "-"}</td>
+                    <td className="px-4 py-3">{getCustomerLabel(billing)}</td>
+                    <td className="px-4 py-3">{getAgencyLabel(billing)}</td>
+                    <td className="px-4 py-3">
+                      ¥{Number(billing.amount ?? 0).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">{billing.due_date || "-"}</td>
+                    <td className="px-4 py-3">{billing.paid_date || "-"}</td>
+                    <td className="px-4 py-3">{getStatusLabel(billing.status)}</td>
+                    <td className="px-4 py-3">
+                      <BillingActionsClient
+                        billingId={billing.id}
+                        canReceipt={canReceipt}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <Link
+                          href={`/billings/${billing.id}`}
+                          className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                        >
+                          詳細
+                        </Link>
+                        <Link
+                          href={`/billings/${billing.id}/edit`}
+                          className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
+                        >
+                          編集
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteBilling(billing)}
+                          disabled={deletingId === billing.id}
+                          className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === billing.id ? "削除中..." : "削除"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
