@@ -2,6 +2,7 @@
 
 type Props = {
   billingId: string;
+  customerName?: string;
   canReceipt: boolean;
 };
 
@@ -119,8 +120,11 @@ async function parseJsonSafely(res: Response) {
 
 export default function BillingActionsClient({
   billingId,
+  customerName,
   canReceipt,
 }: Props) {
+  const label = customerName?.trim() || "お客様";
+
   async function openDocument(documentType: "invoice" | "receipt") {
     try {
       const res = await fetch("/api/generate-document", {
@@ -190,7 +194,10 @@ export default function BillingActionsClient({
         },
         body: JSON.stringify({
           to_email: email,
-          subject: documentType === "invoice" ? "請求書送付" : "領収書送付",
+          subject:
+            documentType === "invoice"
+              ? `請求書送付（${label}）`
+              : `領収書送付（${label}）`,
           html: generateJson.html,
         }),
       });
