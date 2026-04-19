@@ -39,7 +39,7 @@ export default function PaymentRegistrationPage() {
           "id, contract_id, payment_method, registration_status, issue_note, last_contacted_at, next_action_note"
         )
         .eq("contract_id", contractId)
-        .maybeSingle<PaymentRegistrationRow>();
+        .maybeSingle();
 
       if (error) {
         console.error("決済登録進捗取得エラー:", error);
@@ -47,20 +47,22 @@ export default function PaymentRegistrationPage() {
         return;
       }
 
-      if (data) {
-        setExistingId(data.id);
-        setPaymentMethod(data.payment_method || "credit");
-        setRegistrationStatus(data.registration_status || "not_started");
-        setIssueNote(data.issue_note || "");
-        setLastContactedAt(data.last_contacted_at || "");
-        setNextActionNote(data.next_action_note || "");
+      const row = (data ?? null) as PaymentRegistrationRow | null;
+
+      if (row) {
+        setExistingId(row.id);
+        setPaymentMethod(row.payment_method || "credit");
+        setRegistrationStatus(row.registration_status || "not_started");
+        setIssueNote(row.issue_note || "");
+        setLastContactedAt(row.last_contacted_at || "");
+        setNextActionNote(row.next_action_note || "");
       }
 
       setLoading(false);
     };
 
     if (contractId) {
-      fetchPaymentRegistration();
+      void fetchPaymentRegistration();
     }
   }, [contractId]);
 
@@ -117,7 +119,7 @@ export default function PaymentRegistrationPage() {
   }
 
   return (
-    <div className="p-4 pb-24 max-w-xl mx-auto space-y-4">
+    <div className="mx-auto max-w-xl space-y-4 p-4 pb-24">
       <h1 className="text-xl font-bold">決済登録進捗の登録・更新</h1>
 
       <div>
@@ -185,6 +187,7 @@ export default function PaymentRegistrationPage() {
 
       <div className="flex gap-3 pt-2">
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
           className="rounded border px-4 py-2 text-sm font-medium"
@@ -193,6 +196,7 @@ export default function PaymentRegistrationPage() {
         </button>
 
         <button
+          type="button"
           onClick={() => router.push("/contracts")}
           className="rounded border px-4 py-2 text-sm"
         >
