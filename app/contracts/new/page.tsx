@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -21,11 +20,11 @@ type Agency = {
 
 type Customer = {
   id: string;
+  agency_id: string | null;
   name: string | null;
   company_name: string | null;
   store_name: string | null;
   representative_name: string | null;
-  agency_id: string | null;
 };
 
 function isAppRole(value: unknown): value is AppRole {
@@ -34,6 +33,21 @@ function isAppRole(value: unknown): value is AppRole {
     value === "agency" ||
     value === "sub_agency"
   );
+}
+
+function getCustomerLabel(customer: Customer) {
+  return (
+    customer.company_name ||
+    customer.name ||
+    customer.store_name ||
+    customer.representative_name ||
+    "名称未設定"
+  );
+}
+
+function toBillingMonth(contractDate: string) {
+  if (!contractDate) return "";
+  return contractDate.slice(0, 7);
 }
 
 export default function NewContractPage() {
@@ -47,6 +61,7 @@ export default function NewContractPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
 
   const [customerId, setCustomerId] = useState("");
+  const [agencyId, setAgencyId] = useState("");
   const [contractName, setContractName] = useState("");
   const [amount, setAmount] = useState("");
   const [cost, setCost] = useState("");
@@ -54,10 +69,10 @@ export default function NewContractPage() {
   const [contractDate, setContractDate] = useState("");
 
   useEffect(() => {
-    void initializePage();
+    void fetchInitialData();
   }, []);
 
-  async function initializePage() {
+  async function fetchInitialData() {
     try {
       setLoading(true);
 
@@ -79,7 +94,7 @@ export default function NewContractPage() {
         .single();
 
       if (profileError || !profileData || !isAppRole(profileData.role)) {
-        alert("プロフィール情報の取得に失敗しました");
+        alert("プロフィール取得に失敗しました。");
         return;
       }
 
@@ -111,7 +126,7 @@ export default function NewContractPage() {
         const ownAgencyId = currentProfile.agency_id;
 
         if (!ownAgencyId) {
-          alert("代理店情報が未設定のため契約登録を開始できません");
+          alert("代理店情報が未設定です。");
           return;
         }
 
@@ -120,27 +135,29 @@ export default function NewContractPage() {
           .map((agency) => agency.id);
 
         visibleAgencyIds = [ownAgencyId, ...childAgencyIds];
+        setAgencyId(ownAgencyId);
       } else {
         const ownAgencyId = currentProfile.agency_id;
 
         if (!ownAgencyId) {
-          alert("代理店情報が未設定のため契約登録を開始できません");
+          alert("代理店情報が未設定です。");
           return;
         }
 
         visibleAgencyIds = [ownAgencyId];
+        setAgencyId(ownAgencyId);
       }
 
-      if (visibleAgencyIds.length === 0) {
-        setCustomers([]);
-        return;
-      }
-
-      const { data: customersData, error: customersError } = await supabase
+      let customersQuery = supabase
         .from("customers")
-        .select("id, name, company_name, store_name, representative_name, agency_id")
-        .in("agency_id", visibleAgencyIds)
+        .select("id, agency_id, name, company_name, store_name, representative_name")
         .order("created_at", { ascending: false });
+
+      if (currentProfile.role !== "headquarters") {
+        customersQuery = customersQuery.in("agency_id", visibleAgencyIds);
+      }
+
+      const { data: customersData, error: customersError } = await customersQuery;
 
       if (customersError) {
         alert(`顧客一覧の取得に失敗しました: ${customersError.message}`);
@@ -153,88 +170,113 @@ export default function NewContractPage() {
     }
   }
 
-  const agencyMap = useMemo(() => {
-    return new Map(
-      agencies.map((agency) => [
-        agency.id,
-        agency.agency_name || agency.name || "名称未設定",
-      ])
-    );
-  }, [agencies]);
+  const visibleAgencies = useMemo(() => {
+    if (!profile) return [];
 
-  const selectedCustomer = useMemo(() => {
-    return customers.find((customer) => customer.id === customerId) ?? null;
-  }, [customers, customerId]);
+    if (profile.role === "headquarters") {
+      return agencies;
+    }
 
-  const selectedAgencyName = useMemo(() => {
-    if (!selectedCustomer?.agency_id) return "";
-    return agencyMap.get(selectedCustomer.agency_id) || "名称未設定";
-  }, [selectedCustomer, agencyMap]);
+    if (profile.role === "agency") {
+      const ownAgencyId = profile.agency_id;
+      return agencies.filter(
+        (agency) =>
+          agency.id === ownAgencyId || agency.parent_agency_id === ownAgencyId
+      );
+    }
 
-  function getCustomerLabel(customer: Customer) {
-    const displayName =
-      customer.name ||
-      customer.company_name ||
-      customer.store_name ||
-      customer.representative_name ||
-      "名称未設定";
+    return agencies.filter((agency) => agency.id === profile.agency_id);
+  }, [agencies, profile]);
 
-    const agencyName = customer.agency_id
-      ? agencyMap.get(customer.agency_id) || "名称未設定"
-      : "代理店未設定";
+  const filteredCustomers = useMemo(() => {
+    if (!agencyId) return customers;
+    return customers.filter((customer) => customer.agency_id === agencyId);
+  }, [customers, agencyId]);
 
-    return `${displayName} / ${agencyName}`;
-  }
+  useEffect(() => {
+    if (!customerId) return;
+
+    const exists = filteredCustomers.some((customer) => customer.id === customerId);
+    if (!exists) {
+      setCustomerId("");
+    }
+  }, [filteredCustomers, customerId]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!profile) {
-      alert("プロフィール情報が未取得です");
-      return;
-    }
-
     if (!customerId) {
-      alert("顧客を選択してください");
+      alert("顧客を選択してください。");
       return;
     }
 
-    if (!selectedCustomer) {
-      alert("選択した顧客情報が見つかりません");
-      return;
-    }
-
-    if (!selectedCustomer.agency_id) {
-      alert("選択した顧客に代理店が紐づいていません");
+    if (!agencyId) {
+      alert("代理店を選択してください。");
       return;
     }
 
     if (!contractName.trim()) {
-      alert("契約名を入力してください");
+      alert("契約名を入力してください。");
       return;
     }
 
-    const payload = {
-      customer_id: selectedCustomer.id,
-      agency_id: selectedCustomer.agency_id,
-      contract_name: contractName.trim(),
-      amount: amount ? Number(amount) : 0,
-      cost: cost ? Number(cost) : 0,
-      commission: commission ? Number(commission) : 0,
-      contract_date: contractDate || null,
-    };
+    if (!amount || Number(amount) <= 0) {
+      alert("金額を正しく入力してください。");
+      return;
+    }
+
+    if (!contractDate) {
+      alert("契約日を入力してください。");
+      return;
+    }
 
     try {
       setSaving(true);
 
-      const { error } = await supabase.from("contracts").insert([payload]);
+      const amountNumber = Number(amount);
+      const costNumber = Number(cost || 0);
+      const commissionNumber = Number(commission || 0);
+      const profitNumber = amountNumber - costNumber - commissionNumber;
+      const billingMonth = toBillingMonth(contractDate);
 
-      if (error) {
-        alert(`契約登録に失敗しました: ${error.message}`);
+      const { data: insertedContract, error: contractError } = await supabase
+        .from("contracts")
+        .insert({
+          customer_id: customerId,
+          agency_id: agencyId,
+          contract_name: contractName.trim(),
+          amount: amountNumber,
+          cost: costNumber,
+          commission: commissionNumber,
+          profit: profitNumber,
+          contract_date: contractDate,
+        })
+        .select("id, customer_id, agency_id, contract_name, amount, contract_date")
+        .single();
+
+      if (contractError || !insertedContract) {
+        alert(`契約登録に失敗しました: ${contractError?.message ?? "unknown error"}`);
         return;
       }
 
-      alert("契約を登録しました");
+      const { error: billingError } = await supabase.from("billings").insert({
+        contract_id: insertedContract.id,
+        customer_id: customerId,
+        billing_month: billingMonth,
+        amount: amountNumber,
+        status: "pending",
+        due_date: null,
+        paid_date: null,
+      });
+
+      if (billingError) {
+        await supabase.from("contracts").delete().eq("id", insertedContract.id);
+
+        alert(`請求自動作成に失敗したため契約登録を取り消しました: ${billingError.message}`);
+        return;
+      }
+
+      alert("契約登録と請求作成が完了しました。");
       router.push("/contracts");
       router.refresh();
     } finally {
@@ -244,100 +286,98 @@ export default function NewContractPage() {
 
   if (loading) {
     return (
-      <div className="p-4 pb-24">
-        <h1 className="mb-4 text-2xl font-bold">新規契約登録</h1>
-        <div className="rounded border bg-white p-4">読込中...</div>
+      <div className="mx-auto max-w-3xl p-6">
+        <div className="rounded-2xl border bg-white p-6">読込中...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 pb-24">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="mx-auto max-w-3xl p-6">
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-bold">新規契約登録</h1>
-        <Link
-          href="/contracts"
-          className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
-        >
-          契約一覧へ戻る
-        </Link>
-      </div>
+        <p className="mt-2 text-sm text-gray-500">
+          契約登録時に初回請求を自動作成します
+        </p>
 
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-6 rounded-2xl border bg-white p-6"
-      >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+          <div>
+            <label className="mb-2 block text-sm font-medium">代理店</label>
+            <select
+              value={agencyId}
+              onChange={(e) => setAgencyId(e.target.value)}
+              disabled={profile?.role !== "headquarters"}
+              className="w-full rounded-lg border px-3 py-2 outline-none disabled:bg-gray-100"
+            >
+              <option value="">選択してください</option>
+              {visibleAgencies.map((agency) => (
+                <option key={agency.id} value={agency.id}>
+                  {agency.agency_name || agency.name || "名称未設定"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="mb-2 block text-sm font-medium">顧客</label>
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
             >
               <option value="">選択してください</option>
-              {customers.map((customer) => (
+              {filteredCustomers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {getCustomerLabel(customer)}
                 </option>
               ))}
             </select>
-            <p className="mt-2 text-xs text-gray-500">
-              表示される顧客は、あなたの権限で見える範囲のみに絞っています
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">代理店</label>
-            <input
-              value={selectedAgencyName}
-              readOnly
-              className="w-full rounded-lg border bg-gray-50 px-3 py-2"
-              placeholder="顧客を選択すると自動表示"
-            />
           </div>
 
           <div>
             <label className="mb-2 block text-sm font-medium">契約名</label>
             <input
+              type="text"
               value={contractName}
               onChange={(e) => setContractName(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
-              placeholder="例：月額集金代行プラン"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="例: サイナップ"
             />
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium">契約金額</label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
-              placeholder="例：5000"
-            />
-          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-2 block text-sm font-medium">金額</label>
+              <input
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+                placeholder="5000"
+              />
+            </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium">原価</label>
-            <input
-              type="number"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
-              placeholder="例：1000"
-            />
-          </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium">原価</label>
+              <input
+                type="number"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+                placeholder="2000"
+              />
+            </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium">手数料</label>
-            <input
-              type="number"
-              value={commission}
-              onChange={(e) => setCommission(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
-              placeholder="例：500"
-            />
+            <div>
+              <label className="mb-2 block text-sm font-medium">手数料</label>
+              <input
+                type="number"
+                value={commission}
+                onChange={(e) => setCommission(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+                placeholder="3000"
+              />
+            </div>
           </div>
 
           <div>
@@ -346,21 +386,36 @@ export default function NewContractPage() {
               type="date"
               value={contractDate}
               onChange={(e) => setContractDate(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
             />
           </div>
-        </div>
 
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {saving ? "登録中..." : "登録する"}
-          </button>
-        </div>
-      </form>
+          <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+            <div>請求月: {contractDate ? toBillingMonth(contractDate) : "-"}</div>
+            <div className="mt-1">
+              登録時に `billings` へ `pending` の初回請求を1件作成します
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-black px-4 py-2 text-white disabled:opacity-50"
+            >
+              {saving ? "登録中..." : "登録する"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push("/contracts")}
+              className="rounded-lg border px-4 py-2"
+            >
+              戻る
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

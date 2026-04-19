@@ -22,6 +22,7 @@ type Agency = {
 type Billing = {
   id: string;
   customer_id: string | null;
+  contract_id: string | null;
   amount: number | null;
   status: "pending" | "paid" | "failed" | null;
   billing_month: string | null;
@@ -36,6 +37,16 @@ type Billing = {
     store_name?: string | null;
     representative_name?: string | null;
   } | null;
+  contracts?: {
+    id?: string | null;
+    agency_id?: string | null;
+    contract_name?: string | null;
+  } | null;
+};
+
+type ContractForFilter = {
+  id: string;
+  agency_id: string | null;
 };
 
 function isAppRole(value: unknown): value is AppRole {
@@ -132,12 +143,40 @@ export default function BillingsPage() {
         visibleAgencyIds = [ownAgencyId];
       }
 
-      const { data: billingsData, error: billingsError } = await supabase
+      let visibleContractIds: string[] | null = null;
+
+      if (currentProfile.role !== "headquarters") {
+        const { data: contractsForFilter, error: contractsForFilterError } =
+          await supabase
+            .from("contracts")
+            .select("id, agency_id")
+            .in("agency_id", visibleAgencyIds);
+
+        if (contractsForFilterError) {
+          alert(
+            `請求一覧用の契約取得に失敗しました: ${contractsForFilterError.message}`
+          );
+          return;
+        }
+
+        const contractRows = (contractsForFilter ?? []) as ContractForFilter[];
+        visibleContractIds = contractRows
+          .map((contract) => contract.id)
+          .filter((id): id is string => Boolean(id));
+
+        if (visibleContractIds.length === 0) {
+          setBillings([]);
+          return;
+        }
+      }
+
+      let billingsQuery = supabase
         .from("billings")
         .select(
           `
           id,
           customer_id,
+          contract_id,
           amount,
           status,
           billing_month,
@@ -151,10 +190,25 @@ export default function BillingsPage() {
             company_name,
             store_name,
             representative_name
+          ),
+          contracts:contract_id (
+            id,
+            agency_id,
+            contract_name
           )
         `
         )
         .order("billing_month", { ascending: false });
+
+      if (
+        currentProfile.role !== "headquarters" &&
+        visibleContractIds &&
+        visibleContractIds.length > 0
+      ) {
+        billingsQuery = billingsQuery.in("contract_id", visibleContractIds);
+      }
+
+      const { data: billingsData, error: billingsError } = await billingsQuery;
 
       if (billingsError) {
         alert(`請求一覧の取得に失敗しました: ${billingsError.message}`);
@@ -162,18 +216,7 @@ export default function BillingsPage() {
       }
 
       const rawBillings = (billingsData ?? []) as Billing[];
-
-      const filteredByRole =
-        currentProfile.role === "headquarters"
-          ? rawBillings
-          : rawBillings.filter((billing) => {
-              const customerAgencyId = billing.customers?.agency_id ?? null;
-              return customerAgencyId
-                ? visibleAgencyIds.includes(customerAgencyId)
-                : false;
-            });
-
-      setBillings(filteredByRole);
+      setBillings(rawBillings);
     } finally {
       setLoading(false);
     }
@@ -221,8 +264,8 @@ export default function BillingsPage() {
     const keyword = search.trim().toLowerCase();
 
     return billings.filter((billing) => {
-      const agencyName = billing.customers?.agency_id
-        ? agencyMap.get(billing.customers.agency_id) || ""
+      const agencyName = billing.contracts?.agency_id
+        ? agencyMap.get(billing.contracts.agency_id) || ""
         : "";
 
       const customerLabel = getCustomerLabel(billing);
@@ -232,6 +275,7 @@ export default function BillingsPage() {
         [
           customerLabel,
           agencyName,
+          billing.contracts?.contract_name,
           billing.billing_month,
           billing.status,
           billing.due_date,
@@ -265,9 +309,9 @@ export default function BillingsPage() {
   }
 
   function getAgencyLabel(billing: Billing) {
-    const customerAgencyId = billing.customers?.agency_id ?? null;
-    if (!customerAgencyId) return "-";
-    return agencyMap.get(customerAgencyId) || "-";
+    const contractAgencyId = billing.contracts?.agency_id ?? null;
+    if (!contractAgencyId) return "-";
+    return agencyMap.get(contractAgencyId) || "-";
   }
 
   function getStatusLabel(status: Billing["status"]) {
@@ -316,32 +360,31 @@ export default function BillingsPage() {
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
-          <div className="text-sm text-gray-500">未回収件数</div>
-          <div className="mt-2 text-2xl font-bold">
-            {filteredBillings.filter((item) => item.status === "pending").length}
-            件
+          <div className="text-sm text-gray-500">状態</div>
+          <div className="mt-2 text-sm text-gray-700">
+            絞り込みや検索ができます
           </div>
         </div>
       </div>
 
       <div className="rounded-2xl border bg-white p-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div>
-            <label className="mb-2 block text-sm font-medium">検索</label>
+            <div className="mb-1 text-sm text-gray-500">検索</div>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="顧客名・代理店名・請求月など"
-              className="w-full rounded-lg border px-3 py-2"
+              placeholder="顧客名 / 代理店 / 契約名 / 請求月"
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium">ステータス</label>
+            <div className="mb-1 text-sm text-gray-500">ステータス</div>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
             >
               <option value="">すべて</option>
               <option value="pending">未回収</option>
@@ -352,80 +395,79 @@ export default function BillingsPage() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border bg-white">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left">
-            <tr>
-              <th className="px-4 py-3 font-medium">請求月</th>
-              <th className="px-4 py-3 font-medium">顧客</th>
-              <th className="px-4 py-3 font-medium">代理店</th>
-              <th className="px-4 py-3 font-medium">金額</th>
-              <th className="px-4 py-3 font-medium">期限</th>
-              <th className="px-4 py-3 font-medium">入金日</th>
-              <th className="px-4 py-3 font-medium">状態</th>
-              <th className="px-4 py-3 font-medium">帳票</th>
-              <th className="px-4 py-3 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredBillings.length === 0 ? (
+      {filteredBillings.length === 0 ? (
+        <div className="rounded-2xl border bg-white p-6 text-sm text-gray-500">
+          請求データがありません
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border bg-white">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-left">
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                  請求データがありません
-                </td>
+                <th className="px-4 py-3">顧客名</th>
+                <th className="px-4 py-3">代理店</th>
+                <th className="px-4 py-3">契約名</th>
+                <th className="px-4 py-3">請求月</th>
+                <th className="px-4 py-3">金額</th>
+                <th className="px-4 py-3">状態</th>
+                <th className="px-4 py-3">支払期限</th>
+                <th className="px-4 py-3">入金日</th>
+                <th className="px-4 py-3">帳票</th>
+                <th className="px-4 py-3">操作</th>
               </tr>
-            ) : (
-              filteredBillings.map((billing) => {
-                const canReceipt = Boolean(billing.paid_date);
-
-                return (
-                  <tr key={billing.id} className="border-t">
-                    <td className="px-4 py-3">{billing.billing_month || "-"}</td>
-                    <td className="px-4 py-3">{getCustomerLabel(billing)}</td>
-                    <td className="px-4 py-3">{getAgencyLabel(billing)}</td>
-                    <td className="px-4 py-3">
-                      ¥{Number(billing.amount ?? 0).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">{billing.due_date || "-"}</td>
-                    <td className="px-4 py-3">{billing.paid_date || "-"}</td>
-                    <td className="px-4 py-3">{getStatusLabel(billing.status)}</td>
-                    <td className="px-4 py-3">
-                      <BillingActionsClient
-                        billingId={billing.id}
-                        canReceipt={canReceipt}
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <Link
-                          href={`/billings/${billing.id}`}
-                          className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
-                        >
-                          詳細
-                        </Link>
-                        <Link
-                          href={`/billings/${billing.id}/edit`}
-                          className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
-                        >
-                          編集
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteBilling(billing)}
-                          disabled={deletingId === billing.id}
-                          className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          {deletingId === billing.id ? "削除中..." : "削除"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredBillings.map((billing) => (
+                <tr key={billing.id} className="border-t">
+                  <td className="px-4 py-3">{getCustomerLabel(billing)}</td>
+                  <td className="px-4 py-3">{getAgencyLabel(billing)}</td>
+                  <td className="px-4 py-3">
+                    {billing.contracts?.contract_name || "-"}
+                  </td>
+                  <td className="px-4 py-3">{billing.billing_month || "-"}</td>
+                  <td className="px-4 py-3">
+                    ¥{Number(billing.amount ?? 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">{getStatusLabel(billing.status)}</td>
+                  <td className="px-4 py-3">{billing.due_date || "-"}</td>
+                  <td className="px-4 py-3">{billing.paid_date || "-"}</td>
+                  <td className="px-4 py-3">
+                    <BillingActionsClient
+                      billingId={billing.id}
+                      customerName={getCustomerLabel(billing)}
+                      canReceipt={billing.status === "paid"}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={`/billings/${billing.id}`}
+                        className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      >
+                        詳細
+                      </Link>
+                      <Link
+                        href={`/billings/${billing.id}/edit`}
+                        className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
+                      >
+                        編集
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteBilling(billing)}
+                        disabled={deletingId === billing.id}
+                        className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingId === billing.id ? "削除中..." : "削除"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

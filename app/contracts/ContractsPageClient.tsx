@@ -35,6 +35,11 @@ type AgencyRow = {
   parent_agency_id: string | null;
 };
 
+type BillingRow = {
+  id: string;
+  contract_id: string | null;
+};
+
 type Props = {
   initialProfile: CurrentProfile | null;
 };
@@ -42,6 +47,11 @@ type Props = {
 function toContracts(value: unknown): ContractRow[] {
   if (!Array.isArray(value)) return [];
   return value as ContractRow[];
+}
+
+function toBillingMonth(contractDate: string | null) {
+  if (!contractDate) return "";
+  return contractDate.slice(0, 7);
 }
 
 export default function ContractsPageClient({ initialProfile }: Props) {
@@ -52,6 +62,8 @@ export default function ContractsPageClient({ initialProfile }: Props) {
   const [agencyLoading, setAgencyLoading] = useState(true);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [creatingBillingId, setCreatingBillingId] = useState<string | null>(null);
+  const [billingContractIds, setBillingContractIds] = useState<string[]>([]);
 
   const canLoad = useMemo(() => {
     if (!profile) return false;
@@ -166,6 +178,35 @@ export default function ContractsPageClient({ initialProfile }: Props) {
     }
   }, [profile, canLoad, visibleAgencyIds]);
 
+  const loadBillingContractIds = useCallback(async (rows: ContractRow[]) => {
+    const contractIds = rows
+      .map((row) => row.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (contractIds.length === 0) {
+      setBillingContractIds([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("billings")
+      .select("id, contract_id")
+      .in("contract_id", contractIds);
+
+    if (error) {
+      console.error(error);
+      setError("請求紐づき確認エラー");
+      setBillingContractIds([]);
+      return;
+    }
+
+    const ids = ((data ?? []) as BillingRow[])
+      .map((row) => row.contract_id)
+      .filter((id): id is string => Boolean(id));
+
+    setBillingContractIds(ids);
+  }, []);
+
   useEffect(() => {
     void resolveVisibleAgencyIds();
   }, [resolveVisibleAgencyIds]);
@@ -182,6 +223,10 @@ export default function ContractsPageClient({ initialProfile }: Props) {
       void loadContracts();
     }
   }, [profile, agencyLoading, loadContracts]);
+
+  useEffect(() => {
+    void loadBillingContractIds(contracts);
+  }, [contracts, loadBillingContractIds]);
 
   async function handleDeleteContract(contract: ContractRow) {
     const contractLabel = contract.contract_name || "名称未設定契約";
@@ -223,8 +268,75 @@ export default function ContractsPageClient({ initialProfile }: Props) {
 
       alert("契約を削除しました");
       setContracts((prev) => prev.filter((item) => item.id !== contract.id));
+      setBillingContractIds((prev) => prev.filter((id) => id !== contract.id));
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleCreateMissingBilling(contract: ContractRow) {
+    const contractLabel = contract.contract_name || "名称未設定契約";
+
+    if (!contract.customer_id) {
+      alert("この契約は customer_id が無いため請求を作成できません");
+      return;
+    }
+
+    const billingMonth = toBillingMonth(contract.contract_date);
+    if (!billingMonth) {
+      alert("この契約は契約日が無いため請求月を作れません");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `「${contractLabel}」の不足請求を1件作成しますか？`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setCreatingBillingId(contract.id);
+
+      const { data: existingBilling, error: existingBillingError } = await supabase
+        .from("billings")
+        .select("id")
+        .eq("contract_id", contract.id)
+        .limit(1);
+
+      if (existingBillingError) {
+        alert(`既存請求確認に失敗しました: ${existingBillingError.message}`);
+        return;
+      }
+
+      if (existingBilling && existingBilling.length > 0) {
+        alert("この契約にはすでに請求データがあります");
+        setBillingContractIds((prev) =>
+          prev.includes(contract.id) ? prev : [...prev, contract.id]
+        );
+        return;
+      }
+
+      const { error: insertError } = await supabase.from("billings").insert({
+        contract_id: contract.id,
+        customer_id: contract.customer_id,
+        billing_month: billingMonth,
+        amount: Number(contract.amount ?? 0),
+        status: "pending",
+        due_date: null,
+        paid_date: null,
+      });
+
+      if (insertError) {
+        alert(`請求作成に失敗しました: ${insertError.message}`);
+        return;
+      }
+
+      alert("不足していた請求を作成しました");
+      setBillingContractIds((prev) =>
+        prev.includes(contract.id) ? prev : [...prev, contract.id]
+      );
+    } finally {
+      setCreatingBillingId(null);
     }
   }
 
@@ -234,6 +346,10 @@ export default function ContractsPageClient({ initialProfile }: Props) {
 
   function getAgencyLabel(contract: ContractRow) {
     return contract.agencies?.agency_name || contract.agencies?.name || "-";
+  }
+
+  function hasBilling(contractId: string) {
+    return billingContractIds.includes(contractId);
   }
 
   if (!profile) {
@@ -278,51 +394,72 @@ export default function ContractsPageClient({ initialProfile }: Props) {
                 <th className="px-4 py-3">手数料</th>
                 <th className="px-4 py-3">契約日</th>
                 <th className="px-4 py-3">代理店</th>
+                <th className="px-4 py-3">請求</th>
                 <th className="px-4 py-3">操作</th>
               </tr>
             </thead>
             <tbody>
-              {contracts.map((c) => (
-                <tr key={c.id} className="border-t">
-                  <td className="px-4 py-3">{c.contract_name || "-"}</td>
-                  <td className="px-4 py-3">{c.customers?.company_name || "-"}</td>
-                  <td className="px-4 py-3">
-                    ¥{Number(c.amount ?? 0).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    ¥{Number(c.cost ?? 0).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    ¥{Number(c.commission ?? 0).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3">{c.contract_date || "-"}</td>
-                  <td className="px-4 py-3">{getAgencyLabel(c)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <Link
-                        href={`/contracts/${c.id}`}
-                        className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
-                      >
-                        詳細
-                      </Link>
-                      <Link
-                        href={`/contracts/${c.id}/edit`}
-                        className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
-                      >
-                        編集
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteContract(c)}
-                        disabled={deletingId === c.id}
-                        className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {deletingId === c.id ? "削除中..." : "削除"}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {contracts.map((c) => {
+                const billingExists = hasBilling(c.id);
+
+                return (
+                  <tr key={c.id} className="border-t">
+                    <td className="px-4 py-3">{c.contract_name || "-"}</td>
+                    <td className="px-4 py-3">{c.customers?.company_name || "-"}</td>
+                    <td className="px-4 py-3">
+                      ¥{Number(c.amount ?? 0).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      ¥{Number(c.cost ?? 0).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      ¥{Number(c.commission ?? 0).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">{c.contract_date || "-"}</td>
+                    <td className="px-4 py-3">{getAgencyLabel(c)}</td>
+                    <td className="px-4 py-3">
+                      {billingExists ? (
+                        <span className="inline-flex rounded-lg bg-green-100 px-3 py-1.5 text-xs text-green-700">
+                          作成済み
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateMissingBilling(c)}
+                          disabled={creatingBillingId === c.id}
+                          className="inline-flex rounded-lg border border-blue-300 px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                        >
+                          {creatingBillingId === c.id ? "作成中..." : "請求作成"}
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/contracts/${c.id}`}
+                          className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                        >
+                          詳細
+                        </Link>
+                        <Link
+                          href={`/contracts/${c.id}/edit`}
+                          className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
+                        >
+                          編集
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteContract(c)}
+                          disabled={deletingId === c.id}
+                          className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === c.id ? "削除中..." : "削除"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

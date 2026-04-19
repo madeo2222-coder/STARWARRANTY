@@ -15,6 +15,18 @@ type ContractEdit = {
   customer_id: string | null;
 };
 
+type BillingRow = {
+  id: string;
+  contract_id: string | null;
+  customer_id: string | null;
+  billing_month: string | null;
+};
+
+function toBillingMonth(contractDate: string | null) {
+  if (!contractDate) return null;
+  return contractDate.slice(0, 7);
+}
+
 export default function ContractEditPage() {
   const params = useParams();
   const router = useRouter();
@@ -25,6 +37,7 @@ export default function ContractEditPage() {
   const [deleting, setDeleting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [contractName, setContractName] = useState("");
   const [amount, setAmount] = useState("");
   const [cost, setCost] = useState("");
@@ -38,11 +51,14 @@ export default function ContractEditPage() {
 
   async function fetchContract() {
     setLoading(true);
+    setErrorMsg("");
 
     try {
       const { data, error } = await supabase
         .from("contracts")
-        .select("id, contract_name, amount, cost, commission, contract_date, customer_id")
+        .select(
+          "id, contract_name, amount, cost, commission, contract_date, customer_id"
+        )
         .eq("id", id)
         .single();
 
@@ -54,6 +70,7 @@ export default function ContractEditPage() {
 
       const contract = data as ContractEdit;
 
+      setCustomerId(contract.customer_id ?? null);
       setContractName(contract.contract_name || "");
       setAmount(
         contract.amount !== null && contract.amount !== undefined
@@ -81,29 +98,102 @@ export default function ContractEditPage() {
     setSaving(true);
     setErrorMsg("");
 
-    const payload = {
-      contract_name: contractName.trim() || null,
-      amount: amount ? Number(amount) : 0,
-      cost: cost ? Number(cost) : 0,
-      commission: commission ? Number(commission) : 0,
-      contract_date: contractDate || null,
-    };
+    const amountNumber = amount ? Number(amount) : 0;
+    const costNumber = cost ? Number(cost) : 0;
+    const commissionNumber = commission ? Number(commission) : 0;
+    const profitNumber = amountNumber - costNumber - commissionNumber;
+    const nextContractDate = contractDate || null;
+    const nextBillingMonth = toBillingMonth(nextContractDate);
 
-    const { error } = await supabase
-      .from("contracts")
-      .update(payload)
-      .eq("id", id);
+    try {
+      const { data: currentBillings, error: currentBillingsError } = await supabase
+        .from("billings")
+        .select("id, contract_id, customer_id, billing_month")
+        .eq("contract_id", id);
 
-    if (error) {
-      console.error("contract update error:", error);
-      setErrorMsg(`更新に失敗しました: ${error.message}`);
+      if (currentBillingsError) {
+        console.error("current billings fetch error:", currentBillingsError);
+        setErrorMsg(`請求確認に失敗しました: ${currentBillingsError.message}`);
+        return;
+      }
+
+      const billingRows = (currentBillings ?? []) as BillingRow[];
+
+      if (customerId && nextBillingMonth && billingRows.length > 0) {
+        const currentBillingIds = billingRows.map((row) => row.id);
+
+        const { data: conflictRows, error: conflictError } = await supabase
+          .from("billings")
+          .select("id, contract_id, customer_id, billing_month")
+          .eq("customer_id", customerId)
+          .eq("billing_month", nextBillingMonth);
+
+        if (conflictError) {
+          console.error("billing conflict check error:", conflictError);
+          setErrorMsg(`請求重複確認に失敗しました: ${conflictError.message}`);
+          return;
+        }
+
+        const conflicts = ((conflictRows ?? []) as BillingRow[]).filter(
+          (row) => !currentBillingIds.includes(row.id)
+        );
+
+        if (conflicts.length > 0) {
+          setErrorMsg(
+            `この顧客には ${nextBillingMonth} の請求がすでに存在するため、契約日を変更できません。別の月に変更してください。`
+          );
+          return;
+        }
+      }
+
+      const { error: contractError } = await supabase
+        .from("contracts")
+        .update({
+          contract_name: contractName.trim() || null,
+          amount: amountNumber,
+          cost: costNumber,
+          commission: commissionNumber,
+          profit: profitNumber,
+          contract_date: nextContractDate,
+        })
+        .eq("id", id);
+
+      if (contractError) {
+        console.error("contract update error:", contractError);
+        setErrorMsg(`更新に失敗しました: ${contractError.message}`);
+        return;
+      }
+
+      if (billingRows.length > 0) {
+        const billingIds = billingRows
+          .map((row) => row.id)
+          .filter((value): value is string => Boolean(value));
+
+        if (billingIds.length > 0) {
+          const { error: billingUpdateError } = await supabase
+            .from("billings")
+            .update({
+              amount: amountNumber,
+              billing_month: nextBillingMonth,
+            })
+            .in("id", billingIds);
+
+          if (billingUpdateError) {
+            console.error("billing update error:", billingUpdateError);
+            setErrorMsg(
+              `契約は更新できましたが請求同期に失敗しました: ${billingUpdateError.message}`
+            );
+            return;
+          }
+        }
+      }
+
+      alert("契約情報を更新しました");
+      router.push(`/contracts/${id}`);
+      router.refresh();
+    } finally {
       setSaving(false);
-      return;
     }
-
-    alert("契約情報を更新しました");
-    router.push(`/contracts/${id}`);
-    router.refresh();
   }
 
   async function handleDelete() {
@@ -132,10 +222,7 @@ export default function ContractEditPage() {
         return;
       }
 
-      const { error } = await supabase
-        .from("contracts")
-        .delete()
-        .eq("id", id);
+      const { error } = await supabase.from("contracts").delete().eq("id", id);
 
       if (error) {
         alert(`契約削除に失敗しました: ${error.message}`);
@@ -155,8 +242,9 @@ export default function ContractEditPage() {
       amountText: `¥${Number(amount || 0).toLocaleString()}`,
       costText: `¥${Number(cost || 0).toLocaleString()}`,
       commissionText: `¥${Number(commission || 0).toLocaleString()}`,
+      billingMonthText: toBillingMonth(contractDate) || "-",
     }),
-    [amount, cost, commission]
+    [amount, cost, commission, contractDate]
   );
 
   if (loading) {
@@ -189,7 +277,13 @@ export default function ContractEditPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      {errorMsg ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMsg}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="text-sm text-gray-500">契約金額</div>
           <div className="mt-2 text-2xl font-bold">{summary.amountText}</div>
@@ -204,96 +298,95 @@ export default function ContractEditPage() {
           <div className="text-sm text-gray-500">手数料</div>
           <div className="mt-2 text-2xl font-bold">{summary.commissionText}</div>
         </div>
-      </div>
 
-      {errorMsg ? (
-        <div className="rounded-xl bg-red-100 p-3 text-sm text-red-700">
-          {errorMsg}
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm text-gray-500">請求月</div>
+          <div className="mt-2 text-2xl font-bold">{summary.billingMonthText}</div>
         </div>
-      ) : null}
+      </div>
 
       <form
         onSubmit={handleSubmit}
-        className="space-y-6 rounded-2xl border bg-white p-4 shadow-sm md:p-6"
+        className="space-y-6 rounded-2xl border bg-white p-5 shadow-sm"
       >
-        <div>
-          <h2 className="text-lg font-bold">編集内容</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            契約名、金額、原価、手数料、契約日を更新できます
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label="契約名">
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-gray-700">契約名</label>
             <input
               value={contractName}
               onChange={(e) => setContractName(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="契約名を入力"
             />
-          </Field>
+          </div>
 
-          <Field label="契約日">
-            <input
-              type="date"
-              value={contractDate}
-              onChange={(e) => setContractDate(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2"
-            />
-          </Field>
-
-          <Field label="契約金額">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">金額</label>
             <input
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="0"
             />
-          </Field>
+          </div>
 
-          <Field label="原価">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">契約日</label>
+            <input
+              type="date"
+              value={contractDate}
+              onChange={(e) => setContractDate(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">原価</label>
             <input
               type="number"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="0"
             />
-          </Field>
+          </div>
 
-          <Field label="手数料">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">手数料</label>
             <input
               type="number"
               value={commission}
               onChange={(e) => setCommission(e.target.value)}
-              className="w-full rounded-xl border px-3 py-2"
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="0"
             />
-          </Field>
+          </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+          <div>請求月: {summary.billingMonthText}</div>
+          <div className="mt-1">
+            同一顧客に同じ請求月の請求がある場合は、請求重複防止のため契約日変更を止めます
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {saving ? "更新中..." : "更新する"}
           </button>
+          <Link
+            href={`/contracts/${id}`}
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            キャンセル
+          </Link>
         </div>
       </form>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="mb-2 block text-sm font-medium">{label}</label>
-      {children}
     </div>
   );
 }
