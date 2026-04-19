@@ -39,6 +39,7 @@ type Billing = {
   contract_id: string;
   status: "pending" | "paid" | "failed" | string;
   amount: number | null;
+  billing_month: string | null;
   due_date: string | null;
   paid_date: string | null;
 };
@@ -69,10 +70,6 @@ function formatYen(value: number) {
   return `¥${value.toLocaleString()}`;
 }
 
-function getMonthKey(dateStr: string) {
-  return dateStr.slice(0, 7);
-}
-
 function getMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-");
   return `${year}/${month}`;
@@ -90,6 +87,18 @@ function getRecentMonthKeys(count: number) {
   }
 
   return result;
+}
+
+function resolveBillingMonthKey(billing: Billing) {
+  if (billing.billing_month && billing.billing_month.length >= 7) {
+    return billing.billing_month.slice(0, 7);
+  }
+
+  if (billing.due_date && billing.due_date.length >= 7) {
+    return billing.due_date.slice(0, 7);
+  }
+
+  return null;
 }
 
 function getAlertLevel(billings: Billing[]): "danger" | "warning" | "normal" {
@@ -129,7 +138,7 @@ function getAlertLevel(billings: Billing[]): "danger" | "warning" | "normal" {
 function alertBadge(level: "danger" | "warning" | "normal") {
   if (level === "danger") {
     return (
-      <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+      <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
         危険
       </span>
     );
@@ -137,14 +146,14 @@ function alertBadge(level: "danger" | "warning" | "normal") {
 
   if (level === "warning") {
     return (
-      <span className="rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-700">
+      <span className="rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-700">
         要注意
       </span>
     );
   }
 
   return (
-    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
       通常
     </span>
   );
@@ -180,6 +189,19 @@ function rankingBadge(index: number) {
       {index + 1}位
     </span>
   );
+}
+
+function kpiTone(type: "default" | "danger" | "primary" | "success") {
+  if (type === "danger") {
+    return "border-red-100 bg-red-50";
+  }
+  if (type === "primary") {
+    return "border-blue-100 bg-blue-50";
+  }
+  if (type === "success") {
+    return "border-green-100 bg-green-50";
+  }
+  return "border-gray-200 bg-white";
 }
 
 export default function HomePage() {
@@ -305,7 +327,7 @@ export default function HomePage() {
       contractIds.length > 0
         ? await supabase
             .from("billings")
-            .select("id, contract_id, status, amount, due_date, paid_date")
+            .select("id, contract_id, status, amount, billing_month, due_date, paid_date")
             .in("contract_id", contractIds)
         : { data: [], error: null };
 
@@ -437,8 +459,9 @@ export default function HomePage() {
   const monthlySummary = useMemo<MonthlySummary[]>(() => {
     return recentMonthKeys.map((monthKey) => {
       const monthlyBillings = billings.filter((billing) => {
-        if (!billing.due_date) return false;
-        return getMonthKey(billing.due_date) === monthKey;
+        const resolvedMonthKey = resolveBillingMonthKey(billing);
+        if (!resolvedMonthKey) return false;
+        return resolvedMonthKey === monthKey;
       });
 
       const sales = monthlyBillings.reduce(
@@ -467,32 +490,51 @@ export default function HomePage() {
     });
   }, [billings, recentMonthKeys]);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
+            <div className="text-sm text-gray-500">読み込み中...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+    <div className="min-h-screen bg-gray-50/80 p-4 md:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">ダッシュボード</h1>
-              <p className="mt-1 text-sm text-gray-500">
+        <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <div className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
                 {profile?.role === "headquarters"
-                  ? "Star Revenue 本部ビュー"
+                  ? "本部ビュー"
                   : profile?.role === "agency"
                   ? "一次代理店ビュー"
                   : "二次代理店ビュー"}
-              </p>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
+                  ダッシュボード
+                </h1>
+                <p className="mt-1 text-sm text-gray-500">
+                  StarRevenue の顧客・契約・請求状況をまとめて確認できます
+                </p>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
               <Link
                 href="/customers/new"
-                className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm"
+                className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
               >
                 新規顧客
               </Link>
               <Link
                 href="/contracts/new"
-                className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm"
+                className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
               >
                 新規契約
               </Link>
@@ -500,148 +542,80 @@ export default function HomePage() {
                 type="button"
                 onClick={handleLogout}
                 disabled={logoutLoading}
-                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
               >
                 {logoutLoading ? "ログアウト中..." : "ログアウト"}
               </button>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white p-3 shadow-sm">
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/customers"
-                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
-              >
-                顧客一覧へ
-              </Link>
-              <Link
-                href="/contracts"
-                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
-              >
-                契約一覧へ
-              </Link>
-              <Link
-                href="/agencies"
-                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
-              >
-                代理店一覧へ
-              </Link>
-              <Link
-                href="/billings"
-                className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
-              >
-                請求一覧へ
-              </Link>
-            </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link
+              href="/customers"
+              className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+            >
+              顧客一覧へ
+            </Link>
+            <Link
+              href="/contracts"
+              className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+            >
+              契約一覧へ
+            </Link>
+            <Link
+              href="/agencies"
+              className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+            >
+              代理店一覧へ
+            </Link>
+            <Link
+              href="/billings"
+              className="rounded-2xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 transition hover:bg-gray-200"
+            >
+              請求一覧へ
+            </Link>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">総売上</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {formatYen(totalSales)}
-            </p>
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">主要指標</h2>
+            <p className="text-xs text-gray-500">全体の状況をひと目で確認</p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">総粗利</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {formatYen(totalGrossProfit)}
-            </p>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <KpiCard title="総売上" value={formatYen(totalSales)} tone="default" />
+            <KpiCard title="総粗利" value={formatYen(totalGrossProfit)} tone="success" />
+            <KpiCard title="未回収額" value={formatYen(totalUnpaid)} tone="danger" />
+            <KpiCard
+              title="全体回収率"
+              value={`${overallCollectionRate.toFixed(1)}%`}
+              tone="primary"
+            />
+            <KpiCard title="契約件数" value={`${totalContracts.toLocaleString()}件`} tone="default" />
+            <KpiCard title="顧客数" value={`${totalCustomers.toLocaleString()}件`} tone="default" />
+            <KpiCard
+              title="契約あり顧客数"
+              value={`${customersWithContracts.toLocaleString()}件`}
+              tone="default"
+            />
+            <KpiCard
+              title="表示対象代理店数"
+              value={`${totalAgencies.toLocaleString()}件`}
+              tone="default"
+            />
           </div>
+        </section>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">未回収額</p>
-            <p className="mt-2 text-xl font-bold text-red-600">
-              {formatYen(totalUnpaid)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">全体回収率</p>
-            <p className="mt-2 text-xl font-bold text-blue-600">
-              {overallCollectionRate.toFixed(1)}%
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">契約件数</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {totalContracts.toLocaleString()}件
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">顧客数</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {totalCustomers.toLocaleString()}件
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">契約あり顧客数</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {customersWithContracts.toLocaleString()}件
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">表示対象代理店数</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {totalAgencies.toLocaleString()}件
-            </p>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-4">
-          <Link
-            href="/customers"
-            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+          <Panel
+            title="危険案件 TOP5"
+            subtitle="未回収が大きく、優先確認が必要な代理店"
+            actionHref="/agencies"
+            actionLabel="代理店一覧を見る"
           >
-            <p className="text-sm font-semibold text-gray-900">顧客管理</p>
-            <p className="mt-1 text-sm text-gray-500">顧客の登録・編集・確認</p>
-          </Link>
-
-          <Link
-            href="/contracts"
-            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
-          >
-            <p className="text-sm font-semibold text-gray-900">契約管理</p>
-            <p className="mt-1 text-sm text-gray-500">契約一覧・新規契約登録</p>
-          </Link>
-
-          <Link
-            href="/billings"
-            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
-          >
-            <p className="text-sm font-semibold text-gray-900">請求管理</p>
-            <p className="mt-1 text-sm text-gray-500">ステータス更新・未回収管理</p>
-          </Link>
-
-          <Link
-            href="/agencies"
-            className="rounded-2xl bg-white p-5 shadow-sm transition hover:shadow"
-          >
-            <p className="text-sm font-semibold text-gray-900">代理店管理</p>
-            <p className="mt-1 text-sm text-gray-500">代理店分析・回収率確認</p>
-          </Link>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">危険案件 TOP5</h2>
-              <Link href="/agencies" className="text-xs text-gray-500 underline">
-                代理店一覧を見る
-              </Link>
-            </div>
-
-            {loading ? (
-              <p className="text-sm text-gray-500">読み込み中...</p>
-            ) : dangerRows.length === 0 ? (
-              <p className="text-sm text-gray-500">危険案件はありません</p>
+            {dangerRows.length === 0 ? (
+              <EmptyText text="危険案件はありません" />
             ) : (
               <div className="space-y-3">
                 {dangerRows.map((row) => (
@@ -660,27 +634,23 @@ export default function HomePage() {
                     </div>
                     <p className="mt-3 text-sm text-red-600">
                       未回収額：
-                      <span className="font-semibold">{formatYen(row.unpaid)}</span>
+                      <span className="ml-1 font-semibold">{formatYen(row.unpaid)}</span>
                     </p>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Panel>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">
-                月別サマリー（直近6ヶ月）
-              </h2>
-              <Link href="/agencies" className="text-xs text-gray-500 underline">
-                詳細分析へ
-              </Link>
-            </div>
-
+          <Panel
+            title="月別サマリー（直近6ヶ月）"
+            subtitle="請求一覧の billing_month と合わせた月次集計"
+            actionHref="/billings"
+            actionLabel="請求一覧へ"
+          >
             <div className="space-y-3">
               {monthlySummary.map((month) => (
-                <div key={month.month} className="rounded-2xl bg-gray-50 p-3">
+                <div key={month.month} className="rounded-2xl bg-gray-50 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-gray-900">{month.label}</p>
@@ -707,72 +677,79 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-          </div>
+          </Panel>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">売上ランキング TOP5</h2>
-              <Link href="/agencies" className="text-xs text-gray-500 underline">
-                代理店一覧へ
-              </Link>
-            </div>
-
+          <Panel
+            title="売上ランキング TOP5"
+            subtitle="売上が大きい代理店"
+            actionHref="/agencies"
+            actionLabel="代理店一覧へ"
+          >
             <div className="space-y-3">
-              {salesRanking.map((row, index) => (
-                <div
-                  key={`sales-${row.id}`}
-                  className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    {rankingBadge(index)}
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                      <p className="text-xs text-gray-500">粗利 {formatYen(row.grossProfit)}</p>
+              {salesRanking.length === 0 ? (
+                <EmptyText text="データがありません" />
+              ) : (
+                salesRanking.map((row, index) => (
+                  <div
+                    key={`sales-${row.id}`}
+                    className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      {rankingBadge(index)}
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                        <p className="text-xs text-gray-500">
+                          粗利 {formatYen(row.grossProfit)}
+                        </p>
+                      </div>
                     </div>
+                    <p className="text-sm font-bold text-gray-900">{formatYen(row.sales)}</p>
                   </div>
-                  <p className="text-sm font-bold text-gray-900">{formatYen(row.sales)}</p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
-          </div>
+          </Panel>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">未回収ランキング TOP5</h2>
-              <Link href="/billings" className="text-xs text-gray-500 underline">
-                請求一覧へ
-              </Link>
-            </div>
-
+          <Panel
+            title="未回収ランキング TOP5"
+            subtitle="未回収額が大きい代理店"
+            actionHref="/billings"
+            actionLabel="請求一覧へ"
+          >
             <div className="space-y-3">
-              {unpaidRanking.map((row, index) => (
-                <div
-                  key={`unpaid-${row.id}`}
-                  className="flex items-center justify-between rounded-2xl bg-red-50 p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    {rankingBadge(index)}
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                      <p className="text-xs text-gray-500">
-                        回収率 {row.collectionRate.toFixed(1)}%
-                      </p>
+              {unpaidRanking.length === 0 ? (
+                <EmptyText text="データがありません" />
+              ) : (
+                unpaidRanking.map((row, index) => (
+                  <div
+                    key={`unpaid-${row.id}`}
+                    className="flex items-center justify-between rounded-2xl bg-red-50 p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      {rankingBadge(index)}
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                        <p className="text-xs text-gray-500">
+                          回収率 {row.collectionRate.toFixed(1)}%
+                        </p>
+                      </div>
                     </div>
+                    <p className="text-sm font-bold text-red-600">{formatYen(row.unpaid)}</p>
                   </div>
-                  <p className="text-sm font-bold text-red-600">{formatYen(row.unpaid)}</p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
-          </div>
+          </Panel>
         </div>
 
-        <div className="rounded-2xl bg-white shadow-sm">
-          <div className="border-b border-gray-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-gray-900">代理店サマリー</h2>
-          </div>
-
+        <Panel
+          title="代理店サマリー"
+          subtitle="表示対象の主要代理店を上位順に表示"
+          actionHref="/agencies"
+          actionLabel="代理店一覧へ"
+        >
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
@@ -787,13 +764,7 @@ export default function HomePage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      読み込み中...
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
+                {rows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                       データがありません
@@ -818,7 +789,7 @@ export default function HomePage() {
                         <td className="px-4 py-4">
                           <Link
                             href={`/agencies/${row.id}`}
-                            className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700"
+                            className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-200"
                           >
                             詳細を見る
                           </Link>
@@ -829,8 +800,60 @@ export default function HomePage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Panel>
       </div>
     </div>
   );
+}
+
+function KpiCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: "default" | "danger" | "primary" | "success";
+}) {
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${kpiTone(tone)}`}>
+      <p className="text-sm text-gray-500">{title}</p>
+      <p className="mt-2 text-xl font-bold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  actionHref,
+  actionLabel,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  actionHref?: string;
+  actionLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+          {subtitle ? <p className="mt-1 text-xs text-gray-500">{subtitle}</p> : null}
+        </div>
+        {actionHref && actionLabel ? (
+          <Link href={actionHref} className="text-xs text-gray-500 underline">
+            {actionLabel}
+          </Link>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EmptyText({ text }: { text: string }) {
+  return <p className="text-sm text-gray-500">{text}</p>;
 }

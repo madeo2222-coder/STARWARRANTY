@@ -1,349 +1,424 @@
-import { createClient } from "@/lib/supabase/server";
-import {
-  getCurrentProfile,
-  type CurrentProfile,
-} from "@/lib/auth/getCurrentProfile";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 import BillingActionsClient from "./BillingActionsClient";
 
-export const dynamic = "force-dynamic";
+type AppRole = "headquarters" | "agency" | "sub_agency";
 
-type AgencyRow = {
+type Profile = {
+  role: AppRole;
+  agency_id: string | null;
+};
+
+type Agency = {
   id: string;
+  agency_name: string | null;
   name: string | null;
-  agency_name?: string | null;
   parent_agency_id: string | null;
 };
 
-type BillingRow = {
+type Billing = {
   id: string;
   customer_id: string | null;
   amount: number | null;
-  status: string | null;
+  status: "pending" | "paid" | "failed" | null;
   billing_month: string | null;
-  paid_date: string | null;
   due_date: string | null;
-  customers: {
-    id: string;
-    company_name: string | null;
-    agency_id: string | null;
-    agencies: {
-      id: string;
-      name: string | null;
-      agency_name?: string | null;
-      parent_agency_id: string | null;
-    } | null;
+  paid_date: string | null;
+  created_at: string | null;
+  customers?: {
+    id?: string | null;
+    agency_id?: string | null;
+    name?: string | null;
+    company_name?: string | null;
+    store_name?: string | null;
+    representative_name?: string | null;
   } | null;
 };
 
-function toBillingRows(value: unknown): BillingRow[] {
-  if (!Array.isArray(value)) return [];
-  return value as BillingRow[];
-}
-
-async function resolveVisibleAgencyIds(
-  profile: CurrentProfile | null
-): Promise<string[] | null> {
-  if (!profile) return [];
-
-  if (profile.role === "headquarters") {
-    return null;
-  }
-
-  if (!profile.agency_id) {
-    return [];
-  }
-
-  if (profile.role === "sub_agency") {
-    return [profile.agency_id];
-  }
-
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("agencies")
-    .select("id,name,agency_name,parent_agency_id")
-    .eq("parent_agency_id", profile.agency_id);
-
-  if (error) {
-    console.error("resolveVisibleAgencyIds error:", error);
-    return [];
-  }
-
-  const children = (Array.isArray(data) ? data : []) as AgencyRow[];
-  return [profile.agency_id, ...children.map((row) => row.id)];
-}
-
-async function loadBillings(profile: CurrentProfile | null) {
-  const supabase = await createClient();
-  const visibleAgencyIds = await resolveVisibleAgencyIds(profile);
-
-  const { data, error } = await supabase
-    .from("billings")
-    .select(
-      `
-      id,
-      customer_id,
-      amount,
-      status,
-      billing_month,
-      paid_date,
-      due_date,
-      customers:customer_id (
-        id,
-        company_name,
-        agency_id,
-        agencies:agency_id (
-          id,
-          name,
-          agency_name,
-          parent_agency_id
-        )
-      )
-    `
-    )
-    .order("billing_month", { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-
-  const rows = toBillingRows(data);
-
-  if (!profile) {
-    return {
-      rows: [],
-      visibleAgencyIds: [] as string[],
-    };
-  }
-
-  if (profile.role === "headquarters") {
-    return {
-      rows,
-      visibleAgencyIds: [] as string[],
-    };
-  }
-
-  const filtered = rows.filter((row) => {
-    const agencyId = row.customers?.agency_id ?? null;
-    if (!agencyId) return false;
-    return (visibleAgencyIds ?? []).includes(agencyId);
-  });
-
-  return {
-    rows: filtered,
-    visibleAgencyIds: visibleAgencyIds ?? [],
-  };
-}
-
-function yen(value: number | null | undefined) {
-  return `¥${Number(value ?? 0).toLocaleString()}`;
-}
-
-function agencyLabel(row: BillingRow) {
+function isAppRole(value: unknown): value is AppRole {
   return (
-    row.customers?.agencies?.name ||
-    row.customers?.agencies?.agency_name ||
-    row.customers?.agency_id ||
-    "-"
+    value === "headquarters" ||
+    value === "agency" ||
+    value === "sub_agency"
   );
 }
 
-function badgeClass(status: string | null) {
-  if (status === "paid") {
-    return "bg-green-100 text-green-700";
-  }
-  if (status === "pending") {
-    return "bg-yellow-100 text-yellow-700";
-  }
-  if (status === "failed") {
-    return "bg-red-100 text-red-700";
-  }
-  return "bg-gray-100 text-gray-600";
-}
+export default function BillingsPage() {
+  const [loading, setLoading] = useState(true);
+  const [billings, setBillings] = useState<Billing[]>([]);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-function statusLabel(status: string | null) {
-  if (status === "paid") return "回収済";
-  if (status === "pending") return "未回収";
-  if (status === "failed") return "回収不能";
-  return status ?? "-";
-}
+  useEffect(() => {
+    void fetchBillingsPageData();
+  }, []);
 
-export default async function BillingsPage() {
-  const profile = await getCurrentProfile();
+  async function fetchBillingsPageData() {
+    try {
+      setLoading(true);
 
-  if (!profile) {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        alert("ログイン状態を確認できませんでした。再ログインしてください。");
+        return;
+      }
+
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, agency_id")
+        .eq("user_id", user.id)
+        .single();
+
+      if (profileError || !profileData || !isAppRole(profileData.role)) {
+        alert("プロフィール情報の取得に失敗しました");
+        return;
+      }
+
+      const currentProfile: Profile = {
+        role: profileData.role,
+        agency_id: profileData.agency_id ?? null,
+      };
+
+      setProfile(currentProfile);
+
+      const { data: agenciesData, error: agenciesError } = await supabase
+        .from("agencies")
+        .select("id, agency_name, name, parent_agency_id")
+        .order("created_at", { ascending: false });
+
+      if (agenciesError) {
+        alert("代理店一覧の取得に失敗しました");
+        return;
+      }
+
+      const allAgencies = (agenciesData ?? []) as Agency[];
+      setAgencies(allAgencies);
+
+      let visibleAgencyIds: string[] = [];
+
+      if (currentProfile.role === "headquarters") {
+        visibleAgencyIds = allAgencies.map((agency) => agency.id);
+      } else if (currentProfile.role === "agency") {
+        const ownAgencyId = currentProfile.agency_id;
+
+        if (!ownAgencyId) {
+          alert("代理店情報が未設定のため請求一覧を取得できません");
+          return;
+        }
+
+        const childAgencyIds = allAgencies
+          .filter((agency) => agency.parent_agency_id === ownAgencyId)
+          .map((agency) => agency.id);
+
+        visibleAgencyIds = [ownAgencyId, ...childAgencyIds];
+      } else {
+        const ownAgencyId = currentProfile.agency_id;
+
+        if (!ownAgencyId) {
+          alert("代理店情報が未設定のため請求一覧を取得できません");
+          return;
+        }
+
+        visibleAgencyIds = [ownAgencyId];
+      }
+
+      const { data: billingsData, error: billingsError } = await supabase
+        .from("billings")
+        .select(
+          `
+          id,
+          customer_id,
+          amount,
+          status,
+          billing_month,
+          due_date,
+          paid_date,
+          created_at,
+          customers:customer_id (
+            id,
+            agency_id,
+            name,
+            company_name,
+            store_name,
+            representative_name
+          )
+        `
+        )
+        .order("billing_month", { ascending: false });
+
+      if (billingsError) {
+        alert(`請求一覧の取得に失敗しました: ${billingsError.message}`);
+        return;
+      }
+
+      const rawBillings = (billingsData ?? []) as Billing[];
+
+      const filteredByRole =
+        currentProfile.role === "headquarters"
+          ? rawBillings
+          : rawBillings.filter((billing) => {
+              const customerAgencyId = billing.customers?.agency_id ?? null;
+              return customerAgencyId
+                ? visibleAgencyIds.includes(customerAgencyId)
+                : false;
+            });
+
+      setBillings(filteredByRole);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteBilling(billing: Billing) {
+    const label = getCustomerLabel(billing);
+
+    const confirmed = window.confirm(
+      `「${label} / ${billing.billing_month || "対象月未設定"}」の請求を削除しますか？\n\nこの操作は取り消せません。`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(billing.id);
+
+      const { error } = await supabase
+        .from("billings")
+        .delete()
+        .eq("id", billing.id);
+
+      if (error) {
+        alert(`請求削除に失敗しました: ${error.message}`);
+        return;
+      }
+
+      alert("請求を削除しました");
+      setBillings((prev) => prev.filter((item) => item.id !== billing.id));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const agencyMap = useMemo(() => {
+    return new Map(
+      agencies.map((agency) => [
+        agency.id,
+        agency.agency_name || agency.name || "名称未設定",
+      ])
+    );
+  }, [agencies]);
+
+  const filteredBillings = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+
+    return billings.filter((billing) => {
+      const agencyName = billing.customers?.agency_id
+        ? agencyMap.get(billing.customers.agency_id) || ""
+        : "";
+
+      const customerLabel = getCustomerLabel(billing);
+
+      const matchesSearch =
+        !keyword ||
+        [
+          customerLabel,
+          agencyName,
+          billing.billing_month,
+          billing.status,
+          billing.due_date,
+          billing.paid_date,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keyword));
+
+      const matchesStatus =
+        !statusFilter || (billing.status || "") === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [billings, search, statusFilter, agencyMap]);
+
+  const totalAmount = useMemo(() => {
+    return filteredBillings.reduce(
+      (sum, billing) => sum + Number(billing.amount ?? 0),
+      0
+    );
+  }, [filteredBillings]);
+
+  function getCustomerLabel(billing: Billing) {
     return (
-      <div className="p-4 pb-24">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          プロフィールを取得できませんでした。ログイン状態を確認してください。
-        </div>
+      billing.customers?.company_name ||
+      billing.customers?.name ||
+      billing.customers?.store_name ||
+      billing.customers?.representative_name ||
+      "名称未設定"
+    );
+  }
+
+  function getAgencyLabel(billing: Billing) {
+    const customerAgencyId = billing.customers?.agency_id ?? null;
+    if (!customerAgencyId) return "-";
+    return agencyMap.get(customerAgencyId) || "-";
+  }
+
+  function getStatusLabel(status: Billing["status"]) {
+    if (status === "pending") return "未回収";
+    if (status === "paid") return "入金済み";
+    if (status === "failed") return "回収不能";
+    return "-";
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-7xl p-6">
+        <div className="rounded-2xl border bg-white p-6">読込中...</div>
       </div>
     );
   }
 
-  try {
-    const { rows, visibleAgencyIds } = await loadBillings(profile);
-
-    const totalAmount = rows.reduce((sum, row) => {
-      return sum + Number(row.amount ?? 0);
-    }, 0);
-
-    const pendingAmount = rows
-      .filter((row) => row.status === "pending")
-      .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-
-    const paidAmount = rows
-      .filter((row) => row.status === "paid")
-      .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-
-    const failedAmount = rows
-      .filter((row) => row.status === "failed")
-      .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-
-    return (
-      <div className="p-4 pb-24 space-y-4">
-        <div className="space-y-1">
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
           <h1 className="text-2xl font-bold">請求一覧</h1>
-          <p className="text-sm text-gray-500">
-            権限: <span className="font-semibold">{profile.role}</span>
-            {profile.agency_id ? (
-              <>
-                {" "}
-                / agency_id:{" "}
-                <span className="font-semibold">{profile.agency_id}</span>
-              </>
-            ) : null}
-          </p>
-          <p className="text-sm text-gray-500">
-            請求書・領収書の印刷 / PDF保存 / メール送信用データ出力に対応
+          <p className="mt-1 text-sm text-gray-500">
+            {profile?.role === "headquarters"
+              ? "本部表示"
+              : profile?.role === "agency"
+              ? "一次代理店表示"
+              : "二次代理店表示"}
           </p>
         </div>
+      </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">請求件数</p>
-            <p className="mt-2 text-2xl font-bold">{rows.length}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">総請求額</p>
-            <p className="mt-2 text-2xl font-bold">{yen(totalAmount)}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">未回収</p>
-            <p className="mt-2 text-2xl font-bold">{yen(pendingAmount)}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">回収済</p>
-            <p className="mt-2 text-2xl font-bold">{yen(paidAmount)}</p>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-sm text-gray-500">件数</div>
+          <div className="mt-2 text-2xl font-bold">
+            {filteredBillings.length}件
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <p className="text-xs text-gray-500">回収不能</p>
-            <p className="mt-2 text-2xl font-bold">{yen(failedAmount)}</p>
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-sm text-gray-500">請求合計</div>
+          <div className="mt-2 text-2xl font-bold">
+            ¥{totalAmount.toLocaleString()}
           </div>
-
-          {profile.role !== "headquarters" && (
-            <div className="rounded-2xl border bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold">表示対象代理店ID</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {visibleAgencyIds.length > 0 ? (
-                  visibleAgencyIds.map((id) => (
-                    <span
-                      key={id}
-                      className="rounded-full border px-3 py-1 text-xs text-gray-700"
-                    >
-                      {id}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-sm text-gray-500">対象なし</span>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
-        {rows.length === 0 ? (
-          <div className="rounded-2xl border bg-white p-6 text-sm text-gray-500 shadow-sm">
-            表示できる請求データがありません。
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="text-sm text-gray-500">未回収件数</div>
+          <div className="mt-2 text-2xl font-bold">
+            {filteredBillings.filter((item) => item.status === "pending").length}
+            件
           </div>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left">
-                  <th className="px-4 py-3 font-semibold">請求月</th>
-                  <th className="px-4 py-3 font-semibold">顧客名</th>
-                  <th className="px-4 py-3 font-semibold">代理店</th>
-                  <th className="px-4 py-3 font-semibold">金額</th>
-                  <th className="px-4 py-3 font-semibold">ステータス</th>
-                  <th className="px-4 py-3 font-semibold">支払期限</th>
-                  <th className="px-4 py-3 font-semibold">入金日</th>
-                  <th className="px-4 py-3 font-semibold">帳票</th>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-sm font-medium">検索</label>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="顧客名・代理店名・請求月など"
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium">ステータス</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2"
+            >
+              <option value="">すべて</option>
+              <option value="pending">未回収</option>
+              <option value="paid">入金済み</option>
+              <option value="failed">回収不能</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border bg-white">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-left">
+            <tr>
+              <th className="px-4 py-3 font-medium">請求月</th>
+              <th className="px-4 py-3 font-medium">顧客</th>
+              <th className="px-4 py-3 font-medium">代理店</th>
+              <th className="px-4 py-3 font-medium">金額</th>
+              <th className="px-4 py-3 font-medium">期限</th>
+              <th className="px-4 py-3 font-medium">入金日</th>
+              <th className="px-4 py-3 font-medium">状態</th>
+              <th className="px-4 py-3 font-medium">帳票</th>
+              <th className="px-4 py-3 font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredBillings.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                  請求データがありません
+                </td>
+              </tr>
+            ) : (
+              filteredBillings.map((billing) => (
+                <tr key={billing.id} className="border-t">
+                  <td className="px-4 py-3">{billing.billing_month || "-"}</td>
+                  <td className="px-4 py-3">{getCustomerLabel(billing)}</td>
+                  <td className="px-4 py-3">{getAgencyLabel(billing)}</td>
+                  <td className="px-4 py-3">
+                    ¥{Number(billing.amount ?? 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">{billing.due_date || "-"}</td>
+                  <td className="px-4 py-3">{billing.paid_date || "-"}</td>
+                  <td className="px-4 py-3">{getStatusLabel(billing.status)}</td>
+                  <td className="px-4 py-3">
+                    <BillingActionsClient billingId={billing.id} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <Link
+                        href={`/billings/${billing.id}`}
+                        className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      >
+                        詳細
+                      </Link>
+                      <Link
+                        href={`/billings/${billing.id}/edit`}
+                        className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
+                      >
+                        編集
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteBilling(billing)}
+                        disabled={deletingId === billing.id}
+                        className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingId === billing.id ? "削除中..." : "削除"}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const canReceipt = Boolean(row.paid_date);
-
-                  return (
-                    <tr key={row.id} className="border-t align-top">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.billing_month ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.customers?.company_name ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {agencyLabel(row)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {yen(row.amount)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-medium ${badgeClass(
-                            row.status
-                          )}`}
-                        >
-                          {statusLabel(row.status)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.due_date ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {row.paid_date ?? "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <BillingActionsClient
-                          billingId={row.id}
-                          canReceipt={canReceipt}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
-    );
-  } catch (error) {
-    console.error("billings page error:", error);
-
-    return (
-      <div className="p-4 pb-24">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          請求一覧の取得に失敗しました。
-        </div>
-      </div>
-    );
-  }
+    </div>
+  );
 }
