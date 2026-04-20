@@ -112,7 +112,7 @@ async function parseJsonSafely(res: Response) {
       success: false,
       error:
         rawText.startsWith("<!DOCTYPE") || rawText.startsWith("<html")
-          ? "APIがHTMLエラーを返しました。/api/generate-document 側でエラーが出ています。"
+          ? "APIがHTMLエラーを返しました。API側でエラーが出ています。"
           : rawText || "不明なレスポンスです",
     };
   }
@@ -169,24 +169,6 @@ export default function BillingActionsClient({
       const email = window.prompt("送信先メールアドレスを入力してください");
       if (!email) return;
 
-      const generateRes = await fetch("/api/generate-document", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          document_type: documentType,
-          billing_id: billingId,
-        }),
-      });
-
-      const generateJson = await parseJsonSafely(generateRes);
-
-      if (!generateRes.ok || !generateJson.success) {
-        alert(generateJson.error || "帳票生成に失敗しました");
-        return;
-      }
-
       const sendRes = await fetch("/api/send-document", {
         method: "POST",
         headers: {
@@ -194,11 +176,12 @@ export default function BillingActionsClient({
         },
         body: JSON.stringify({
           to_email: email,
+          billing_id: billingId,
+          document_type: documentType,
           subject:
             documentType === "invoice"
               ? `請求書送付（${label}）`
               : `領収書送付（${label}）`,
-          html: generateJson.html,
         }),
       });
 

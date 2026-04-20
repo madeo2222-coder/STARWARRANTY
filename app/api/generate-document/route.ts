@@ -43,10 +43,25 @@ type AgencyRow = {
   id: string;
   agency_name: string | null;
   name: string | null;
+  postal_code: string | null;
   address: string | null;
   phone: string | null;
   email: string | null;
+  representative_name: string | null;
+  logo_url: string | null;
   parent_agency_id: string | null;
+};
+
+type HeadquartersSettingsRow = {
+  id: string;
+  company_name: string | null;
+  representative_name: string | null;
+  email: string | null;
+  phone: string | null;
+  postal_code: string | null;
+  address: string | null;
+  note: string | null;
+  logo_url: string | null;
 };
 
 type GenerateDocumentBody = {
@@ -55,11 +70,14 @@ type GenerateDocumentBody = {
   billingId?: string;
 };
 
-const HEADQUARTERS_COMPANY = {
-  name: "StarRevenue株式会社",
-  address: "〒101-0048 東京都千代田区神田司町2-14 大鷹ビル801",
-  phone: "090-3325-2664",
+const HEADQUARTERS_FALLBACK = {
+  company_name: "StarRevenue株式会社",
+  representative_name: "",
   email: "fusumada@star-group2014.com",
+  phone: "090-3325-2664",
+  postal_code: "101-0048",
+  address: "東京都千代田区神田司町2-14 大鷹ビル801",
+  logo_url: "",
   invoice_number: "T9290001093717",
 };
 
@@ -67,14 +85,14 @@ function getCustomerRow(
   value: BillingCustomerRow | BillingCustomerRow[] | null
 ): BillingCustomerRow | null {
   if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function getContractRow(
   value: BillingContractRow | BillingContractRow[] | null
 ): BillingContractRow | null {
   if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function escapeHtml(value: string) {
@@ -124,6 +142,36 @@ function buildInvoiceNo(billingId: string, billingMonth: string | null) {
 function buildReceiptNo(billingId: string, paidDate: string | null) {
   const dateKey = (paidDate || "0000-00-00").replace(/[^0-9]/g, "");
   return `REC-${dateKey}-${billingId.slice(0, 8).toUpperCase()}`;
+}
+
+function formatPostalCode(value: string | null | undefined) {
+  if (!value) return "";
+
+  const raw = String(value).trim();
+  if (!raw) return "";
+
+  if (/^\d{7}$/.test(raw)) {
+    return `〒${raw.slice(0, 3)}-${raw.slice(3)}`;
+  }
+
+  if (/^\d{3}-\d{4}$/.test(raw)) {
+    return `〒${raw}`;
+  }
+
+  return raw.startsWith("〒") ? raw : `〒${raw}`;
+}
+
+function buildIssuerAddress(
+  postalCode: string | null | undefined,
+  address: string | null | undefined
+) {
+  const postal = formatPostalCode(postalCode);
+  const addr = (address || "").trim();
+
+  if (postal && addr) return `${postal} ${addr}`;
+  if (postal) return postal;
+  if (addr) return addr;
+  return "";
 }
 
 async function resolveVisibleAgencyIds(
@@ -196,6 +244,14 @@ function sharedDocumentStyles() {
     .company-box {
       text-align: right;
       max-width: 360px;
+    }
+    .logo-wrap {
+      margin-bottom: 12px;
+    }
+    .company-logo {
+      max-width: 160px;
+      max-height: 80px;
+      object-fit: contain;
     }
     .company-name {
       font-size: 24px;
@@ -305,13 +361,29 @@ function createCompanyBoxHtml(params: {
   issuerPhone: string;
   issuerEmail: string;
   issuerInvoiceNumber: string;
+  issuerRepresentativeName: string;
+  issuerLogoUrl: string;
 }) {
   return `
     <div class="company-box">
+      ${
+        params.issuerLogoUrl
+          ? `<div class="logo-wrap"><img class="company-logo" src="${escapeHtml(
+              params.issuerLogoUrl
+            )}" alt="company logo" /></div>`
+          : ""
+      }
       <div class="company-name">${escapeHtml(params.issuerName)}</div>
       <div class="company-line">${escapeHtml(params.issuerAddress || "-")}</div>
       <div class="company-line">TEL：${escapeHtml(params.issuerPhone || "-")}</div>
       <div class="company-line">Email：${escapeHtml(params.issuerEmail || "-")}</div>
+      ${
+        params.issuerRepresentativeName
+          ? `<div class="company-line">担当者：${escapeHtml(
+              params.issuerRepresentativeName
+            )}</div>`
+          : ""
+      }
       <div class="company-line">登録番号：${escapeHtml(
         params.issuerInvoiceNumber || "未登録"
       )}</div>
@@ -337,6 +409,8 @@ function createInvoiceHtml(params: {
   issuerPhone: string;
   issuerEmail: string;
   issuerInvoiceNumber: string;
+  issuerRepresentativeName: string;
+  issuerLogoUrl: string;
 }) {
   return `
 <!doctype html>
@@ -362,6 +436,8 @@ function createInvoiceHtml(params: {
         issuerPhone: params.issuerPhone,
         issuerEmail: params.issuerEmail,
         issuerInvoiceNumber: params.issuerInvoiceNumber,
+        issuerRepresentativeName: params.issuerRepresentativeName,
+        issuerLogoUrl: params.issuerLogoUrl,
       })}
     </div>
 
@@ -432,6 +508,8 @@ function createReceiptHtml(params: {
   issuerPhone: string;
   issuerEmail: string;
   issuerInvoiceNumber: string;
+  issuerRepresentativeName: string;
+  issuerLogoUrl: string;
 }) {
   return `
 <!doctype html>
@@ -457,6 +535,8 @@ function createReceiptHtml(params: {
         issuerPhone: params.issuerPhone,
         issuerEmail: params.issuerEmail,
         issuerInvoiceNumber: params.issuerInvoiceNumber,
+        issuerRepresentativeName: params.issuerRepresentativeName,
+        issuerLogoUrl: params.issuerLogoUrl,
       })}
     </div>
 
@@ -492,7 +572,9 @@ function createReceiptHtml(params: {
         </tr>
         <tr>
           <td>但し書き</td>
-          <td>${escapeHtml(`${params.billingMonthLabel} サービス利用料として`)}</td>
+          <td>${escapeHtml(
+            `${params.billingMonthLabel} サービス利用料として`
+          )}</td>
         </tr>
         <tr>
           <td>領収金額</td>
@@ -528,7 +610,10 @@ export async function POST(req: Request) {
     const documentType = body.document_type;
     const billingId = body.billing_id?.trim() || body.billingId?.trim();
 
-    if (!documentType || (documentType !== "invoice" && documentType !== "receipt")) {
+    if (
+      !documentType ||
+      (documentType !== "invoice" && documentType !== "receipt")
+    ) {
       return NextResponse.json(
         { success: false, error: "document_type が不正です" },
         { status: 400 }
@@ -600,7 +685,10 @@ export async function POST(req: Request) {
     const visibleAgencyIds = await resolveVisibleAgencyIds(profile);
 
     if (profile.role !== "headquarters") {
-      if (!billingAgencyId || !(visibleAgencyIds || []).includes(billingAgencyId)) {
+      if (
+        !billingAgencyId ||
+        !(visibleAgencyIds || []).includes(billingAgencyId)
+      ) {
         return NextResponse.json(
           { success: false, error: "この請求データへのアクセス権限がありません" },
           { status: 403 }
@@ -615,13 +703,70 @@ export async function POST(req: Request) {
       );
     }
 
-    let issuerName = HEADQUARTERS_COMPANY.name;
-    let issuerAddress = HEADQUARTERS_COMPANY.address;
-    let issuerPhone = HEADQUARTERS_COMPANY.phone;
-    let issuerEmail = HEADQUARTERS_COMPANY.email;
-    let issuerInvoiceNumber = HEADQUARTERS_COMPANY.invoice_number;
+    let issuerName = HEADQUARTERS_FALLBACK.company_name;
+    let issuerAddress = buildIssuerAddress(
+      HEADQUARTERS_FALLBACK.postal_code,
+      HEADQUARTERS_FALLBACK.address
+    );
+    let issuerPhone = HEADQUARTERS_FALLBACK.phone;
+    let issuerEmail = HEADQUARTERS_FALLBACK.email;
+    let issuerInvoiceNumber = HEADQUARTERS_FALLBACK.invoice_number;
+    let issuerRepresentativeName = HEADQUARTERS_FALLBACK.representative_name;
+    let issuerLogoUrl = HEADQUARTERS_FALLBACK.logo_url;
 
-    if (profile.role !== "headquarters" && profile.agency_id) {
+    if (profile.role === "headquarters") {
+      const { data: headquarters, error: headquartersError } = await supabase
+        .from("headquarters_settings")
+        .select(
+          `
+          id,
+          company_name,
+          representative_name,
+          email,
+          phone,
+          postal_code,
+          address,
+          note,
+          logo_url
+        `
+        )
+        .limit(1)
+        .single();
+
+      if (headquartersError) {
+        console.error("headquarters_settings read error:", headquartersError);
+        return NextResponse.json(
+          {
+            success: false,
+            error: `本部設定の取得に失敗しました: ${headquartersError.message}`,
+          },
+          { status: 500 }
+        );
+      }
+
+      const hq = headquarters as HeadquartersSettingsRow | null;
+
+      if (!hq) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "本部設定が見つかりませんでした",
+          },
+          { status: 500 }
+        );
+      }
+
+      issuerName = hq.company_name || HEADQUARTERS_FALLBACK.company_name;
+      issuerAddress = buildIssuerAddress(
+        hq.postal_code || HEADQUARTERS_FALLBACK.postal_code,
+        hq.address || HEADQUARTERS_FALLBACK.address
+      );
+      issuerPhone = hq.phone || HEADQUARTERS_FALLBACK.phone;
+      issuerEmail = hq.email || HEADQUARTERS_FALLBACK.email;
+      issuerRepresentativeName =
+        hq.representative_name || HEADQUARTERS_FALLBACK.representative_name;
+      issuerLogoUrl = hq.logo_url || HEADQUARTERS_FALLBACK.logo_url;
+    } else if (profile.agency_id) {
       const { data: agencyData } = await supabase
         .from("agencies")
         .select(
@@ -629,9 +774,12 @@ export async function POST(req: Request) {
           id,
           agency_name,
           name,
+          postal_code,
           address,
           phone,
           email,
+          representative_name,
+          logo_url,
           parent_agency_id
         `
         )
@@ -642,10 +790,12 @@ export async function POST(req: Request) {
 
       if (agency) {
         issuerName = agency.agency_name || agency.name || "代理店未設定";
-        issuerAddress = agency.address || "";
+        issuerAddress = buildIssuerAddress(agency.postal_code, agency.address);
         issuerPhone = agency.phone || "";
         issuerEmail = agency.email || "";
         issuerInvoiceNumber = "未登録";
+        issuerRepresentativeName = agency.representative_name || "";
+        issuerLogoUrl = agency.logo_url || "";
       }
     }
 
@@ -677,6 +827,8 @@ export async function POST(req: Request) {
             issuerPhone,
             issuerEmail,
             issuerInvoiceNumber,
+            issuerRepresentativeName,
+            issuerLogoUrl,
           })
         : createReceiptHtml({
             customerName,
@@ -693,6 +845,8 @@ export async function POST(req: Request) {
             issuerPhone,
             issuerEmail,
             issuerInvoiceNumber,
+            issuerRepresentativeName,
+            issuerLogoUrl,
           });
 
     return NextResponse.json({

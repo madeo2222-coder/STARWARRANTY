@@ -2,894 +2,662 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
+type AppRole = "headquarters" | "agency" | "sub_agency";
+
+type Profile = {
+  role: AppRole;
+  agency_id: string | null;
+};
 
 type Agency = {
   id: string;
-  name: string;
+  agency_name: string | null;
+  name: string | null;
+  parent_agency_id: string | null;
+  representative_name: string | null;
+  email: string | null;
+  phone: string | null;
+  postal_code: string | null;
+  address: string | null;
+  note: string | null;
+  contact_person: string | null;
+  memo: string | null;
+  logo_url: string | null;
+  created_at?: string | null;
 };
 
-type Contract = {
-  id: string;
-  agency_id: string | null;
-  amount: number | null;
-  cost: number | null;
-  commission: number | null;
-};
+const LOGO_BUCKET = "agency-logos";
+const MAX_LOGO_SIZE_MB = 5;
 
-type Billing = {
-  id: string;
-  contract_id: string;
-  status: "pending" | "paid" | "failed" | string;
-  amount: number | null;
-  due_date: string | null;
-  paid_date: string | null;
-};
+export default function AgencyEditPage() {
+  const params = useParams();
+  const supabase = useMemo(() => createClient(), []);
+  const agencyId = params.id as string;
 
-type AgencyRow = {
-  id: string;
-  name: string;
-  sales: number;
-  grossProfit: number;
-  unpaid: number;
-  totalBillings: number;
-  paidBillings: number;
-  collectionRate: number;
-  warningLevel: "danger" | "warning" | "normal";
-  contractCount: number;
-};
-
-type SortKey =
-  | "name"
-  | "sales"
-  | "grossProfit"
-  | "unpaid"
-  | "collectionRate";
-
-type FilterKey = "all" | "warningOrDanger" | "dangerOnly";
-
-type MonthlySummary = {
-  month: string;
-  label: string;
-  sales: number;
-  totalBillings: number;
-  paidBillings: number;
-  collectionRate: number;
-};
-
-type AgencyMonthlyRow = {
-  agencyId: string;
-  agencyName: string;
-  months: {
-    month: string;
-    sales: number;
-    collectionRate: number;
-  }[];
-};
-
-function formatYen(value: number) {
-  return `¥${value.toLocaleString()}`;
-}
-
-function getMonthKey(dateStr: string) {
-  return dateStr.slice(0, 7);
-}
-
-function getMonthLabel(monthKey: string) {
-  const [year, month] = monthKey.split("-");
-  return `${year}/${month}`;
-}
-
-function getRecentMonthKeys(count: number) {
-  const result: string[] = [];
-  const now = new Date();
-
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    result.push(`${y}-${m}`);
-  }
-
-  return result;
-}
-
-function getAlertLevel(billings: Billing[]): "danger" | "warning" | "normal" {
-  const today = new Date();
-  const msPerDay = 1000 * 60 * 60 * 24;
-
-  let hasWarning = false;
-  let hasDanger = false;
-
-  for (const billing of billings) {
-    if (billing.status !== "pending") continue;
-    if (!billing.due_date) continue;
-
-    const due = new Date(billing.due_date);
-    const diffDays = Math.ceil((due.getTime() - today.getTime()) / msPerDay);
-
-    if (diffDays < 0 || diffDays <= -30) {
-      hasDanger = true;
-      continue;
-    }
-
-    if (diffDays <= 3) {
-      hasDanger = true;
-      continue;
-    }
-
-    if (diffDays <= 14) {
-      hasWarning = true;
-    }
-  }
-
-  if (hasDanger) return "danger";
-  if (hasWarning) return "warning";
-  return "normal";
-}
-
-function alertBadge(level: "danger" | "warning" | "normal") {
-  if (level === "danger") {
-    return (
-      <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
-        危険
-      </span>
-    );
-  }
-
-  if (level === "warning") {
-    return (
-      <span className="rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-700">
-        要注意
-      </span>
-    );
-  }
-
-  return (
-    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
-      通常
-    </span>
-  );
-}
-
-function compareAlertPriority(
-  a: "danger" | "warning" | "normal",
-  b: "danger" | "warning" | "normal"
-) {
-  const priority = {
-    danger: 0,
-    warning: 1,
-    normal: 2,
-  };
-
-  return priority[a] - priority[b];
-}
-
-function rankingBadge(index: number) {
-  if (index === 0) {
-    return (
-      <span className="rounded-full bg-yellow-100 px-2 py-1 text-xs font-bold text-yellow-700">
-        1位
-      </span>
-    );
-  }
-
-  if (index === 1) {
-    return (
-      <span className="rounded-full bg-gray-200 px-2 py-1 text-xs font-bold text-gray-700">
-        2位
-      </span>
-    );
-  }
-
-  if (index === 2) {
-    return (
-      <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700">
-        3位
-      </span>
-    );
-  }
-
-  return (
-    <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
-      {index + 1}位
-    </span>
-  );
-}
-
-export default function AgenciesPage() {
-  const [agencies, setAgencies] = useState<Agency[]>([]);
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [billings, setBillings] = useState<Billing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
-  const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("sales");
-  const [filterKey, setFilterKey] = useState<FilterKey>("all");
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [agency, setAgency] = useState<Agency | null>(null);
+
+  const [agencyName, setAgencyName] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [representativeName, setRepresentativeName] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [address, setAddress] = useState("");
+  const [note, setNote] = useState("");
+  const [memo, setMemo] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [selectedLogoName, setSelectedLogoName] = useState("");
+
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!agencyId) return;
+    void loadPageData();
+  }, [agencyId]);
 
-  async function fetchData() {
+  async function loadPageData() {
     setLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
 
-    const [agenciesRes, contractsRes, billingsRes] = await Promise.all([
-      supabase.from("agencies").select("id, name").order("name", { ascending: true }),
-      supabase.from("contracts").select("id, agency_id, amount, cost, commission"),
-      supabase
-        .from("billings")
-        .select("id, contract_id, status, amount, due_date, paid_date"),
-    ]);
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    if (agenciesRes.error) {
-      console.error("agencies error:", agenciesRes.error);
-    }
-    if (contractsRes.error) {
-      console.error("contracts error:", contractsRes.error);
-    }
-    if (billingsRes.error) {
-      console.error("billings error:", billingsRes.error);
-    }
+      if (userError) {
+        throw new Error(userError.message);
+      }
 
-    setAgencies(agenciesRes.data || []);
-    setContracts(contractsRes.data || []);
-    setBillings((billingsRes.data || []) as Billing[]);
-    setLoading(false);
+      if (!user) {
+        throw new Error("ログイン情報が取得できませんでした");
+      }
+
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, agency_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        throw new Error(profileError.message);
+      }
+
+      if (!profileData) {
+        throw new Error("プロフィールが見つかりません");
+      }
+
+      const currentProfile = profileData as Profile;
+      setProfile(currentProfile);
+
+      if (!currentProfile.agency_id) {
+        throw new Error("代理店情報がプロフィールに紐づいていません");
+      }
+
+      if (
+        currentProfile.role !== "headquarters" &&
+        currentProfile.agency_id !== agencyId
+      ) {
+        throw new Error("自店以外のマイページは開けません");
+      }
+
+      const { data: agencyData, error: agencyError } = await supabase
+        .from("agencies")
+        .select(
+          `
+          id,
+          agency_name,
+          name,
+          parent_agency_id,
+          representative_name,
+          email,
+          phone,
+          postal_code,
+          address,
+          note,
+          contact_person,
+          memo,
+          logo_url,
+          created_at
+        `
+        )
+        .eq("id", agencyId)
+        .single();
+
+      if (agencyError || !agencyData) {
+        throw new Error(
+          agencyError?.message || "代理店情報の取得に失敗しました"
+        );
+      }
+
+      const currentAgency = agencyData as Agency;
+      setAgency(currentAgency);
+
+      setAgencyName(currentAgency.agency_name || "");
+      setDisplayName(currentAgency.name || "");
+      setRepresentativeName(currentAgency.representative_name || "");
+      setContactPerson(currentAgency.contact_person || "");
+      setEmail(currentAgency.email || "");
+      setPhone(currentAgency.phone || "");
+      setPostalCode(currentAgency.postal_code || "");
+      setAddress(currentAgency.address || "");
+      setNote(currentAgency.note || "");
+      setMemo(currentAgency.memo || "");
+      setLogoUrl(currentAgency.logo_url || "");
+      setSelectedLogoName("");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "データ取得に失敗しました";
+      setErrorMessage(message);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const rows = useMemo<AgencyRow[]>(() => {
-    const baseAgencies: Agency[] = [
-      ...agencies,
-      {
-        id: "unassigned",
-        name: "未設定",
-      },
-    ];
+  function sanitizePostalCode(value: string) {
+    return value.replace(/[^\d-]/g, "").slice(0, 8);
+  }
 
-    return baseAgencies.map((agency) => {
-      const agencyContracts = contracts.filter((contract) => {
-        if (agency.id === "unassigned") {
-          return !contract.agency_id;
-        }
-        return contract.agency_id === agency.id;
-      });
+  function sanitizeFileName(fileName: string) {
+    return fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  }
 
-      const contractIds = agencyContracts.map((contract) => contract.id);
+  function getFileExtension(fileName: string) {
+    const parts = fileName.split(".");
+    if (parts.length < 2) return "";
+    return parts[parts.length - 1].toLowerCase();
+  }
 
-      const agencyBillings = billings.filter((billing) =>
-        contractIds.includes(billing.contract_id)
-      );
+  async function handleLogoUpload(file: File) {
+    try {
+      setUploadingLogo(true);
+      setErrorMessage("");
+      setSuccessMessage("");
 
-      const sales = agencyContracts.reduce(
-        (sum, contract) => sum + (contract.amount || 0),
-        0
-      );
-
-      const grossProfit = agencyContracts.reduce((sum, contract) => {
-        const amount = contract.amount || 0;
-        const cost = contract.cost || 0;
-        const commission = contract.commission || 0;
-        return sum + (amount - cost - commission);
-      }, 0);
-
-      const unpaid = agencyBillings
-        .filter((billing) => billing.status === "pending")
-        .reduce((sum, billing) => sum + (billing.amount || 0), 0);
-
-      const totalBillings = agencyBillings.length;
-      const paidBillings = agencyBillings.filter(
-        (billing) => billing.status === "paid"
-      ).length;
-
-      const collectionRate =
-        totalBillings === 0 ? 0 : Math.round((paidBillings / totalBillings) * 1000) / 10;
-
-      const warningLevel = getAlertLevel(agencyBillings);
-
-      return {
-        id: agency.id,
-        name: agency.name,
-        sales,
-        grossProfit,
-        unpaid,
-        totalBillings,
-        paidBillings,
-        collectionRate,
-        warningLevel,
-        contractCount: agencyContracts.length,
-      };
-    });
-  }, [agencies, contracts, billings]);
-
-  const filteredRows = useMemo(() => {
-    let result = rows.filter((row) =>
-      row.name.toLowerCase().includes(search.trim().toLowerCase())
-    );
-
-    if (filterKey === "warningOrDanger") {
-      result = result.filter(
-        (row) => row.warningLevel === "warning" || row.warningLevel === "danger"
-      );
-    }
-
-    if (filterKey === "dangerOnly") {
-      result = result.filter((row) => row.warningLevel === "danger");
-    }
-
-    result.sort((a, b) => {
-      const alertCompare = compareAlertPriority(a.warningLevel, b.warningLevel);
-      if (alertCompare !== 0) return alertCompare;
-
-      switch (sortKey) {
-        case "sales":
-          return b.sales - a.sales;
-        case "grossProfit":
-          return b.grossProfit - a.grossProfit;
-        case "unpaid":
-          return b.unpaid - a.unpaid;
-        case "collectionRate":
-          return b.collectionRate - a.collectionRate;
-        case "name":
-        default:
-          return a.name.localeCompare(b.name, "ja");
+      if (!profile?.agency_id) {
+        throw new Error("代理店情報がプロフィールに紐づいていません");
       }
-    });
 
-    return result;
-  }, [rows, search, sortKey, filterKey]);
+      if (profile.role !== "headquarters" && profile.agency_id !== agencyId) {
+        throw new Error("自店以外のロゴは更新できません");
+      }
 
-  const topDangerRows = useMemo(() => {
-    return rows
-      .filter((row) => row.warningLevel === "danger")
-      .sort((a, b) => b.unpaid - a.unpaid)
-      .slice(0, 3);
-  }, [rows]);
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+      if (!allowedTypes.includes(file.type)) {
+        throw new Error("PNG / JPG / WEBP の画像を選択してください");
+      }
 
-  const salesRanking = useMemo(() => {
-    return [...rows].sort((a, b) => b.sales - a.sales).slice(0, 5);
-  }, [rows]);
+      const maxBytes = MAX_LOGO_SIZE_MB * 1024 * 1024;
+      if (file.size > maxBytes) {
+        throw new Error(`画像サイズは ${MAX_LOGO_SIZE_MB}MB 以下にしてください`);
+      }
 
-  const grossProfitRanking = useMemo(() => {
-    return [...rows].sort((a, b) => b.grossProfit - a.grossProfit).slice(0, 5);
-  }, [rows]);
+      const extension = getFileExtension(file.name) || "png";
+      const safeFileName = sanitizeFileName(file.name);
+      const filePath = `${agencyId}/${Date.now()}-${safeFileName || `logo.${extension}`}`;
 
-  const unpaidRanking = useMemo(() => {
-    return [...rows].sort((a, b) => b.unpaid - a.unpaid).slice(0, 5);
-  }, [rows]);
-
-  const monthKeys = useMemo(() => {
-    return getRecentMonthKeys(6);
-  }, []);
-
-  const monthlySummary = useMemo<MonthlySummary[]>(() => {
-    return monthKeys.map((monthKey) => {
-      const monthlyBillings = billings.filter((billing) => {
-        if (!billing.due_date) return false;
-        return getMonthKey(billing.due_date) === monthKey;
-      });
-
-      const totalBillings = monthlyBillings.length;
-      const paidBillings = monthlyBillings.filter(
-        (billing) => billing.status === "paid"
-      ).length;
-      const sales = monthlyBillings.reduce(
-        (sum, billing) => sum + (billing.amount || 0),
-        0
-      );
-
-      const collectionRate =
-        totalBillings === 0 ? 0 : Math.round((paidBillings / totalBillings) * 1000) / 10;
-
-      return {
-        month: monthKey,
-        label: getMonthLabel(monthKey),
-        sales,
-        totalBillings,
-        paidBillings,
-        collectionRate,
-      };
-    });
-  }, [billings, monthKeys]);
-
-  const agencyMonthlyTrend = useMemo<AgencyMonthlyRow[]>(() => {
-    const topAgencyBase = [...rows]
-      .filter((row) => row.id !== "unassigned")
-      .sort((a, b) => b.sales - a.sales)
-      .slice(0, 5);
-
-    return topAgencyBase.map((agency) => {
-      const agencyContracts = contracts.filter(
-        (contract) => contract.agency_id === agency.id
-      );
-      const contractIds = agencyContracts.map((contract) => contract.id);
-
-      const months = monthKeys.map((monthKey) => {
-        const monthlyBillings = billings.filter((billing) => {
-          if (!contractIds.includes(billing.contract_id)) return false;
-          if (!billing.due_date) return false;
-          return getMonthKey(billing.due_date) === monthKey;
+      const { error: uploadError } = await supabase.storage
+        .from(LOGO_BUCKET)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
         });
 
-        const sales = monthlyBillings.reduce(
-          (sum, billing) => sum + (billing.amount || 0),
-          0
-        );
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
 
-        const totalBillings = monthlyBillings.length;
-        const paidBillings = monthlyBillings.filter(
-          (billing) => billing.status === "paid"
-        ).length;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(filePath);
 
-        const collectionRate =
-          totalBillings === 0 ? 0 : Math.round((paidBillings / totalBillings) * 1000) / 10;
+      const { error: updateError } = await supabase
+        .from("agencies")
+        .update({
+          logo_url: publicUrl,
+        })
+        .eq("id", agencyId);
 
-        return {
-          month: monthKey,
-          sales,
-          collectionRate,
-        };
-      });
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
 
-      return {
-        agencyId: agency.id,
-        agencyName: agency.name,
-        months,
-      };
-    });
-  }, [rows, contracts, billings, monthKeys]);
-
-  function exportCsv() {
-    const headers = [
-      "代理店名",
-      "契約件数",
-      "総売上",
-      "総粗利",
-      "未回収額",
-      "請求件数",
-      "入金済件数",
-      "回収率(%)",
-      "状態",
-    ];
-
-    const csvRows = filteredRows.map((row) => [
-      row.name,
-      row.contractCount,
-      row.sales,
-      row.grossProfit,
-      row.unpaid,
-      row.totalBillings,
-      row.paidBillings,
-      row.collectionRate,
-      row.warningLevel === "danger"
-        ? "危険"
-        : row.warningLevel === "warning"
-        ? "要注意"
-        : "通常",
-    ]);
-
-    const csvContent = [headers, ...csvRows]
-      .map((line) => line.map((cell) => `"${String(cell)}"`).join(","))
-      .join("\n");
-
-    const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
-    const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "agencies_kpi.csv";
-    link.click();
-
-    URL.revokeObjectURL(url);
+      setLogoUrl(publicUrl);
+      setSelectedLogoName(file.name);
+      setAgency((prev) =>
+        prev
+          ? {
+              ...prev,
+              logo_url: publicUrl,
+            }
+          : prev
+      );
+      setSuccessMessage("ロゴ画像を更新しました");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "ロゴ画像の更新に失敗しました";
+      setErrorMessage(message);
+    } finally {
+      setUploadingLogo(false);
+    }
   }
 
-  const totalSales = filteredRows.reduce((sum, row) => sum + row.sales, 0);
-  const totalGrossProfit = filteredRows.reduce((sum, row) => sum + row.grossProfit, 0);
-  const totalUnpaid = filteredRows.reduce((sum, row) => sum + row.unpaid, 0);
+  async function handleRemoveLogo() {
+    try {
+      setUploadingLogo(true);
+      setErrorMessage("");
+      setSuccessMessage("");
 
-  const totalBillings = filteredRows.reduce((sum, row) => sum + row.totalBillings, 0);
-  const totalPaidBillings = filteredRows.reduce((sum, row) => sum + row.paidBillings, 0);
-  const overallCollectionRate =
-    totalBillings === 0 ? 0 : Math.round((totalPaidBillings / totalBillings) * 1000) / 10;
+      if (!profile?.agency_id) {
+        throw new Error("代理店情報がプロフィールに紐づいていません");
+      }
+
+      if (profile.role !== "headquarters" && profile.agency_id !== agencyId) {
+        throw new Error("自店以外のロゴは更新できません");
+      }
+
+      const { error } = await supabase
+        .from("agencies")
+        .update({
+          logo_url: null,
+        })
+        .eq("id", agencyId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      setLogoUrl("");
+      setSelectedLogoName("");
+      setAgency((prev) =>
+        prev
+          ? {
+              ...prev,
+              logo_url: null,
+            }
+          : prev
+      );
+      setSuccessMessage("ロゴ画像を外しました");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "ロゴ画像の削除に失敗しました";
+      setErrorMessage(message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    setSaving(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      if (!profile?.agency_id) {
+        throw new Error("代理店情報がプロフィールに紐づいていません");
+      }
+
+      if (profile.role !== "headquarters" && profile.agency_id !== agencyId) {
+        throw new Error("自店以外は更新できません");
+      }
+
+      if (!agencyName.trim()) {
+        throw new Error("代理店名を入力してください");
+      }
+
+      const normalizedPostalCode = sanitizePostalCode(postalCode.trim());
+
+      const { error } = await supabase
+        .from("agencies")
+        .update({
+          agency_name: agencyName.trim(),
+          name: displayName.trim() || null,
+          representative_name: representativeName.trim() || null,
+          contact_person: contactPerson.trim() || null,
+          email: email.trim() || null,
+          phone: phone.trim() || null,
+          postal_code: normalizedPostalCode || null,
+          address: address.trim() || null,
+          note: note.trim() || null,
+          memo: memo.trim() || null,
+          logo_url: logoUrl.trim() || null,
+        })
+        .eq("id", agencyId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      setSuccessMessage("自店情報を更新しました");
+
+      setAgency((prev) =>
+        prev
+          ? {
+              ...prev,
+              agency_name: agencyName.trim(),
+              name: displayName.trim() || null,
+              representative_name: representativeName.trim() || null,
+              contact_person: contactPerson.trim() || null,
+              email: email.trim() || null,
+              phone: phone.trim() || null,
+              postal_code: normalizedPostalCode || null,
+              address: address.trim() || null,
+              note: note.trim() || null,
+              memo: memo.trim() || null,
+              logo_url: logoUrl.trim() || null,
+            }
+          : prev
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "更新に失敗しました";
+      setErrorMessage(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const roleLabel = useMemo(() => {
+    if (profile?.role === "headquarters") return "本部";
+    if (profile?.role === "agency") return "一次代理店";
+    if (profile?.role === "sub_agency") return "二次代理店";
+    return "-";
+  }, [profile]);
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-4xl p-6">
+        <div className="rounded-2xl border bg-white p-6">読み込み中...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">代理店一覧</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              売上・粗利・未回収・回収率を一覧で確認
-            </p>
-          </div>
+    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm text-gray-500">My Page</p>
+          <h1 className="text-2xl font-bold">自店情報変更</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            自店の基本情報とロゴ画像を変更できます
+          </p>
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={exportCsv}
-              className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm"
-            >
-              CSV出力
-            </button>
-            <Link
-              href="/agencies/new"
-              className="rounded-2xl bg-white px-4 py-2 text-sm font-medium text-gray-900 shadow-sm ring-1 ring-gray-200"
-            >
-              新規代理店登録
-            </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            ダッシュボードへ
+          </Link>
+          <Link
+            href="/agencies"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            代理店管理へ
+          </Link>
+        </div>
+      </div>
+
+      {errorMessage ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {successMessage}
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm text-gray-500">ロール</div>
+          <div className="mt-2 text-lg font-bold">{roleLabel}</div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm text-gray-500">代理店ID</div>
+          <div className="mt-2 break-all text-sm font-medium text-gray-800">
+            {agency?.id || "-"}
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">総売上</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">{formatYen(totalSales)}</p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">総粗利</p>
-            <p className="mt-2 text-xl font-bold text-gray-900">
-              {formatYen(totalGrossProfit)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">未回収額</p>
-            <p className="mt-2 text-xl font-bold text-red-600">
-              {formatYen(totalUnpaid)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-sm text-gray-500">全体回収率</p>
-            <p className="mt-2 text-xl font-bold text-blue-600">
-              {overallCollectionRate.toFixed(1)}%
-            </p>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">売上ランキング TOP5</h2>
-            </div>
-
-            <div className="space-y-3">
-              {salesRanking.map((row, index) => (
-                <div
-                  key={`sales-${row.id}`}
-                  className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    {rankingBadge(index)}
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                      <p className="text-xs text-gray-500">契約 {row.contractCount}件</p>
-                    </div>
-                  </div>
-                  <p className="text-sm font-bold text-gray-900">
-                    {formatYen(row.sales)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">粗利ランキング TOP5</h2>
-            </div>
-
-            <div className="space-y-3">
-              {grossProfitRanking.map((row, index) => (
-                <div
-                  key={`profit-${row.id}`}
-                  className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    {rankingBadge(index)}
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                      <p className="text-xs text-gray-500">
-                        回収率 {row.collectionRate.toFixed(1)}%
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-sm font-bold text-gray-900">
-                    {formatYen(row.grossProfit)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">未回収ランキング TOP5</h2>
-            </div>
-
-            <div className="space-y-3">
-              {unpaidRanking.map((row, index) => (
-                <div
-                  key={`unpaid-${row.id}`}
-                  className="flex items-center justify-between rounded-2xl bg-red-50 p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    {rankingBadge(index)}
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {row.warningLevel === "danger"
-                          ? "危険"
-                          : row.warningLevel === "warning"
-                          ? "要注意"
-                          : "通常"}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-sm font-bold text-red-600">
-                    {formatYen(row.unpaid)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">月別売上（直近6ヶ月）</h2>
-            </div>
-
-            <div className="space-y-3">
-              {monthlySummary.map((month) => (
-                <div
-                  key={month.month}
-                  className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{month.label}</p>
-                    <p className="text-xs text-gray-500">
-                      請求 {month.totalBillings}件 / 入金済 {month.paidBillings}件
-                    </p>
-                  </div>
-                  <p className="text-sm font-bold text-gray-900">
-                    {formatYen(month.sales)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">月別回収率（直近6ヶ月）</h2>
-            </div>
-
-            <div className="space-y-3">
-              {monthlySummary.map((month) => (
-                <div
-                  key={`rate-${month.month}`}
-                  className="rounded-2xl bg-gray-50 p-3"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-900">{month.label}</p>
-                    <p className="text-sm font-bold text-blue-600">
-                      {month.collectionRate.toFixed(1)}%
-                    </p>
-                  </div>
-
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-                    <div
-                      className="h-2 rounded-full bg-blue-500"
-                      style={{ width: `${Math.min(month.collectionRate, 100)}%` }}
-                    />
-                  </div>
-
-                  <p className="mt-2 text-xs text-gray-500">
-                    請求 {month.totalBillings}件 / 入金済 {month.paidBillings}件
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-900">
-              代理店別月次推移（売上 / 回収率）
-            </h2>
-            <p className="text-xs text-gray-500">売上上位5代理店を表示</p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-left text-gray-500">
-                  <th className="px-4 py-3 font-medium">代理店名</th>
-                  {monthKeys.map((monthKey) => (
-                    <th key={monthKey} className="px-4 py-3 font-medium">
-                      {getMonthLabel(monthKey)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {agencyMonthlyTrend.map((agency) => (
-                  <tr key={agency.agencyId} className="border-b border-gray-50">
-                    <td className="px-4 py-4 font-medium text-gray-900">
-                      {agency.agencyName}
-                    </td>
-                    {agency.months.map((month) => (
-                      <td key={month.month} className="px-4 py-4 align-top">
-                        <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-sm font-semibold text-gray-900">
-                            {formatYen(month.sales)}
-                          </p>
-                          <p className="mt-1 text-xs text-blue-600">
-                            回収率 {month.collectionRate.toFixed(1)}%
-                          </p>
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-900">危険案件 TOP3</h2>
-          </div>
-
-          {topDangerRows.length === 0 ? (
-            <p className="text-sm text-gray-500">危険案件はありません</p>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-3">
-              {topDangerRows.map((row, index) => (
-                <div
-                  key={row.id}
-                  className="rounded-2xl border border-red-200 bg-red-50 p-4"
-                >
-                  <p className="text-xs font-semibold text-red-700">#{index + 1}</p>
-                  <p className="mt-1 text-sm font-bold text-gray-900">{row.name}</p>
-                  <p className="mt-2 text-sm text-gray-600">
-                    未回収額：<span className="font-semibold">{formatYen(row.unpaid)}</span>
-                  </p>
-                  <p className="mt-1 text-sm text-gray-600">
-                    回収率：<span className="font-semibold">{row.collectionRate.toFixed(1)}%</span>
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl bg-white p-4 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-gray-500">
-                検索
-              </label>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="代理店名で検索"
-                className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">
-                並び替え
-              </label>
-              <select
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
-              >
-                <option value="sales">売上順</option>
-                <option value="grossProfit">粗利順</option>
-                <option value="unpaid">未回収順</option>
-                <option value="collectionRate">回収率順</option>
-                <option value="name">名前順</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">
-                フィルター
-              </label>
-              <select
-                value={filterKey}
-                onChange={(e) => setFilterKey(e.target.value as FilterKey)}
-                className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
-              >
-                <option value="all">通常</option>
-                <option value="warningOrDanger">要注意以上</option>
-                <option value="dangerOnly">危険のみ</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-left text-gray-500">
-                  <th className="px-4 py-3 font-medium">状態</th>
-                  <th className="px-4 py-3 font-medium">代理店名</th>
-                  <th className="px-4 py-3 font-medium">契約件数</th>
-                  <th className="px-4 py-3 font-medium">総売上</th>
-                  <th className="px-4 py-3 font-medium">総粗利</th>
-                  <th className="px-4 py-3 font-medium">未回収額</th>
-                  <th className="px-4 py-3 font-medium">回収率</th>
-                  <th className="px-4 py-3 font-medium">操作</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                      読み込み中...
-                    </td>
-                  </tr>
-                ) : filteredRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                      データがありません
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRows.map((row) => (
-                    <tr key={row.id} className="border-b border-gray-50">
-                      <td className="px-4 py-4">{alertBadge(row.warningLevel)}</td>
-                      <td className="px-4 py-4 font-medium text-gray-900">{row.name}</td>
-                      <td className="px-4 py-4 text-gray-700">{row.contractCount}件</td>
-                      <td className="px-4 py-4 text-gray-700">{formatYen(row.sales)}</td>
-                      <td className="px-4 py-4 text-gray-700">
-                        {formatYen(row.grossProfit)}
-                      </td>
-                      <td className="px-4 py-4 text-red-600">
-                        {formatYen(row.unpaid)}
-                      </td>
-                      <td className="px-4 py-4 font-medium text-blue-600">
-                        {row.collectionRate.toFixed(1)}%
-                      </td>
-                      <td className="px-4 py-4">
-                        {row.id === "unassigned" ? (
-                          <span className="text-xs text-gray-400">未設定は編集不可</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            <Link
-                              href={`/agencies/${row.id}`}
-                              className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700"
-                            >
-                              詳細を見る
-                            </Link>
-                            <Link
-                              href={`/agencies/${row.id}/edit`}
-                              className="rounded-xl bg-black px-3 py-2 text-xs font-medium text-white"
-                            >
-                              編集する
-                            </Link>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm text-gray-500">親代理店ID</div>
+          <div className="mt-2 break-all text-sm font-medium text-gray-800">
+            {agency?.parent_agency_id || "-"}
           </div>
         </div>
       </div>
+
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold">ロゴ画像</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            PNG / JPG / WEBP、{MAX_LOGO_SIZE_MB}MB以下
+          </p>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-[220px_1fr]">
+          <div className="flex items-center justify-center rounded-2xl border bg-gray-50 p-4">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt="代理店ロゴ"
+                className="max-h-40 max-w-full rounded-lg object-contain"
+              />
+            ) : (
+              <div className="text-center text-sm text-gray-400">
+                ロゴ未設定
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <label className="inline-flex cursor-pointer rounded-lg bg-black px-4 py-2 text-sm text-white">
+              {uploadingLogo ? "アップロード中..." : "ロゴ画像を選択"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                disabled={uploadingLogo}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  void handleLogoUpload(file);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+
+            <div className="text-sm text-gray-500">
+              {selectedLogoName
+                ? `選択画像: ${selectedLogoName}`
+                : logoUrl
+                ? "現在のロゴ画像を表示中"
+                : "まだロゴ画像は登録されていません"}
+            </div>
+
+            {logoUrl ? (
+              <button
+                type="button"
+                onClick={() => void handleRemoveLogo()}
+                disabled={uploadingLogo}
+                className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                ロゴ画像を外す
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 rounded-2xl border bg-white p-5 shadow-sm"
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              代理店名
+            </label>
+            <input
+              type="text"
+              value={agencyName}
+              onChange={(e) => setAgencyName(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="代理店名を入力"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              表示名
+            </label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="表示名を入力"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              担当者名
+            </label>
+            <input
+              type="text"
+              value={representativeName}
+              onChange={(e) => setRepresentativeName(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="担当者名を入力"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              連絡担当
+            </label>
+            <input
+              type="text"
+              value={contactPerson}
+              onChange={(e) => setContactPerson(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="連絡担当を入力"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              メールアドレス
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="example@example.com"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              電話番号
+            </label>
+            <input
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="09012345678"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              郵便番号
+            </label>
+            <input
+              type="text"
+              value={postalCode}
+              onChange={(e) => setPostalCode(sanitizePostalCode(e.target.value))}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="810-0022"
+            />
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-gray-700">
+              住所
+            </label>
+            <input
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="住所を入力"
+            />
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-gray-700">
+              備考
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="min-h-[90px] w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="備考を入力"
+            />
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-gray-700">
+              メモ
+            </label>
+            <textarea
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              className="min-h-[90px] w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="メモを入力"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "更新中..." : "更新する"}
+          </button>
+
+          <Link
+            href="/"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            戻る
+          </Link>
+        </div>
+      </form>
     </div>
   );
 }

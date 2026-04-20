@@ -204,6 +204,61 @@ function kpiTone(type: "default" | "danger" | "primary" | "success") {
   return "border-gray-200 bg-white";
 }
 
+function KpiCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: "default" | "danger" | "primary" | "success";
+}) {
+  return (
+    <div className={`rounded-3xl border p-5 shadow-sm ${kpiTone(tone)}`}>
+      <p className="text-sm text-gray-500">{title}</p>
+      <p className="mt-3 text-2xl font-bold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  actionHref,
+  actionLabel,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  actionHref?: string;
+  actionLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+          <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
+        </div>
+        {actionHref && actionLabel ? (
+          <Link
+            href={actionHref}
+            className="rounded-2xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-200"
+          >
+            {actionLabel}
+          </Link>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyText({ text }: { text: string }) {
+  return <div className="text-sm text-gray-500">{text}</div>;
+}
+
 export default function HomePage() {
   const router = useRouter();
   const supabase = createClient();
@@ -351,7 +406,8 @@ export default function HomePage() {
     if (profile.role === "agency") {
       return agencies.filter(
         (agency) =>
-          agency.id === profile.agency_id || agency.parent_agency_id === profile.agency_id
+          agency.id === profile.agency_id ||
+          agency.parent_agency_id === profile.agency_id
       );
     }
 
@@ -490,6 +546,13 @@ export default function HomePage() {
     });
   }, [billings, recentMonthKeys]);
 
+ const myPageHref =
+  profile?.role === "headquarters"
+    ? "/headquarters"
+    : profile?.agency_id
+    ? `/agencies/${profile.agency_id}/edit`
+    : "";
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-4 md:p-6">
@@ -526,18 +589,29 @@ export default function HomePage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              {myPageHref ? (
+                <Link
+                  href={myPageHref}
+                  className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
+                >
+                  マイページ
+                </Link>
+              ) : null}
+
               <Link
                 href="/customers/new"
                 className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
               >
                 新規顧客
               </Link>
+
               <Link
                 href="/contracts/new"
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
               >
                 新規契約
               </Link>
+
               <button
                 type="button"
                 onClick={handleLogout}
@@ -662,17 +736,10 @@ export default function HomePage() {
                       <p className="text-sm font-bold text-gray-900">
                         {formatYen(month.sales)}
                       </p>
-                      <p className="mt-1 text-xs text-blue-600">
+                      <p className="mt-1 text-xs text-gray-500">
                         回収率 {month.collectionRate.toFixed(1)}%
                       </p>
                     </div>
-                  </div>
-
-                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-                    <div
-                      className="h-2 rounded-full bg-blue-500"
-                      style={{ width: `${Math.min(month.collectionRate, 100)}%` }}
-                    />
                   </div>
                 </div>
               ))}
@@ -680,36 +747,38 @@ export default function HomePage() {
           </Panel>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 xl:grid-cols-2">
           <Panel
             title="売上ランキング TOP5"
-            subtitle="売上が大きい代理店"
+            subtitle="表示対象内で売上が高い代理店"
             actionHref="/agencies"
             actionLabel="代理店一覧へ"
           >
-            <div className="space-y-3">
-              {salesRanking.length === 0 ? (
-                <EmptyText text="データがありません" />
-              ) : (
-                salesRanking.map((row, index) => (
+            {salesRanking.length === 0 ? (
+              <EmptyText text="ランキング対象がありません" />
+            ) : (
+              <div className="space-y-3">
+                {salesRanking.map((row, index) => (
                   <div
-                    key={`sales-${row.id}`}
-                    className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
+                    key={row.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl bg-gray-50 p-4"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       {rankingBadge(index)}
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                        <p className="text-xs text-gray-500">
-                          粗利 {formatYen(row.grossProfit)}
+                        <p className="text-sm font-semibold text-gray-900">{row.name}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          契約 {row.contractCount}件 / 回収率 {row.collectionRate.toFixed(1)}%
                         </p>
                       </div>
                     </div>
-                    <p className="text-sm font-bold text-gray-900">{formatYen(row.sales)}</p>
+                    <div className="text-sm font-bold text-gray-900">
+                      {formatYen(row.sales)}
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </Panel>
 
           <Panel
@@ -718,142 +787,34 @@ export default function HomePage() {
             actionHref="/billings"
             actionLabel="請求一覧へ"
           >
-            <div className="space-y-3">
-              {unpaidRanking.length === 0 ? (
-                <EmptyText text="データがありません" />
-              ) : (
-                unpaidRanking.map((row, index) => (
+            {unpaidRanking.length === 0 ? (
+              <EmptyText text="未回収データがありません" />
+            ) : (
+              <div className="space-y-3">
+                {unpaidRanking.map((row, index) => (
                   <div
-                    key={`unpaid-${row.id}`}
-                    className="flex items-center justify-between rounded-2xl bg-red-50 p-3"
+                    key={row.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl bg-gray-50 p-4"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       {rankingBadge(index)}
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{row.name}</p>
-                        <p className="text-xs text-gray-500">
-                          回収率 {row.collectionRate.toFixed(1)}%
+                        <p className="text-sm font-semibold text-gray-900">{row.name}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          契約 {row.contractCount}件 / 回収率 {row.collectionRate.toFixed(1)}%
                         </p>
                       </div>
                     </div>
-                    <p className="text-sm font-bold text-red-600">{formatYen(row.unpaid)}</p>
+                    <div className="text-sm font-bold text-red-600">
+                      {formatYen(row.unpaid)}
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </Panel>
         </div>
-
-        <Panel
-          title="代理店サマリー"
-          subtitle="表示対象の主要代理店を上位順に表示"
-          actionHref="/agencies"
-          actionLabel="代理店一覧へ"
-        >
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-left text-gray-500">
-                  <th className="px-4 py-3 font-medium">状態</th>
-                  <th className="px-4 py-3 font-medium">代理店名</th>
-                  <th className="px-4 py-3 font-medium">総売上</th>
-                  <th className="px-4 py-3 font-medium">総粗利</th>
-                  <th className="px-4 py-3 font-medium">未回収額</th>
-                  <th className="px-4 py-3 font-medium">回収率</th>
-                  <th className="px-4 py-3 font-medium">詳細</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      データがありません
-                    </td>
-                  </tr>
-                ) : (
-                  [...rows]
-                    .sort((a, b) => b.sales - a.sales)
-                    .slice(0, 10)
-                    .map((row) => (
-                      <tr key={row.id} className="border-b border-gray-50">
-                        <td className="px-4 py-4">{alertBadge(row.warningLevel)}</td>
-                        <td className="px-4 py-4 font-medium text-gray-900">{row.name}</td>
-                        <td className="px-4 py-4 text-gray-700">{formatYen(row.sales)}</td>
-                        <td className="px-4 py-4 text-gray-700">
-                          {formatYen(row.grossProfit)}
-                        </td>
-                        <td className="px-4 py-4 text-red-600">{formatYen(row.unpaid)}</td>
-                        <td className="px-4 py-4 font-medium text-blue-600">
-                          {row.collectionRate.toFixed(1)}%
-                        </td>
-                        <td className="px-4 py-4">
-                          <Link
-                            href={`/agencies/${row.id}`}
-                            className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-200"
-                          >
-                            詳細を見る
-                          </Link>
-                        </td>
-                      </tr>
-                    ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
       </div>
     </div>
   );
-}
-
-function KpiCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: string;
-  tone: "default" | "danger" | "primary" | "success";
-}) {
-  return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${kpiTone(tone)}`}>
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className="mt-2 text-xl font-bold text-gray-900">{value}</p>
-    </div>
-  );
-}
-
-function Panel({
-  title,
-  subtitle,
-  actionHref,
-  actionLabel,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  actionHref?: string;
-  actionLabel?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-          {subtitle ? <p className="mt-1 text-xs text-gray-500">{subtitle}</p> : null}
-        </div>
-        {actionHref && actionLabel ? (
-          <Link href={actionHref} className="text-xs text-gray-500 underline">
-            {actionLabel}
-          </Link>
-        ) : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function EmptyText({ text }: { text: string }) {
-  return <p className="text-sm text-gray-500">{text}</p>;
 }
