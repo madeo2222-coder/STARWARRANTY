@@ -189,9 +189,19 @@ export default function NewContractPage() {
   }, [agencies, profile]);
 
   const filteredCustomers = useMemo(() => {
+    if (!profile) return [];
+
+    if (profile.role === "headquarters") {
+      if (!agencyId) {
+        return customers.filter((customer) => !customer.agency_id);
+      }
+
+      return customers.filter((customer) => customer.agency_id === agencyId);
+    }
+
     if (!agencyId) return customers;
     return customers.filter((customer) => customer.agency_id === agencyId);
-  }, [customers, agencyId]);
+  }, [customers, agencyId, profile]);
 
   useEffect(() => {
     if (!customerId) return;
@@ -205,13 +215,18 @@ export default function NewContractPage() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!customerId) {
-      alert("顧客を選択してください。");
+    if (!profile) {
+      alert("プロフィール情報が未取得です。");
       return;
     }
 
-    if (!agencyId) {
-      alert("代理店を選択してください。");
+    const resolvedAgencyId =
+      profile.role === "headquarters"
+        ? agencyId || null
+        : profile.agency_id || null;
+
+    if (!customerId) {
+      alert("顧客を選択してください。");
       return;
     }
 
@@ -243,7 +258,7 @@ export default function NewContractPage() {
         .from("contracts")
         .insert({
           customer_id: customerId,
-          agency_id: agencyId,
+          agency_id: resolvedAgencyId,
           contract_name: contractName.trim(),
           amount: amountNumber,
           cost: costNumber,
@@ -292,6 +307,8 @@ export default function NewContractPage() {
     );
   }
 
+  const isHeadquarters = profile?.role === "headquarters";
+
   return (
     <div className="mx-auto max-w-3xl p-6">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -309,13 +326,24 @@ export default function NewContractPage() {
               disabled={profile?.role !== "headquarters"}
               className="w-full rounded-lg border px-3 py-2 outline-none disabled:bg-gray-100"
             >
-              <option value="">選択してください</option>
+              {isHeadquarters ? (
+                <option value="">本部直販（代理店なし）</option>
+              ) : (
+                <option value="">選択してください</option>
+              )}
+
               {visibleAgencies.map((agency) => (
                 <option key={agency.id} value={agency.id}>
                   {agency.agency_name || agency.name || "名称未設定"}
                 </option>
               ))}
             </select>
+
+            {isHeadquarters ? (
+              <p className="mt-2 text-xs text-gray-500">
+                本部直販のときは代理店を選ばず、そのまま登録できます
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -332,6 +360,12 @@ export default function NewContractPage() {
                 </option>
               ))}
             </select>
+
+            {isHeadquarters && !agencyId ? (
+              <p className="mt-2 text-xs text-gray-500">
+                いまは本部直販の顧客だけ表示しています
+              </p>
+            ) : null}
           </div>
 
           <div>
