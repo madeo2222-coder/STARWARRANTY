@@ -104,6 +104,7 @@ export default function NewCustomerPage() {
         }
 
         setAgencies((data ?? []) as Agency[]);
+        setAgencyId("");
         return;
       }
 
@@ -142,7 +143,7 @@ export default function NewCustomerPage() {
         ? agencyId || null
         : profile.agency_id || null;
 
-    if (!resolvedAgencyId) {
+    if (profile.role !== "headquarters" && !resolvedAgencyId) {
       alert("代理店を選択してください");
       return;
     }
@@ -194,6 +195,8 @@ export default function NewCustomerPage() {
 
   const isAgencyFixed =
     profile?.role === "agency" || profile?.role === "sub_agency";
+
+  const isHeadquarters = profile?.role === "headquarters";
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -379,18 +382,32 @@ export default function NewCustomerPage() {
               disabled={profileLoading || isAgencyFixed}
               className="w-full rounded-lg border px-3 py-2 disabled:bg-gray-100"
             >
-              <option value="">
-                {profileLoading ? "読込中..." : "選択してください"}
-              </option>
+              {isHeadquarters ? (
+                <option value="">
+                  {profileLoading ? "読込中..." : "本部直契約（代理店なし）"}
+                </option>
+              ) : (
+                <option value="">
+                  {profileLoading ? "読込中..." : "選択してください"}
+                </option>
+              )}
+
               {agencies.map((agency) => (
                 <option key={agency.id} value={agency.id}>
                   {agency.agency_name || agency.name || "名称未設定"}
                 </option>
               ))}
             </select>
+
             {isAgencyFixed ? (
               <p className="mt-2 text-xs text-gray-500">
                 あなたの権限では代理店は自動固定です
+              </p>
+            ) : null}
+
+            {isHeadquarters ? (
+              <p className="mt-2 text-xs text-gray-500">
+                本部直契約のときは代理店を選ばず、そのまま登録できます
               </p>
             ) : null}
           </div>
