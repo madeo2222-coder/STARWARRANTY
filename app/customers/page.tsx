@@ -192,17 +192,6 @@ export default function CustomersPage() {
     try {
       setDeletingId(customer.id);
 
-      const { error: contractError } = await supabase
-        .from("contracts")
-        .select("id")
-        .eq("customer_id", customer.id)
-        .limit(1);
-
-      if (contractError) {
-        alert(`契約確認に失敗しました: ${contractError.message}`);
-        return;
-      }
-
       const { data: billingRows, error: billingError } = await supabase
         .from("billings")
         .select("id")
@@ -219,11 +208,16 @@ export default function CustomersPage() {
         return;
       }
 
-      const { data: contractRows } = await supabase
+      const { data: contractRows, error: contractError } = await supabase
         .from("contracts")
         .select("id")
         .eq("customer_id", customer.id)
         .limit(1);
+
+      if (contractError) {
+        alert(`契約確認に失敗しました: ${contractError.message}`);
+        return;
+      }
 
       if (contractRows && contractRows.length > 0) {
         alert("契約があるため削除できません。先に契約を削除してください。");
