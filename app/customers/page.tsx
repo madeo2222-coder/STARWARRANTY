@@ -34,7 +34,7 @@ type Customer = {
   monthly_amount: number | null;
   start_date: string | null;
   management_id: string | null;
-  status: "active" | "cancelled" | null;
+  status: string | null;
   cancel_date: string | null;
   cancel_reason: string | null;
   agency_id: string | null;
@@ -125,12 +125,7 @@ export default function CustomersPage() {
         visibleAgencyIds = [ownAgencyId, ...childAgencyIds];
       }
 
-      if (visibleAgencyIds.length === 0) {
-        setCustomers([]);
-        return;
-      }
-
-      const { data: customersData, error: customersError } = await supabase
+      let customersQuery = supabase
         .from("customers")
         .select(
           `
@@ -156,8 +151,18 @@ export default function CustomersPage() {
           created_at
         `
         )
-        .in("agency_id", visibleAgencyIds)
         .order("created_at", { ascending: false });
+
+      if (currentProfile.role !== "headquarters") {
+        if (visibleAgencyIds.length === 0) {
+          setCustomers([]);
+          return;
+        }
+
+        customersQuery = customersQuery.in("agency_id", visibleAgencyIds);
+      }
+
+      const { data: customersData, error: customersError } = await customersQuery;
 
       if (customersError) {
         alert(`顧客一覧の取得に失敗しました: ${customersError.message}`);
@@ -172,20 +177,31 @@ export default function CustomersPage() {
 
   async function handleDeleteCustomer(customer: Customer) {
     const customerLabel =
-      customer.name ||
       customer.company_name ||
+      customer.name ||
       customer.store_name ||
       customer.representative_name ||
       "名称未設定";
 
     const confirmed = window.confirm(
-      `「${customerLabel}」を削除しますか？\n\n請求・契約・口振ファイルが紐づく顧客は削除できません。`
+      `「${customerLabel}」を削除しますか？\n\nこの操作は取り消せません。`
     );
 
     if (!confirmed) return;
 
     try {
       setDeletingId(customer.id);
+
+      const { error: contractError } = await supabase
+        .from("contracts")
+        .select("id")
+        .eq("customer_id", customer.id)
+        .limit(1);
+
+      if (contractError) {
+        alert(`契約確認に失敗しました: ${contractError.message}`);
+        return;
+      }
 
       const { data: billingRows, error: billingError } = await supabase
         .from("billings")
@@ -199,39 +215,34 @@ export default function CustomersPage() {
       }
 
       if (billingRows && billingRows.length > 0) {
-        alert("この顧客には請求データが紐づいているため削除できません");
+        alert("請求登録があるため削除できません。先に請求を削除してください。");
         return;
       }
 
-      const { data: contractRows, error: contractError } = await supabase
+      const { data: contractRows } = await supabase
         .from("contracts")
         .select("id")
         .eq("customer_id", customer.id)
         .limit(1);
 
-      if (contractError) {
-        alert(`契約確認に失敗しました: ${contractError.message}`);
-        return;
-      }
-
       if (contractRows && contractRows.length > 0) {
-        alert("この顧客には契約データが紐づいているため削除できません");
+        alert("契約があるため削除できません。先に契約を削除してください。");
         return;
       }
 
-      const { data: documentRows, error: documentError } = await supabase
+      const { data: fileRows, error: fileError } = await supabase
         .from("bank_transfer_documents")
         .select("id")
         .eq("customer_id", customer.id)
         .limit(1);
 
-      if (documentError) {
-        alert(`口振ファイル確認に失敗しました: ${documentError.message}`);
+      if (fileError) {
+        alert(`口振ファイル確認に失敗しました: ${fileError.message}`);
         return;
       }
 
-      if (documentRows && documentRows.length > 0) {
-        alert("この顧客には口座振替用紙が紐づいているため削除できません");
+      if (fileRows && fileRows.length > 0) {
+        alert("口座振替用紙ファイルがあるため削除できません。先にファイルを削除してください。");
         return;
       }
 
@@ -269,7 +280,7 @@ export default function CustomersPage() {
     return customers.filter((customer) => {
       const agencyName = customer.agency_id
         ? agencyMap.get(customer.agency_id) || ""
-        : "";
+        : "本部直販";
 
       return [
         customer.name,
@@ -290,8 +301,8 @@ export default function CustomersPage() {
 
   function getCustomerDisplayName(customer: Customer) {
     return (
-      customer.name ||
       customer.company_name ||
+      customer.name ||
       customer.store_name ||
       customer.representative_name ||
       "名称未設定"
@@ -304,6 +315,11 @@ export default function CustomersPage() {
     return "-";
   }
 
+  function getAgencyLabel(customer: Customer) {
+    if (!customer.agency_id) return "本部直販";
+    return agencyMap.get(customer.agency_id) || "-";
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl p-6">
@@ -314,7 +330,7 @@ export default function CustomersPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">顧客一覧</h1>
           <p className="mt-1 text-sm text-gray-500">
@@ -326,14 +342,12 @@ export default function CustomersPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <Link
-            href="/customers/new"
-            className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white"
-          >
-            顧客新規登録
-          </Link>
-        </div>
+        <Link
+          href="/customers/new"
+          className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white"
+        >
+          顧客新規登録
+        </Link>
       </div>
 
       <div className="rounded-2xl border bg-white p-4">
@@ -346,82 +360,78 @@ export default function CustomersPage() {
         />
       </div>
 
-      <div className="rounded-2xl border bg-white">
-        <div className="border-b px-4 py-3 text-sm text-gray-600">
+      <div className="overflow-x-auto rounded-2xl border bg-white">
+        <div className="border-b px-4 py-3 text-sm text-gray-500">
           件数: {filteredCustomers.length}件
         </div>
 
-        {filteredCustomers.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">顧客データがありません</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-left">
-                <tr>
-                  <th className="px-4 py-3 font-medium">顧客名</th>
-                  <th className="px-4 py-3 font-medium">会社名</th>
-                  <th className="px-4 py-3 font-medium">店舗名</th>
-                  <th className="px-4 py-3 font-medium">代理店</th>
-                  <th className="px-4 py-3 font-medium">サービス名</th>
-                  <th className="px-4 py-3 font-medium">決済方法</th>
-                  <th className="px-4 py-3 font-medium">月額</th>
-                  <th className="px-4 py-3 font-medium">状態</th>
-                  <th className="px-4 py-3 font-medium">管理ID</th>
-                  <th className="px-4 py-3 font-medium">操作</th>
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-left">
+            <tr>
+              <th className="px-4 py-3 font-medium">顧客名</th>
+              <th className="px-4 py-3 font-medium">会社名</th>
+              <th className="px-4 py-3 font-medium">店舗名</th>
+              <th className="px-4 py-3 font-medium">代理店</th>
+              <th className="px-4 py-3 font-medium">サービス名</th>
+              <th className="px-4 py-3 font-medium">決済方法</th>
+              <th className="px-4 py-3 font-medium">月額</th>
+              <th className="px-4 py-3 font-medium">状態</th>
+              <th className="px-4 py-3 font-medium">管理ID</th>
+              <th className="px-4 py-3 font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredCustomers.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                  顧客データがありません
+                </td>
+              </tr>
+            ) : (
+              filteredCustomers.map((customer) => (
+                <tr key={customer.id} className="border-t">
+                  <td className="px-4 py-3">{getCustomerDisplayName(customer)}</td>
+                  <td className="px-4 py-3">{customer.company_name || "-"}</td>
+                  <td className="px-4 py-3">{customer.store_name || "-"}</td>
+                  <td className="px-4 py-3">{getAgencyLabel(customer)}</td>
+                  <td className="px-4 py-3">{customer.service_name || "-"}</td>
+                  <td className="px-4 py-3">
+                    {getPaymentMethodLabel(customer.payment_method)}
+                  </td>
+                  <td className="px-4 py-3">
+                    ¥{Number(customer.monthly_amount ?? 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3">{customer.status || "-"}</td>
+                  <td className="px-4 py-3">{customer.management_id || "-"}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <Link
+                        href={`/customers/${customer.id}`}
+                        className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      >
+                        顧客詳細
+                      </Link>
+                      <Link
+                        href={`/customers/${customer.id}/edit`}
+                        className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
+                      >
+                        編集
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteCustomer(customer)}
+                        disabled={deletingId === customer.id}
+                        className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingId === customer.id ? "削除中..." : "削除"}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredCustomers.map((customer) => (
-                  <tr key={customer.id} className="border-t">
-                    <td className="px-4 py-3">{getCustomerDisplayName(customer)}</td>
-                    <td className="px-4 py-3">{customer.company_name || "-"}</td>
-                    <td className="px-4 py-3">{customer.store_name || "-"}</td>
-                    <td className="px-4 py-3">
-                      {customer.agency_id
-                        ? agencyMap.get(customer.agency_id) || "名称未設定"
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3">{customer.service_name || "-"}</td>
-                    <td className="px-4 py-3">
-                      {getPaymentMethodLabel(customer.payment_method)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {customer.monthly_amount != null
-                        ? `¥${customer.monthly_amount.toLocaleString()}`
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3">{customer.status || "-"}</td>
-                    <td className="px-4 py-3">{customer.management_id || "-"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <Link
-                          href={`/customers/${customer.id}`}
-                          className="inline-flex rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
-                        >
-                          顧客詳細
-                        </Link>
-                        <Link
-                          href={`/customers/${customer.id}/edit`}
-                          className="inline-flex rounded-lg bg-black px-3 py-1.5 text-xs text-white"
-                        >
-                          編集
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteCustomer(customer)}
-                          disabled={deletingId === customer.id}
-                          className="inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          {deletingId === customer.id ? "削除中..." : "削除"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
