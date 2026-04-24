@@ -162,7 +162,8 @@ export default function CustomersPage() {
         customersQuery = customersQuery.in("agency_id", visibleAgencyIds);
       }
 
-      const { data: customersData, error: customersError } = await customersQuery;
+      const { data: customersData, error: customersError } =
+        await customersQuery;
 
       if (customersError) {
         alert(`顧客一覧の取得に失敗しました: ${customersError.message}`);
@@ -236,7 +237,9 @@ export default function CustomersPage() {
       }
 
       if (fileRows && fileRows.length > 0) {
-        alert("口座振替用紙ファイルがあるため削除できません。先にファイルを削除してください。");
+        alert(
+          "口座振替用紙ファイルがあるため削除できません。先にファイルを削除してください。"
+        );
         return;
       }
 

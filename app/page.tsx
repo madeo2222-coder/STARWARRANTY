@@ -204,61 +204,6 @@ function kpiTone(type: "default" | "danger" | "primary" | "success") {
   return "border-gray-200 bg-white";
 }
 
-function KpiCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: string;
-  tone: "default" | "danger" | "primary" | "success";
-}) {
-  return (
-    <div className={`rounded-3xl border p-5 shadow-sm ${kpiTone(tone)}`}>
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className="mt-3 text-2xl font-bold text-gray-900">{value}</p>
-    </div>
-  );
-}
-
-function Panel({
-  title,
-  subtitle,
-  actionHref,
-  actionLabel,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  actionHref?: string;
-  actionLabel?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-          <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
-        </div>
-        {actionHref && actionLabel ? (
-          <Link
-            href={actionHref}
-            className="rounded-2xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-200"
-          >
-            {actionLabel}
-          </Link>
-        ) : null}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function EmptyText({ text }: { text: string }) {
-  return <div className="text-sm text-gray-500">{text}</div>;
-}
-
 export default function HomePage() {
   const router = useRouter();
   const supabase = createClient();
@@ -352,19 +297,31 @@ export default function HomePage() {
       visibleAgencyIds = currentProfile.agency_id ? [currentProfile.agency_id] : [];
     }
 
-    const [customersRes, contractsRes] = await Promise.all([
-      visibleAgencyIds.length > 0
+    const customersPromise =
+      currentProfile.role === "headquarters"
+        ? supabase.from("customers").select("id, name, agency_id")
+        : visibleAgencyIds.length > 0
         ? supabase
             .from("customers")
             .select("id, name, agency_id")
             .in("agency_id", visibleAgencyIds)
-        : Promise.resolve({ data: [], error: null }),
-      visibleAgencyIds.length > 0
+        : Promise.resolve({ data: [], error: null });
+
+    const contractsPromise =
+      currentProfile.role === "headquarters"
+        ? supabase
+            .from("contracts")
+            .select("id, agency_id, customer_id, amount, cost, commission")
+        : visibleAgencyIds.length > 0
         ? supabase
             .from("contracts")
             .select("id, agency_id, customer_id, amount, cost, commission")
             .in("agency_id", visibleAgencyIds)
-        : Promise.resolve({ data: [], error: null }),
+        : Promise.resolve({ data: [], error: null });
+
+    const [customersRes, contractsRes] = await Promise.all([
+      customersPromise,
+      contractsPromise,
     ]);
 
     if (customersRes.error) {
@@ -406,8 +363,7 @@ export default function HomePage() {
     if (profile.role === "agency") {
       return agencies.filter(
         (agency) =>
-          agency.id === profile.agency_id ||
-          agency.parent_agency_id === profile.agency_id
+          agency.id === profile.agency_id || agency.parent_agency_id === profile.agency_id
       );
     }
 
@@ -415,7 +371,7 @@ export default function HomePage() {
   }, [agencies, profile]);
 
   const rows = useMemo<AgencyRow[]>(() => {
-    return visibleAgencies.map((agency) => {
+    const baseRows = visibleAgencies.map((agency) => {
       const agencyName = agency.agency_name || agency.name || "名称未設定";
 
       const agencyContracts = contracts.filter((contract) => contract.agency_id === agency.id);
@@ -466,7 +422,65 @@ export default function HomePage() {
         contractCount: agencyContracts.length,
       };
     });
-  }, [visibleAgencies, contracts, billings]);
+
+    if (profile?.role !== "headquarters") {
+      return baseRows;
+    }
+
+    const directContracts = contracts.filter((contract) => !contract.agency_id);
+    const directContractIds = directContracts.map((contract) => contract.id);
+    const directBillings = billings.filter((billing) =>
+      directContractIds.includes(billing.contract_id)
+    );
+
+    if (directContracts.length === 0 && directBillings.length === 0) {
+      return baseRows;
+    }
+
+    const directSales = directContracts.reduce(
+      (sum, contract) => sum + (contract.amount || 0),
+      0
+    );
+
+    const directGrossProfit = directContracts.reduce((sum, contract) => {
+      const amount = contract.amount || 0;
+      const cost = contract.cost || 0;
+      const commission = contract.commission || 0;
+      return sum + (amount - cost - commission);
+    }, 0);
+
+    const directUnpaid = directBillings
+      .filter((billing) => billing.status === "pending")
+      .reduce((sum, billing) => sum + (billing.amount || 0), 0);
+
+    const totalBillings = directBillings.length;
+    const paidBillings = directBillings.filter(
+      (billing) => billing.status === "paid"
+    ).length;
+
+    const collectionRate =
+      totalBillings === 0
+        ? 0
+        : Math.round((paidBillings / totalBillings) * 1000) / 10;
+
+    const warningLevel = getAlertLevel(directBillings);
+
+    return [
+      {
+        id: "__headquarters_direct__",
+        name: "本部直販",
+        sales: directSales,
+        grossProfit: directGrossProfit,
+        unpaid: directUnpaid,
+        totalBillings,
+        paidBillings,
+        collectionRate,
+        warningLevel,
+        contractCount: directContracts.length,
+      },
+      ...baseRows,
+    ];
+  }, [visibleAgencies, contracts, billings, profile]);
 
   const totalSales = rows.reduce((sum, row) => sum + row.sales, 0);
   const totalGrossProfit = rows.reduce((sum, row) => sum + row.grossProfit, 0);
@@ -546,13 +560,6 @@ export default function HomePage() {
     });
   }, [billings, recentMonthKeys]);
 
- const myPageHref =
-  profile?.role === "headquarters"
-    ? "/headquarters"
-    : profile?.agency_id
-    ? `/agencies/${profile.agency_id}/edit`
-    : "";
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-4 md:p-6">
@@ -589,29 +596,18 @@ export default function HomePage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {myPageHref ? (
-                <Link
-                  href={myPageHref}
-                  className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
-                >
-                  マイページ
-                </Link>
-              ) : null}
-
               <Link
                 href="/customers/new"
                 className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
               >
                 新規顧客
               </Link>
-
               <Link
                 href="/contracts/new"
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
               >
                 新規契約
               </Link>
-
               <button
                 type="button"
                 onClick={handleLogout}
@@ -736,10 +732,17 @@ export default function HomePage() {
                       <p className="text-sm font-bold text-gray-900">
                         {formatYen(month.sales)}
                       </p>
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-blue-600">
                         回収率 {month.collectionRate.toFixed(1)}%
                       </p>
                     </div>
+                  </div>
+
+                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                    <div
+                      className="h-2 rounded-full bg-blue-500"
+                      style={{ width: `${Math.min(month.collectionRate, 100)}%` }}
+                    />
                   </div>
                 </div>
               ))}
@@ -747,38 +750,36 @@ export default function HomePage() {
           </Panel>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Panel
             title="売上ランキング TOP5"
-            subtitle="表示対象内で売上が高い代理店"
+            subtitle="売上が大きい代理店"
             actionHref="/agencies"
             actionLabel="代理店一覧へ"
           >
-            {salesRanking.length === 0 ? (
-              <EmptyText text="ランキング対象がありません" />
-            ) : (
-              <div className="space-y-3">
-                {salesRanking.map((row, index) => (
+            <div className="space-y-3">
+              {salesRanking.length === 0 ? (
+                <EmptyText text="データがありません" />
+              ) : (
+                salesRanking.map((row, index) => (
                   <div
-                    key={row.id}
-                    className="flex items-center justify-between gap-3 rounded-2xl bg-gray-50 p-4"
+                    key={`sales-${row.id}`}
+                    className="flex items-center justify-between rounded-2xl bg-gray-50 p-3"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       {rankingBadge(index)}
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">{row.name}</p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          契約 {row.contractCount}件 / 回収率 {row.collectionRate.toFixed(1)}%
+                        <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                        <p className="text-xs text-gray-500">
+                          粗利 {formatYen(row.grossProfit)}
                         </p>
                       </div>
                     </div>
-                    <div className="text-sm font-bold text-gray-900">
-                      {formatYen(row.sales)}
-                    </div>
+                    <p className="text-sm font-bold text-gray-900">{formatYen(row.sales)}</p>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </Panel>
 
           <Panel
@@ -787,34 +788,146 @@ export default function HomePage() {
             actionHref="/billings"
             actionLabel="請求一覧へ"
           >
-            {unpaidRanking.length === 0 ? (
-              <EmptyText text="未回収データがありません" />
-            ) : (
-              <div className="space-y-3">
-                {unpaidRanking.map((row, index) => (
+            <div className="space-y-3">
+              {unpaidRanking.length === 0 ? (
+                <EmptyText text="データがありません" />
+              ) : (
+                unpaidRanking.map((row, index) => (
                   <div
-                    key={row.id}
-                    className="flex items-center justify-between gap-3 rounded-2xl bg-gray-50 p-4"
+                    key={`unpaid-${row.id}`}
+                    className="flex items-center justify-between rounded-2xl bg-red-50 p-3"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       {rankingBadge(index)}
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">{row.name}</p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          契約 {row.contractCount}件 / 回収率 {row.collectionRate.toFixed(1)}%
+                        <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                        <p className="text-xs text-gray-500">
+                          回収率 {row.collectionRate.toFixed(1)}%
                         </p>
                       </div>
                     </div>
-                    <div className="text-sm font-bold text-red-600">
-                      {formatYen(row.unpaid)}
-                    </div>
+                    <p className="text-sm font-bold text-red-600">{formatYen(row.unpaid)}</p>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </Panel>
         </div>
+
+        <Panel
+          title="代理店サマリー"
+          subtitle="表示対象の主要代理店を上位順に表示"
+          actionHref="/agencies"
+          actionLabel="代理店一覧へ"
+        >
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-gray-500">
+                  <th className="px-4 py-3 font-medium">状態</th>
+                  <th className="px-4 py-3 font-medium">代理店名</th>
+                  <th className="px-4 py-3 font-medium">総売上</th>
+                  <th className="px-4 py-3 font-medium">総粗利</th>
+                  <th className="px-4 py-3 font-medium">未回収額</th>
+                  <th className="px-4 py-3 font-medium">回収率</th>
+                  <th className="px-4 py-3 font-medium">詳細</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                      データがありません
+                    </td>
+                  </tr>
+                ) : (
+                  [...rows]
+                    .sort((a, b) => b.sales - a.sales)
+                    .slice(0, 10)
+                    .map((row) => (
+                      <tr key={row.id} className="border-b border-gray-50">
+                        <td className="px-4 py-4">{alertBadge(row.warningLevel)}</td>
+                        <td className="px-4 py-4 font-medium text-gray-900">{row.name}</td>
+                        <td className="px-4 py-4 text-gray-700">{formatYen(row.sales)}</td>
+                        <td className="px-4 py-4 text-gray-700">
+                          {formatYen(row.grossProfit)}
+                        </td>
+                        <td className="px-4 py-4 text-red-600">{formatYen(row.unpaid)}</td>
+                        <td className="px-4 py-4 font-medium text-blue-600">
+                          {row.collectionRate.toFixed(1)}%
+                        </td>
+                        <td className="px-4 py-4">
+                          {row.id === "__headquarters_direct__" ? (
+                            <span className="text-xs text-gray-400">-</span>
+                          ) : (
+                            <Link
+                              href={`/agencies/${row.id}`}
+                              className="rounded-xl bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-200"
+                            >
+                              詳細を見る
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       </div>
     </div>
   );
+}
+
+function KpiCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: "default" | "danger" | "primary" | "success";
+}) {
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${kpiTone(tone)}`}>
+      <p className="text-sm text-gray-500">{title}</p>
+      <p className="mt-2 text-xl font-bold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  actionHref,
+  actionLabel,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  actionHref?: string;
+  actionLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+          {subtitle ? <p className="mt-1 text-xs text-gray-500">{subtitle}</p> : null}
+        </div>
+        {actionHref && actionLabel ? (
+          <Link href={actionHref} className="text-xs text-gray-500 underline">
+            {actionLabel}
+          </Link>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EmptyText({ text }: { text: string }) {
+  return <p className="text-sm text-gray-500">{text}</p>;
 }
