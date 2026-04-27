@@ -13,6 +13,8 @@ export function middleware(request: NextRequest) {
   const isPublicPath =
     pathname === "/login" ||
     pathname.startsWith("/invite/") ||
+    pathname.startsWith("/repair-request-form") ||
+    pathname.startsWith("/api/repair-requests") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico");
 

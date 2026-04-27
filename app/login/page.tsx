@@ -67,8 +67,13 @@ function LoginPageContent() {
     <div className="min-h-screen bg-gray-50 px-4 py-10">
       <div className="mx-auto max-w-md rounded-2xl bg-white p-6 shadow-sm">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">StarRevenue ログイン</h1>
-          <p className="mt-2 text-sm text-gray-500">本部・代理店向け管理画面</p>
+          <p className="text-sm text-gray-500">STAR WARRANTY</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            STAR WARRANTY ログイン
+          </h1>
+          <p className="mt-2 text-sm text-gray-500">
+            保証書・修理受付・請求書を管理するためのログイン画面です
+          </p>
         </div>
 
         <div className="mb-4 flex gap-2">
@@ -117,7 +122,7 @@ function LoginPageContent() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
-              placeholder="example@starrevenue.jp"
+              placeholder="example@starwarranty.jp"
             />
           </div>
 

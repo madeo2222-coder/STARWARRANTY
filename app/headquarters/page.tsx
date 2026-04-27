@@ -28,6 +28,24 @@ type HeadquartersSettings = {
 const LOGO_BUCKET = "agency-logos";
 const MAX_LOGO_SIZE_MB = 5;
 
+const managementCards = [
+  {
+    title: "保証書管理",
+    description: "保証書の一覧確認・新規作成・PDF発行へ進みます",
+    href: "/warranty-certificates",
+  },
+  {
+    title: "修理受付管理",
+    description: "お客様からの修理依頼を確認・対応管理します",
+    href: "/repair-requests",
+  },
+  {
+    title: "請求書管理",
+    description: "請求書一覧・新規作成・PDF発行へ進みます",
+    href: "/warranty-invoices",
+  },
+];
+
 export default function HeadquartersPage() {
   const supabase = useMemo(() => createClient(), []);
 
@@ -118,7 +136,7 @@ export default function HeadquartersPage() {
         const { data: inserted, error: insertError } = await supabase
           .from("headquarters_settings")
           .insert({
-            company_name: "StarRevenue株式会社",
+            company_name: "株式会社スター・ワランティ",
             representative_name: null,
             email: null,
             phone: null,
@@ -307,20 +325,20 @@ export default function HeadquartersPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="mx-auto max-w-6xl p-6">
         <div className="rounded-2xl border bg-white p-6">読み込み中...</div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm text-gray-500">Headquarters My Page</p>
-          <h1 className="text-2xl font-bold">本部情報変更</h1>
+          <p className="text-sm text-gray-500">STAR WARRANTY Headquarters</p>
+          <h1 className="text-2xl font-bold">本部管理</h1>
           <p className="mt-1 text-sm text-gray-500">
-            本部の会社情報・ロゴを変更できます
+            保証管理の各機能と本部情報を管理できます
           </p>
         </div>
 
@@ -335,7 +353,7 @@ export default function HeadquartersPage() {
             href="/agencies"
             className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
           >
-            代理店一覧へ
+            紹介者 / 代理店一覧へ
           </Link>
         </div>
       </div>
@@ -351,6 +369,24 @@ export default function HeadquartersPage() {
           {successMessage}
         </div>
       ) : null}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {managementCards.map((card) => (
+          <Link
+            key={card.href}
+            href={card.href}
+            className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <h2 className="text-lg font-bold">{card.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-gray-500">
+              {card.description}
+            </p>
+            <div className="mt-4 text-sm font-medium text-blue-600">
+              開く →
+            </div>
+          </Link>
+        ))}
+      </div>
 
       <div className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="mb-4">
@@ -418,6 +454,13 @@ export default function HeadquartersPage() {
         onSubmit={handleSubmit}
         className="space-y-6 rounded-2xl border bg-white p-5 shadow-sm"
       >
+        <div>
+          <h2 className="text-base font-semibold">本部情報</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            請求書・保証書などに使用する本部情報を設定します
+          </p>
+        </div>
+
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">会社名</label>
@@ -426,7 +469,7 @@ export default function HeadquartersPage() {
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
-              placeholder="会社名を入力"
+              placeholder="株式会社スター・ワランティ"
             />
           </div>
 
