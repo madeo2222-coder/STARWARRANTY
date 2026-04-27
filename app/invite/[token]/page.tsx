@@ -13,6 +13,12 @@ type AcceptResponse = {
   agency_name?: string;
   role?: string;
   used_at?: string;
+  parent_agency_id?: string | null;
+};
+
+type CurrentProfile = {
+  role: "headquarters" | "agency" | "sub_agency";
+  agency_id: string | null;
 };
 
 export default function InvitePage() {
@@ -31,6 +37,7 @@ export default function InvitePage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(false);
   const [message, setMessage] = useState("");
@@ -54,6 +61,50 @@ export default function InvitePage() {
   const errorCode = searchParams.get("error_code");
   const errorDescription = searchParams.get("error_description");
 
+  async function fetchCurrentProfile(): Promise<CurrentProfile | null> {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) return null;
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("role, agency_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      role: data.role as "headquarters" | "agency" | "sub_agency",
+      agency_id: data.agency_id ?? null,
+    };
+  }
+
+  async function finalizeAsCompleted(profile: CurrentProfile | null) {
+    setIsCompleted(true);
+    setNeedsEmailConfirmation(false);
+    setErrorMessage("");
+
+    const roleLabel =
+      profile?.role === "agency"
+        ? "一次代理店"
+        : profile?.role === "sub_agency"
+        ? "二次代理店"
+        : "代理店";
+
+    setMessage(
+      `登録は完了しています。${roleLabel}アカウントとして利用できます。数秒後にダッシュボードへ移動します。`
+    );
+
+    setTimeout(() => {
+      router.push("/");
+      router.refresh();
+    }, 1200);
+  }
+
   async function acceptInviteWithAccessToken(accessToken: string) {
     const acceptResponse = await fetch("/api/invites/accept", {
       method: "POST",
@@ -67,24 +118,36 @@ export default function InvitePage() {
     const acceptData = (await acceptResponse.json()) as AcceptResponse;
 
     if (!acceptResponse.ok || !acceptData.success) {
-      throw new Error(
+      const combinedMessage =
         acceptData.error ||
-          acceptData.details ||
-          "招待受け取り処理に失敗しました。"
-      );
+        acceptData.details ||
+        "招待受け取り処理に失敗しました。";
+
+      if (
+        combinedMessage.includes("すでに使用済み") ||
+        combinedMessage.includes("すでに代理店に紐づいています")
+      ) {
+        const profile = await fetchCurrentProfile();
+        if (profile?.agency_id) {
+          await finalizeAsCompleted(profile);
+          return;
+        }
+      }
+
+      throw new Error(combinedMessage);
     }
 
     setIsCompleted(true);
     setNeedsEmailConfirmation(false);
     setErrorMessage("");
     setMessage(
-      `招待受け取りが完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。`
+      `招待受け取りが完了しました。代理店「${acceptData.agency_name ?? ""}」で利用開始できます。数秒後にダッシュボードへ移動します。`
     );
 
     setTimeout(() => {
-      router.push("/agencies");
+      router.push("/");
       router.refresh();
-    }, 800);
+    }, 1200);
   }
 
   async function tryAcceptWithCurrentSession() {
@@ -140,6 +203,14 @@ export default function InvitePage() {
 
         if (accepted) return;
 
+        const profile = await fetchCurrentProfile();
+        if (!active) return;
+
+        if (profile?.agency_id) {
+          await finalizeAsCompleted(profile);
+          return;
+        }
+
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -151,6 +222,13 @@ export default function InvitePage() {
         }
       } catch (error) {
         if (!active) return;
+        const currentProfile = await fetchCurrentProfile();
+
+        if (currentProfile?.agency_id) {
+          await finalizeAsCompleted(currentProfile);
+          return;
+        }
+
         const message =
           error instanceof Error ? error.message : "不明なエラーが発生しました";
         setErrorMessage(message);
@@ -172,6 +250,13 @@ export default function InvitePage() {
         try {
           await tryAcceptWithCurrentSession();
         } catch (error) {
+          const currentProfile = await fetchCurrentProfile();
+
+          if (currentProfile?.agency_id) {
+            await finalizeAsCompleted(currentProfile);
+            return;
+          }
+
           const message =
             error instanceof Error ? error.message : "不明なエラーが発生しました";
           setErrorMessage(message);
@@ -226,9 +311,7 @@ export default function InvitePage() {
         email: normalizedEmail,
         password,
         options: {
-          emailRedirectTo: inviteUrl
-            ? `${inviteUrl}?confirmed=1`
-            : undefined,
+          emailRedirectTo: inviteUrl ? `${inviteUrl}?confirmed=1` : undefined,
         },
       });
 
@@ -243,13 +326,20 @@ export default function InvitePage() {
       if (!session?.access_token) {
         setNeedsEmailConfirmation(true);
         setMessage(
-          "確認メールを送信しました。メール内リンクを開いたあと、この招待ページに戻ります。戻った時点で自動受け取りを試します。うまくいかない場合はログイン後に『ログイン済みユーザーとして招待を受け取る』を押してください。"
+          "確認メールを送信しました。メール内のリンクを押してください。確認後、この招待ページに戻った時点で自動処理を試します。うまく進まない場合は、ログイン後に下のボタンを押してください。"
         );
         return;
       }
 
       await acceptInviteWithAccessToken(session.access_token);
     } catch (error) {
+      const currentProfile = await fetchCurrentProfile();
+
+      if (currentProfile?.agency_id) {
+        await finalizeAsCompleted(currentProfile);
+        return;
+      }
+
       const message =
         error instanceof Error ? error.message : "不明なエラーが発生しました";
       setErrorMessage(message);
@@ -285,6 +375,13 @@ export default function InvitePage() {
 
       await acceptInviteWithAccessToken(session.access_token);
     } catch (error) {
+      const currentProfile = await fetchCurrentProfile();
+
+      if (currentProfile?.agency_id) {
+        await finalizeAsCompleted(currentProfile);
+        return;
+      }
+
       const message =
         error instanceof Error ? error.message : "不明なエラーが発生しました";
       setErrorMessage(message);
@@ -294,96 +391,107 @@ export default function InvitePage() {
   }
 
   return (
-    <div className="mx-auto max-w-md p-6">
-      <h1 className="text-xl font-bold">1次代理店 招待登録</h1>
-      <p className="mt-2 break-all text-sm text-gray-600">
-        招待トークン: {token || "なし"}
-      </p>
-
-      <div className="mt-6 rounded-lg border p-4">
-        <p className="text-sm text-gray-700">
-          すでにログイン済みの方は、下のボタンで招待受け取りだけ実行できます。
+    <div className="mx-auto max-w-xl p-6 pb-20">
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h1 className="text-2xl font-bold">一次代理店アカウント登録</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          招待メールを受け取った方はこちらから登録を完了してください。
         </p>
-        <button
-          type="button"
-          onClick={handleCheckLoggedInUser}
-          disabled={checkingSession || loading || isCompleted}
-          className="mt-3 w-full rounded bg-gray-800 px-4 py-2 text-white disabled:opacity-50"
-        >
-          {checkingSession ? "確認中..." : "ログイン済みユーザーとして招待を受け取る"}
-        </button>
-      </div>
 
-      <form onSubmit={handleAcceptInvite} className="mt-6 space-y-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium">メールアドレス</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded border px-3 py-2"
-            placeholder="example@example.com"
-            disabled={loading || isCompleted}
-          />
+        <div className="mt-4 rounded-xl bg-blue-50 p-4 text-sm text-blue-900">
+          <p className="font-medium">登録手順</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>メールアドレスとパスワードを入力して登録する</li>
+            <li>届いた確認メールのリンクを開く</li>
+            <li>自動で進まない場合は、ログイン後に下のボタンを押す</li>
+          </ol>
         </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium">パスワード</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="w-full rounded border px-3 py-2"
-            placeholder="6文字以上"
-            disabled={loading || isCompleted}
-          />
+        <div className="mt-4 rounded-lg border p-4">
+          <p className="text-sm text-gray-700">
+            すでにログイン済みの方は、下のボタンで招待受け取りだけ実行できます。
+          </p>
+          <button
+            type="button"
+            onClick={handleCheckLoggedInUser}
+            disabled={checkingSession || loading || isCompleted}
+            className="mt-3 w-full rounded-lg bg-gray-800 px-4 py-2 text-white disabled:opacity-50"
+          >
+            {checkingSession ? "確認中..." : "ログイン済みユーザーとして招待を受け取る"}
+          </button>
         </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium">
-            パスワード（確認）
-          </label>
-          <input
-            type="password"
-            value={passwordConfirm}
-            onChange={(event) => setPasswordConfirm(event.target.value)}
-            className="w-full rounded border px-3 py-2"
-            placeholder="確認用"
-            disabled={loading || isCompleted}
-          />
+        <form onSubmit={handleAcceptInvite} className="mt-6 space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">メールアドレス</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="example@example.com"
+              disabled={loading || isCompleted}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">パスワード</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="6文字以上"
+              disabled={loading || isCompleted}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              パスワード（確認）
+            </label>
+            <input
+              type="password"
+              value={passwordConfirm}
+              onChange={(event) => setPasswordConfirm(event.target.value)}
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="確認用"
+              disabled={loading || isCompleted}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || checkingSession || isCompleted}
+            className="w-full rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+          >
+            {loading ? "登録中..." : "代理店アカウントを登録する"}
+          </button>
+        </form>
+
+        {message ? (
+          <div className="mt-4 rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-800">
+            {message}
+          </div>
+        ) : null}
+
+        {needsEmailConfirmation ? (
+          <div className="mt-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
+            確認メールを開いて認証してください。認証後にこのページへ戻ると、自動で受け取りを試します。
+          </div>
+        ) : null}
+
+        {errorMessage ? (
+          <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        <div className="mt-6 text-sm">
+          <Link href={loginUrl} className="text-blue-600 underline">
+            ログイン画面へ
+          </Link>
         </div>
-
-        <button
-          type="submit"
-          disabled={loading || checkingSession || isCompleted}
-          className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
-        >
-          {loading ? "登録中..." : "代理店アカウントを登録する"}
-        </button>
-      </form>
-
-      {message ? (
-        <div className="mt-4 rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">
-          {message}
-        </div>
-      ) : null}
-
-      {needsEmailConfirmation ? (
-        <div className="mt-4 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-          メール認証が完了するまでは、招待はまだ消化されません。認証メールのリンクからこの招待ページに戻ったあと、必要ならログインして招待受け取りを実行してください。
-        </div>
-      ) : null}
-
-      {errorMessage ? (
-        <div className="mt-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          {errorMessage}
-        </div>
-      ) : null}
-
-      <div className="mt-6 text-sm">
-        <Link href={loginUrl} className="text-blue-600 underline">
-          ログイン画面へ
-        </Link>
       </div>
     </div>
   );

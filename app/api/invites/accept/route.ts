@@ -29,6 +29,7 @@ type ProfileRow = {
 type AgencyRow = {
   id: string;
   agency_name: string | null;
+  parent_agency_id?: string | null;
 };
 
 export async function POST(request: Request) {
@@ -123,13 +124,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (invite.status !== "pending") {
-      return NextResponse.json(
-        { success: false, error: "この招待URLはすでに使用済みです" },
-        { status: 400 }
-      );
-    }
-
     if (invite.expires_at) {
       const expiresAtMs = new Date(invite.expires_at).getTime();
       if (!Number.isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
@@ -208,11 +202,25 @@ export async function POST(request: Request) {
     }
 
     if (existingProfile?.agency_id) {
+      const { data: linkedAgency } = await adminClient
+        .from("agencies")
+        .select("id, agency_name, parent_agency_id")
+        .eq("id", existingProfile.agency_id)
+        .maybeSingle<AgencyRow>();
+
+      return NextResponse.json({
+        success: true,
+        agency_id: existingProfile.agency_id,
+        agency_name: linkedAgency?.agency_name ?? null,
+        role: existingProfile.role,
+        used_at: invite.used_at ?? new Date().toISOString(),
+        parent_agency_id: linkedAgency?.parent_agency_id ?? null,
+      });
+    }
+
+    if (invite.status !== "pending") {
       return NextResponse.json(
-        {
-          success: false,
-          error: "このユーザーはすでに代理店に紐づいています",
-        },
+        { success: false, error: "この招待URLはすでに使用済みです" },
         { status: 400 }
       );
     }
@@ -226,7 +234,7 @@ export async function POST(request: Request) {
           agency_name: invite.agency_name,
           status: "active",
         })
-        .select("id, agency_name")
+        .select("id, agency_name, parent_agency_id")
         .single<AgencyRow>();
 
       if (error || !data) {
@@ -249,7 +257,7 @@ export async function POST(request: Request) {
           parent_agency_id: invite.parent_agency_id,
           status: "active",
         })
-        .select("id, agency_name")
+        .select("id, agency_name, parent_agency_id")
         .single<AgencyRow>();
 
       if (error || !data) {
@@ -336,7 +344,7 @@ export async function POST(request: Request) {
       agency_name: createdAgency.agency_name,
       role: newRole,
       used_at: usedAt,
-      parent_agency_id: invite.parent_agency_id ?? null,
+      parent_agency_id: createdAgency.parent_agency_id ?? null,
     });
   } catch (error) {
     const message =
