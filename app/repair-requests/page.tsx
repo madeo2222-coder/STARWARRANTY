@@ -12,6 +12,7 @@ type RepairRequestRow = {
   product_name: string;
   symptom_category: string | null;
   status: string;
+  assigned_to: string | null;
   created_at: string;
 };
 
@@ -90,7 +91,7 @@ export default async function RepairRequestsPage() {
     const { data, error } = await supabase
       .from("repair_requests")
       .select(
-        "id, request_no, certificate_no, customer_name, phone, product_name, symptom_category, status, created_at"
+        "id, request_no, certificate_no, customer_name, phone, product_name, symptom_category, status, assigned_to, created_at"
       )
       .order("created_at", { ascending: false });
 
@@ -109,6 +110,7 @@ export default async function RepairRequestsPage() {
   const closedRows = rows.filter((row) =>
     ["out_of_warranty", "cancelled"].includes(row.status)
   );
+  const unassignedRows = activeRows.filter((row) => !row.assigned_to);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
@@ -117,7 +119,7 @@ export default async function RepairRequestsPage() {
           <p className="text-sm text-gray-500">STAR WARRANTY</p>
           <h1 className="text-2xl font-bold">修理受付管理</h1>
           <p className="mt-1 text-sm text-gray-500">
-            お客様からの修理依頼を確認・対応管理します
+            お客様からの修理依頼を確認・担当者管理します
           </p>
         </div>
 
@@ -143,7 +145,7 @@ export default async function RepairRequestsPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-gray-500">全受付</div>
           <div className="mt-2 text-3xl font-bold">{rows.length}</div>
@@ -152,6 +154,11 @@ export default async function RepairRequestsPage() {
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-gray-500">対応中</div>
           <div className="mt-2 text-3xl font-bold">{activeRows.length}</div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="text-sm text-gray-500">未担当</div>
+          <div className="mt-2 text-3xl font-bold">{unassignedRows.length}</div>
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -170,7 +177,7 @@ export default async function RepairRequestsPage() {
           <div>
             <h2 className="text-base font-semibold">修理受付一覧</h2>
             <p className="mt-1 text-sm text-gray-500">
-              受付番号を押すと詳細・編集画面へ移動します。
+              受付番号または詳細・編集ボタンから、担当者・ステータス・対応履歴を管理できます。
             </p>
           </div>
         </div>
@@ -186,6 +193,7 @@ export default async function RepairRequestsPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium">受付番号</th>
                   <th className="px-4 py-3 font-medium">状態</th>
+                  <th className="px-4 py-3 font-medium">担当者</th>
                   <th className="px-4 py-3 font-medium">お客様名</th>
                   <th className="px-4 py-3 font-medium">電話番号</th>
                   <th className="px-4 py-3 font-medium">対象機器</th>
@@ -206,6 +214,7 @@ export default async function RepairRequestsPage() {
                         {row.request_no}
                       </Link>
                     </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
                         className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -215,6 +224,19 @@ export default async function RepairRequestsPage() {
                         {statusLabel(row.status)}
                       </span>
                     </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {row.assigned_to ? (
+                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                          {row.assigned_to}
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
+                          未担当
+                        </span>
+                      )}
+                    </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       {row.customer_name}
                     </td>

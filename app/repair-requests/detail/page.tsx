@@ -27,6 +27,7 @@ type RepairRequestDetail = {
   error_code: string | null;
   is_usable: boolean | null;
   status: string;
+  assigned_to: string | null;
   admin_note: string | null;
   created_at: string;
 };
@@ -139,6 +140,7 @@ export default async function RepairRequestDetailPage({
       error_code,
       is_usable,
       status,
+      assigned_to,
       admin_note,
       created_at
     `
@@ -178,7 +180,9 @@ export default async function RepairRequestDetailPage({
 
   const { data: historyRows } = await supabase
     .from("repair_request_histories")
-    .select("id, repair_request_id, action_type, title, detail, created_by, created_at")
+    .select(
+      "id, repair_request_id, action_type, title, detail, created_by, created_at"
+    )
     .eq("repair_request_id", request.id)
     .order("created_at", { ascending: false });
 
@@ -194,7 +198,7 @@ export default async function RepairRequestDetailPage({
           <p className="text-sm text-gray-500">STAR WARRANTY</p>
           <h1 className="text-2xl font-bold">修理受付詳細・編集</h1>
           <p className="mt-1 text-sm text-gray-500">
-            修理受付内容の確認・編集・写真追加・対応履歴管理を行います
+            修理受付内容の確認・編集・写真追加・担当者・対応履歴管理を行います
           </p>
         </div>
 
@@ -256,6 +260,16 @@ export default async function RepairRequestDetailPage({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-500">担当者</label>
+                <input
+                  name="assigned_to"
+                  defaultValue={request.assigned_to || ""}
+                  className="mt-1 w-full rounded-lg border px-3 py-2"
+                  placeholder="例：清水、山田、メーカー確認中 など"
+                />
               </div>
 
               <div>
@@ -452,7 +466,7 @@ export default async function RepairRequestDetailPage({
             <div>
               <h2 className="text-base font-semibold">編集内容を保存</h2>
               <p className="mt-1 text-sm text-gray-500">
-                入力内容・ステータス・社内対応メモをまとめて更新します。
+                入力内容・ステータス・担当者・社内対応メモをまとめて更新します。
               </p>
             </div>
 
@@ -496,7 +510,7 @@ export default async function RepairRequestDetailPage({
               </div>
             ) : (
               <div className="mt-4 rounded-xl border bg-gray-50 p-4 text-sm text-gray-500">
-                まだ対応履歴はありません。ステータス変更やメモ更新を行うと履歴が追加されます。
+                まだ対応履歴はありません。ステータス変更・担当者変更・メモ更新を行うと履歴が追加されます。
               </div>
             )}
           </div>

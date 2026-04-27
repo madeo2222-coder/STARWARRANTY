@@ -22,6 +22,7 @@ type CurrentRepairRequest = {
   id: string;
   status: string | null;
   admin_note: string | null;
+  assigned_to: string | null;
 };
 
 function getAdminClient() {
@@ -138,6 +139,7 @@ export async function POST(request: Request) {
         error_code?: string | null;
         is_usable?: boolean | null;
         admin_note?: string | null;
+        assigned_to?: string | null;
       };
 
       requestId = body.request_id || "";
@@ -163,6 +165,7 @@ export async function POST(request: Request) {
         is_usable:
           typeof body.is_usable === "boolean" ? body.is_usable : null,
         admin_note: body.admin_note || null,
+        assigned_to: body.assigned_to || null,
         status,
       };
     } else {
@@ -197,6 +200,7 @@ export async function POST(request: Request) {
               ? false
               : null,
         admin_note: nullableText(formData.get("admin_note")),
+        assigned_to: nullableText(formData.get("assigned_to")),
         status,
       };
     }
@@ -215,7 +219,7 @@ export async function POST(request: Request) {
 
     const { data: currentRequest } = await supabase
       .from("repair_requests")
-      .select("id, status, admin_note")
+      .select("id, status, admin_note, assigned_to")
       .eq("id", requestId)
       .single<CurrentRepairRequest>();
 
@@ -346,6 +350,8 @@ export async function POST(request: Request) {
 
     const newAdminNote = String(updateBody.admin_note || "").trim();
     const oldAdminNote = String(currentRequest?.admin_note || "").trim();
+    const newAssignedTo = String(updateBody.assigned_to || "").trim();
+    const oldAssignedTo = String(currentRequest?.assigned_to || "").trim();
 
     if (currentRequest?.status && currentRequest.status !== status) {
       await addHistory({
@@ -354,6 +360,16 @@ export async function POST(request: Request) {
         actionType: "status_changed",
         title: "ステータスを変更しました",
         detail: `${statusLabel(currentRequest.status)} → ${statusLabel(status)}`,
+      });
+    }
+
+    if (newAssignedTo !== oldAssignedTo) {
+      await addHistory({
+        supabase,
+        repairRequestId: requestId,
+        actionType: "assigned_to_changed",
+        title: "担当者を変更しました",
+        detail: `${oldAssignedTo || "未設定"} → ${newAssignedTo || "未設定"}`,
       });
     }
 
@@ -369,7 +385,9 @@ export async function POST(request: Request) {
 
     if (
       !currentRequest?.status ||
-      (currentRequest.status === status && newAdminNote === oldAdminNote)
+      (currentRequest.status === status &&
+        newAdminNote === oldAdminNote &&
+        newAssignedTo === oldAssignedTo)
     ) {
       await addHistory({
         supabase,
