@@ -37,7 +37,11 @@ function isAllowedStatus(value: string): value is AllowedStatus {
   return ALLOWED_STATUSES.includes(value as AllowedStatus);
 }
 
-function buildRedirectUrl(baseUrl: string, nextPath: string, params: URLSearchParams) {
+function buildRedirectUrl(
+  baseUrl: string,
+  nextPath: string,
+  params: URLSearchParams
+) {
   const url = new URL(nextPath, baseUrl);
   params.forEach((value, key) => {
     url.searchParams.set(key, value);
@@ -55,93 +59,105 @@ export async function POST(request: Request) {
     const contentType = request.headers.get("content-type") || "";
     const supabase = getAdminClient();
 
+    let requestId = "";
+    let status = "";
+    let nextPath = "/repair-requests";
+    let action = "update";
+    let updateBody: Record<string, unknown> = {};
+
     if (contentType.includes("application/json")) {
       const body = (await request.json()) as {
         request_id?: string;
         status?: string;
-        action?: string;
         next_path?: string;
+        action?: string;
+        customer_name?: string;
+        customer_name_kana?: string | null;
+        phone?: string;
+        email?: string | null;
+        postal_code?: string | null;
+        address?: string | null;
+        product_name?: string;
+        manufacturer?: string | null;
+        model_no?: string | null;
+        installation_place?: string | null;
+        failure_date?: string | null;
+        symptom_category?: string | null;
+        symptom_detail?: string;
+        error_code?: string | null;
+        is_usable?: boolean | null;
+        admin_note?: string | null;
       };
 
-      const requestId = body.request_id || "";
-      const status = body.status || "";
-      const action = body.action || "status";
-      const nextPath = body.next_path || "/repair-requests";
+      requestId = body.request_id || "";
+      status = body.status || "";
+      nextPath = body.next_path || "/repair-requests";
+      action = body.action || "update";
 
-      if (!requestId) {
-        return NextResponse.json(
-          { success: false, error: "request_id がありません" },
-          { status: 400 }
-        );
-      }
+      updateBody = {
+        customer_name: body.customer_name?.trim() || "",
+        customer_name_kana: body.customer_name_kana || null,
+        phone: body.phone?.trim() || "",
+        email: body.email || null,
+        postal_code: body.postal_code || null,
+        address: body.address || null,
+        product_name: body.product_name?.trim() || "",
+        manufacturer: body.manufacturer || null,
+        model_no: body.model_no || null,
+        installation_place: body.installation_place || null,
+        failure_date: body.failure_date || null,
+        symptom_category: body.symptom_category || null,
+        symptom_detail: body.symptom_detail?.trim() || "",
+        error_code: body.error_code || null,
+        is_usable:
+          typeof body.is_usable === "boolean" ? body.is_usable : null,
+        admin_note: body.admin_note || null,
+        status,
+      };
+    } else {
+      const formData = await request.formData();
 
-      if (action === "delete") {
-        const { data: attachments } = await supabase
-          .from("repair_request_attachments")
-          .select("file_path")
-          .eq("repair_request_id", requestId);
+      requestId = String(formData.get("request_id") || "");
+      status = String(formData.get("status") || "");
+      nextPath = String(formData.get("next_path") || "/repair-requests");
+      action = String(formData.get("action") || "update");
 
-        const filePaths =
-          attachments?.map((item: { file_path: string }) => item.file_path) || [];
+      const isUsableValue = String(formData.get("is_usable") || "");
 
-        if (filePaths.length > 0) {
-          await supabase.storage.from(BUCKET_NAME).remove(filePaths);
-        }
-
-        await supabase
-          .from("repair_request_attachments")
-          .delete()
-          .eq("repair_request_id", requestId);
-
-        const { error: deleteError } = await supabase
-          .from("repair_requests")
-          .delete()
-          .eq("id", requestId);
-
-        if (deleteError) {
-          return NextResponse.json(
-            { success: false, error: deleteError.message },
-            { status: 500 }
-          );
-        }
-
-        return NextResponse.json({ success: true });
-      }
-
-      if (!isAllowedStatus(status)) {
-        return NextResponse.json(
-          { success: false, error: "不正なステータスです" },
-          { status: 400 }
-        );
-      }
-
-      const { error } = await supabase
-        .from("repair_requests")
-        .update({ status })
-        .eq("id", requestId);
-
-      if (error) {
-        return NextResponse.json(
-          { success: false, error: error.message },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({ success: true, next_path: nextPath });
+      updateBody = {
+        customer_name: String(formData.get("customer_name") || "").trim(),
+        customer_name_kana: nullableText(formData.get("customer_name_kana")),
+        phone: String(formData.get("phone") || "").trim(),
+        email: nullableText(formData.get("email")),
+        postal_code: nullableText(formData.get("postal_code")),
+        address: nullableText(formData.get("address")),
+        product_name: String(formData.get("product_name") || "").trim(),
+        manufacturer: nullableText(formData.get("manufacturer")),
+        model_no: nullableText(formData.get("model_no")),
+        installation_place: nullableText(formData.get("installation_place")),
+        failure_date: nullableText(formData.get("failure_date")),
+        symptom_category: nullableText(formData.get("symptom_category")),
+        symptom_detail: String(formData.get("symptom_detail") || "").trim(),
+        error_code: nullableText(formData.get("error_code")),
+        is_usable:
+          isUsableValue === "yes"
+            ? true
+            : isUsableValue === "no"
+              ? false
+              : null,
+        admin_note: nullableText(formData.get("admin_note")),
+        status,
+      };
     }
-
-    const formData = await request.formData();
-
-    const action = String(formData.get("action") || "update");
-    const requestId = String(formData.get("request_id") || "");
-    const nextPath = String(formData.get("next_path") || "/repair-requests");
 
     if (!requestId) {
       return NextResponse.redirect(
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: "request_id がありません" })
+          new URLSearchParams({
+            error: encodeURIComponent("request_id がありません"),
+          })
         )
       );
     }
@@ -153,7 +169,9 @@ export async function POST(request: Request) {
         .eq("repair_request_id", requestId);
 
       const filePaths =
-        attachments?.map((item: { file_path: string }) => item.file_path) || [];
+        attachments
+          ?.map((item: { file_path: string | null }) => item.file_path)
+          .filter((path): path is string => Boolean(path)) || [];
 
       if (filePaths.length > 0) {
         await supabase.storage.from(BUCKET_NAME).remove(filePaths);
@@ -174,7 +192,9 @@ export async function POST(request: Request) {
           buildRedirectUrl(
             request.url,
             nextPath,
-            new URLSearchParams({ error: deleteError.message })
+            new URLSearchParams({
+              error: encodeURIComponent(deleteError.message),
+            })
           )
         );
       }
@@ -183,89 +203,76 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           "/repair-requests",
-          new URLSearchParams({ deleted: "1" })
+          new URLSearchParams({
+            deleted: "1",
+          })
         )
       );
     }
-
-    const status = String(formData.get("status") || "");
 
     if (!isAllowedStatus(status)) {
       return NextResponse.redirect(
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: "不正なステータスです" })
+          new URLSearchParams({
+            error: encodeURIComponent("不正なステータスです"),
+          })
         )
       );
     }
 
-    const isUsableValue = String(formData.get("is_usable") || "");
-    const isUsable =
-      isUsableValue === "true" ? true : isUsableValue === "false" ? false : null;
-
-    const updatePayload = {
-      customer_name: String(formData.get("customer_name") || "").trim(),
-      customer_name_kana: nullableText(formData.get("customer_name_kana")),
-      phone: String(formData.get("phone") || "").trim(),
-      email: nullableText(formData.get("email")),
-      postal_code: nullableText(formData.get("postal_code")),
-      address: nullableText(formData.get("address")),
-      product_name: String(formData.get("product_name") || "").trim(),
-      manufacturer: nullableText(formData.get("manufacturer")),
-      model_no: nullableText(formData.get("model_no")),
-      installation_place: nullableText(formData.get("installation_place")),
-      failure_date: nullableText(formData.get("failure_date")),
-      symptom_category: nullableText(formData.get("symptom_category")),
-      symptom_detail: String(formData.get("symptom_detail") || "").trim(),
-      error_code: nullableText(formData.get("error_code")),
-      is_usable: isUsable,
-      status,
-    };
-
-    if (!updatePayload.customer_name) {
+    if (!String(updateBody.customer_name || "").trim()) {
       return NextResponse.redirect(
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: "お名前がありません" })
+          new URLSearchParams({
+            error: encodeURIComponent("お名前がありません"),
+          })
         )
       );
     }
 
-    if (!updatePayload.phone) {
+    if (!String(updateBody.phone || "").trim()) {
       return NextResponse.redirect(
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: "電話番号がありません" })
+          new URLSearchParams({
+            error: encodeURIComponent("電話番号がありません"),
+          })
         )
       );
     }
 
-    if (!updatePayload.product_name) {
+    if (!String(updateBody.product_name || "").trim()) {
       return NextResponse.redirect(
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: "対象機器がありません" })
+          new URLSearchParams({
+            error: encodeURIComponent("対象機器がありません"),
+          })
         )
       );
     }
 
-    if (!updatePayload.symptom_detail) {
+    if (!String(updateBody.symptom_detail || "").trim()) {
       return NextResponse.redirect(
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: "故障内容がありません" })
+          new URLSearchParams({
+            error: encodeURIComponent("故障内容がありません"),
+          })
         )
       );
     }
 
     const { error } = await supabase
       .from("repair_requests")
-      .update(updatePayload)
+      .update(updateBody)
       .eq("id", requestId);
 
     if (error) {
@@ -273,7 +280,9 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: error.message })
+          new URLSearchParams({
+            error: encodeURIComponent(error.message),
+          })
         )
       );
     }
@@ -282,7 +291,9 @@ export async function POST(request: Request) {
       buildRedirectUrl(
         request.url,
         nextPath,
-        new URLSearchParams({ updated: "1" })
+        new URLSearchParams({
+          updated: "1",
+        })
       )
     );
   } catch (error) {

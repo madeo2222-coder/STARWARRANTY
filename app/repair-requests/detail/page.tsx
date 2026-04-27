@@ -27,6 +27,7 @@ type RepairRequestDetail = {
   error_code: string | null;
   is_usable: boolean | null;
   status: string;
+  admin_note: string | null;
   created_at: string;
 };
 
@@ -128,6 +129,7 @@ export default async function RepairRequestDetailPage({
       error_code,
       is_usable,
       status,
+      admin_note,
       created_at
     `
     )
@@ -174,7 +176,7 @@ export default async function RepairRequestDetailPage({
           <p className="text-sm text-gray-500">STAR WARRANTY</p>
           <h1 className="text-2xl font-bold">修理受付詳細・編集</h1>
           <p className="mt-1 text-sm text-gray-500">
-            修理受付内容の確認・編集・写真追加・削除を行います
+            修理受付内容の確認・編集・写真追加・対応メモ管理を行います
           </p>
         </div>
 
@@ -414,11 +416,25 @@ export default async function RepairRequestDetailPage({
             </div>
           </div>
 
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="text-base font-semibold">社内対応メモ</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              お客様には表示されない、社内用の対応メモです。
+            </p>
+
+            <textarea
+              name="admin_note"
+              defaultValue={request.admin_note || ""}
+              className="mt-4 min-h-[180px] w-full rounded-lg border px-3 py-2"
+              placeholder="例：メーカーへ確認中、訪問日調整済み、部品手配中、お客様へ連絡済み など"
+            />
+          </div>
+
           <div className="flex flex-col gap-3 rounded-2xl border bg-white p-6 shadow-sm md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-base font-semibold">編集内容を保存</h2>
               <p className="mt-1 text-sm text-gray-500">
-                入力内容とステータスをまとめて更新します。
+                入力内容・ステータス・社内対応メモをまとめて更新します。
               </p>
             </div>
 
