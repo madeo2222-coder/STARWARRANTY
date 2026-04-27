@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type CertificateSummary = {
@@ -18,14 +18,16 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleDateString("ja-JP");
 }
 
-export default function RepairRequestFormPage() {
+function RepairRequestFormContent() {
   const searchParams = useSearchParams();
   const token = useMemo(() => searchParams.get("token") || "", [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [certificate, setCertificate] = useState<CertificateSummary | null>(null);
+  const [certificate, setCertificate] = useState<CertificateSummary | null>(
+    null
+  );
 
   const [customerName, setCustomerName] = useState("");
   const [customerNameKana, setCustomerNameKana] = useState("");
@@ -59,9 +61,12 @@ export default function RepairRequestFormPage() {
         setLoading(true);
         setErrorMessage("");
 
-        const res = await fetch(`/api/repair-requests?token=${encodeURIComponent(token)}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(
+          `/api/repair-requests?token=${encodeURIComponent(token)}`,
+          {
+            cache: "no-store",
+          }
+        );
 
         const json = await res.json();
 
@@ -177,7 +182,8 @@ export default function RepairRequestFormPage() {
           symptom_category: symptomCategory.trim() || null,
           symptom_detail: symptomDetail.trim(),
           error_code: errorCode.trim() || null,
-          is_usable: isUsable === "yes" ? true : isUsable === "no" ? false : null,
+          is_usable:
+            isUsable === "yes" ? true : isUsable === "no" ? false : null,
         }),
       });
 
@@ -191,7 +197,9 @@ export default function RepairRequestFormPage() {
 
       if (files.length > 0) {
         if (!requestId) {
-          throw new Error("修理受付は作成されましたが、写真保存用IDが取得できませんでした");
+          throw new Error(
+            "修理受付は作成されましたが、写真保存用IDが取得できませんでした"
+          );
         }
 
         await uploadAttachments(requestId);
@@ -199,8 +207,12 @@ export default function RepairRequestFormPage() {
 
       setSuccessMessage(
         files.length > 0
-          ? `修理受付と写真${files.length}枚を送信しました。受付番号: ${json.request?.request_no || "-"}`
-          : `修理受付を送信しました。受付番号: ${json.request?.request_no || "-"}`
+          ? `修理受付と写真${files.length}枚を送信しました。受付番号: ${
+              json.request?.request_no || "-"
+            }`
+          : `修理受付を送信しました。受付番号: ${
+              json.request?.request_no || "-"
+            }`
       );
 
       setCustomerName("");
@@ -231,7 +243,9 @@ export default function RepairRequestFormPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-3xl p-4 md:p-6">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">読み込み中...</div>
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          読み込み中...
+        </div>
       </div>
     );
   }
@@ -264,11 +278,15 @@ export default function RepairRequestFormPage() {
           <div className="mt-4 grid gap-4 text-sm md:grid-cols-2">
             <div>
               <div className="text-gray-500">保証書番号</div>
-              <div className="mt-1 font-medium">{certificate.certificate_no}</div>
+              <div className="mt-1 font-medium">
+                {certificate.certificate_no}
+              </div>
             </div>
             <div>
               <div className="text-gray-500">施主名</div>
-              <div className="mt-1 font-medium">{certificate.customer_name}</div>
+              <div className="mt-1 font-medium">
+                {certificate.customer_name}
+              </div>
             </div>
             <div>
               <div className="text-gray-500">保証開始日</div>
@@ -492,5 +510,21 @@ export default function RepairRequestFormPage() {
         </button>
       </form>
     </div>
+  );
+}
+
+export default function RepairRequestFormPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl p-4 md:p-6">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            読み込み中...
+          </div>
+        </div>
+      }
+    >
+      <RepairRequestFormContent />
+    </Suspense>
   );
 }
