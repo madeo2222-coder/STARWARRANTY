@@ -38,6 +38,16 @@ type RepairRequestAttachment = {
   signed_url?: string | null;
 };
 
+type RepairRequestHistory = {
+  id: string;
+  repair_request_id: string;
+  action_type: string;
+  title: string;
+  detail: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 const STATUS_OPTIONS = [
   { value: "received", label: "受付" },
   { value: "checking", label: "内容確認中" },
@@ -166,6 +176,14 @@ export default async function RepairRequestDetailPage({
     });
   }
 
+  const { data: historyRows } = await supabase
+    .from("repair_request_histories")
+    .select("id, repair_request_id, action_type, title, detail, created_by, created_at")
+    .eq("repair_request_id", request.id)
+    .order("created_at", { ascending: false });
+
+  const histories = (historyRows || []) as RepairRequestHistory[];
+
   const nextPath = `/repair-requests/detail?id=${request.id}`;
   const remainingPhotoCount = Math.max(0, MAX_FILES - attachments.length);
 
@@ -176,7 +194,7 @@ export default async function RepairRequestDetailPage({
           <p className="text-sm text-gray-500">STAR WARRANTY</p>
           <h1 className="text-2xl font-bold">修理受付詳細・編集</h1>
           <p className="mt-1 text-sm text-gray-500">
-            修理受付内容の確認・編集・写真追加・対応メモ管理を行います
+            修理受付内容の確認・編集・写真追加・対応履歴管理を行います
           </p>
         </div>
 
@@ -448,6 +466,41 @@ export default async function RepairRequestDetailPage({
         </form>
 
         <div className="space-y-6">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="text-base font-semibold">対応履歴タイムライン</h2>
+
+            {histories.length > 0 ? (
+              <div className="mt-4 space-y-4">
+                {histories.map((history) => (
+                  <div key={history.id} className="rounded-xl border p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{history.title}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {history.created_by || "-"} /{" "}
+                          {formatDateTime(history.created_at)}
+                        </div>
+                      </div>
+                      <div className="rounded-full border bg-gray-50 px-2 py-1 text-xs text-gray-500">
+                        {history.action_type}
+                      </div>
+                    </div>
+
+                    {history.detail ? (
+                      <div className="mt-3 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                        {history.detail}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border bg-gray-50 p-4 text-sm text-gray-500">
+                まだ対応履歴はありません。ステータス変更やメモ更新を行うと履歴が追加されます。
+              </div>
+            )}
+          </div>
+
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">添付写真</h2>
 

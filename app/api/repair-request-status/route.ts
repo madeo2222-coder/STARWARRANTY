@@ -18,6 +18,12 @@ const ALLOWED_STATUSES = [
 
 type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
 
+type CurrentRepairRequest = {
+  id: string;
+  status: string | null;
+  admin_note: string | null;
+};
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -52,6 +58,51 @@ function buildRedirectUrl(
 function nullableText(value: FormDataEntryValue | null) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+function statusLabel(status: string | null | undefined) {
+  switch (status) {
+    case "received":
+      return "受付";
+    case "checking":
+      return "内容確認中";
+    case "manufacturer_checking":
+      return "メーカー確認中";
+    case "repair_arranging":
+      return "修理手配中";
+    case "visit_scheduling":
+      return "訪問日調整中";
+    case "completed":
+      return "修理完了";
+    case "out_of_warranty":
+      return "保証対象外";
+    case "cancelled":
+      return "キャンセル";
+    default:
+      return status || "-";
+  }
+}
+
+async function addHistory({
+  supabase,
+  repairRequestId,
+  actionType,
+  title,
+  detail,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  repairRequestId: string;
+  actionType: string;
+  title: string;
+  detail?: string | null;
+}) {
+  await supabase.from("repair_request_histories").insert({
+    repair_request_id: repairRequestId,
+    action_type: actionType,
+    title,
+    detail: detail || null,
+    created_by: "本部",
+  });
 }
 
 export async function POST(request: Request) {
@@ -161,6 +212,12 @@ export async function POST(request: Request) {
         )
       );
     }
+
+    const { data: currentRequest } = await supabase
+      .from("repair_requests")
+      .select("id, status, admin_note")
+      .eq("id", requestId)
+      .single<CurrentRepairRequest>();
 
     if (action === "delete") {
       const { data: attachments } = await supabase
@@ -285,6 +342,42 @@ export async function POST(request: Request) {
           })
         )
       );
+    }
+
+    const newAdminNote = String(updateBody.admin_note || "").trim();
+    const oldAdminNote = String(currentRequest?.admin_note || "").trim();
+
+    if (currentRequest?.status && currentRequest.status !== status) {
+      await addHistory({
+        supabase,
+        repairRequestId: requestId,
+        actionType: "status_changed",
+        title: "ステータスを変更しました",
+        detail: `${statusLabel(currentRequest.status)} → ${statusLabel(status)}`,
+      });
+    }
+
+    if (newAdminNote && newAdminNote !== oldAdminNote) {
+      await addHistory({
+        supabase,
+        repairRequestId: requestId,
+        actionType: "admin_note_updated",
+        title: "社内対応メモを更新しました",
+        detail: newAdminNote,
+      });
+    }
+
+    if (
+      !currentRequest?.status ||
+      (currentRequest.status === status && newAdminNote === oldAdminNote)
+    ) {
+      await addHistory({
+        supabase,
+        repairRequestId: requestId,
+        actionType: "request_updated",
+        title: "修理受付情報を更新しました",
+        detail: "お客様情報・故障内容などを更新しました。",
+      });
     }
 
     return NextResponse.redirect(
