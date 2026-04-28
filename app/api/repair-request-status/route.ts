@@ -25,7 +25,13 @@ type CurrentRepairRequest = {
   assigned_to: string | null;
 };
 
-type AdminSupabaseClient = ReturnType<typeof createClient>;
+type HistoryInsertClient = {
+  from: (tableName: string) => {
+    insert: (
+      payload: Record<string, unknown>
+    ) => Promise<{ error: { message: string } | null }>;
+  };
+};
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -95,23 +101,21 @@ async function addHistory({
   title,
   detail,
 }: {
-  supabase: AdminSupabaseClient;
+  supabase: unknown;
   repairRequestId: string;
   actionType: string;
   title: string;
   detail?: string | null;
 }) {
-  const payload = {
+  const client = supabase as HistoryInsertClient;
+
+  const { error } = await client.from("repair_request_histories").insert({
     repair_request_id: repairRequestId,
     action_type: actionType,
     title,
     detail: detail || null,
     created_by: "本部",
-  };
-
-  const table = supabase.from("repair_request_histories" as never);
-
-  const { error } = await table.insert(payload as never);
+  });
 
   if (error) {
     console.error("repair_request_histories insert error", error.message);
