@@ -25,6 +25,8 @@ type CurrentRepairRequest = {
   assigned_to: string | null;
 };
 
+type AdminSupabaseClient = ReturnType<typeof createClient>;
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -50,9 +52,11 @@ function buildRedirectUrl(
   params: URLSearchParams
 ) {
   const url = new URL(nextPath, baseUrl);
+
   params.forEach((value, key) => {
     url.searchParams.set(key, value);
   });
+
   return url;
 }
 
@@ -91,19 +95,27 @@ async function addHistory({
   title,
   detail,
 }: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: AdminSupabaseClient;
   repairRequestId: string;
   actionType: string;
   title: string;
   detail?: string | null;
 }) {
-  await supabase.from("repair_request_histories").insert({
+  const payload = {
     repair_request_id: repairRequestId,
     action_type: actionType,
     title,
     detail: detail || null,
     created_by: "本部",
-  });
+  };
+
+  const table = supabase.from("repair_request_histories" as never);
+
+  const { error } = await table.insert(payload as never);
+
+  if (error) {
+    console.error("repair_request_histories insert error", error.message);
+  }
 }
 
 export async function POST(request: Request) {
@@ -221,7 +233,10 @@ export async function POST(request: Request) {
       .from("repair_requests")
       .select("id, status, admin_note, assigned_to")
       .eq("id", requestId)
-      .single<CurrentRepairRequest>();
+      .single();
+
+    const typedCurrentRequest =
+      (currentRequest as CurrentRepairRequest | null) || null;
 
     if (action === "delete") {
       const { data: attachments } = await supabase
@@ -349,17 +364,19 @@ export async function POST(request: Request) {
     }
 
     const newAdminNote = String(updateBody.admin_note || "").trim();
-    const oldAdminNote = String(currentRequest?.admin_note || "").trim();
+    const oldAdminNote = String(typedCurrentRequest?.admin_note || "").trim();
     const newAssignedTo = String(updateBody.assigned_to || "").trim();
-    const oldAssignedTo = String(currentRequest?.assigned_to || "").trim();
+    const oldAssignedTo = String(typedCurrentRequest?.assigned_to || "").trim();
 
-    if (currentRequest?.status && currentRequest.status !== status) {
+    if (typedCurrentRequest?.status && typedCurrentRequest.status !== status) {
       await addHistory({
         supabase,
         repairRequestId: requestId,
         actionType: "status_changed",
         title: "ステータスを変更しました",
-        detail: `${statusLabel(currentRequest.status)} → ${statusLabel(status)}`,
+        detail: `${statusLabel(typedCurrentRequest.status)} → ${statusLabel(
+          status
+        )}`,
       });
     }
 
@@ -369,7 +386,9 @@ export async function POST(request: Request) {
         repairRequestId: requestId,
         actionType: "assigned_to_changed",
         title: "担当者を変更しました",
-        detail: `${oldAssignedTo || "未設定"} → ${newAssignedTo || "未設定"}`,
+        detail: `${oldAssignedTo || "未設定"} → ${
+          newAssignedTo || "未設定"
+        }`,
       });
     }
 
@@ -384,8 +403,8 @@ export async function POST(request: Request) {
     }
 
     if (
-      !currentRequest?.status ||
-      (currentRequest.status === status &&
+      !typedCurrentRequest?.status ||
+      (typedCurrentRequest.status === status &&
         newAdminNote === oldAdminNote &&
         newAssignedTo === oldAssignedTo)
     ) {
