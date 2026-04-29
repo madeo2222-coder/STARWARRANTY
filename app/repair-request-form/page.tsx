@@ -11,6 +11,11 @@ type CertificateSummary = {
   products: string[];
 };
 
+type SubmittedRequest = {
+  request_no: string;
+  photo_count: number;
+};
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
   const date = new Date(value);
@@ -47,7 +52,8 @@ function RepairRequestFormContent() {
   const [files, setFiles] = useState<File[]>([]);
 
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [submittedRequest, setSubmittedRequest] =
+    useState<SubmittedRequest | null>(null);
 
   useEffect(() => {
     async function loadCertificate() {
@@ -134,7 +140,6 @@ function RepairRequestFormContent() {
 
     setSubmitting(true);
     setErrorMessage("");
-    setSuccessMessage("");
 
     try {
       if (!token) {
@@ -205,31 +210,11 @@ function RepairRequestFormContent() {
         await uploadAttachments(requestId);
       }
 
-      setSuccessMessage(
-        files.length > 0
-          ? `修理受付と写真${files.length}枚を送信しました。受付番号: ${
-              json.request?.request_no || "-"
-            }`
-          : `修理受付を送信しました。受付番号: ${
-              json.request?.request_no || "-"
-            }`
-      );
+      setSubmittedRequest({
+        request_no: json.request?.request_no || "-",
+        photo_count: files.length,
+      });
 
-      setCustomerName("");
-      setCustomerNameKana("");
-      setPhone("");
-      setEmail("");
-      setPostalCode("");
-      setAddress("");
-      setProductName("");
-      setManufacturer("");
-      setModelNo("");
-      setInstallationPlace("");
-      setFailureDate("");
-      setSymptomCategory("");
-      setSymptomDetail("");
-      setErrorCode("");
-      setIsUsable("");
       setFiles([]);
     } catch (error) {
       setErrorMessage(
@@ -250,6 +235,69 @@ function RepairRequestFormContent() {
     );
   }
 
+  if (submittedRequest) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <p className="text-sm text-gray-500">STAR WARRANTY</p>
+          <h1 className="mt-1 text-2xl font-bold">修理受付が完了しました</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            ご入力いただいた内容を確認し、担当者より順次ご連絡いたします。
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-6 shadow-sm">
+          <div className="text-sm font-medium text-green-700">受付番号</div>
+          <div className="mt-2 text-3xl font-bold text-green-800">
+            {submittedRequest.request_no}
+          </div>
+
+          <div className="mt-5 space-y-2 text-sm text-green-800">
+            <p>修理受付を送信しました。</p>
+            <p>
+              添付写真：
+              {submittedRequest.photo_count > 0
+                ? `${submittedRequest.photo_count}枚`
+                : "なし"}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold">今後の流れ</h2>
+
+          <div className="mt-4 space-y-3 text-sm text-gray-700">
+            <div className="rounded-xl border p-4">
+              <div className="font-medium">1. 受付内容の確認</div>
+              <div className="mt-1 text-gray-500">
+                担当者が故障内容・保証情報・添付写真を確認します。
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-4">
+              <div className="font-medium">2. 必要に応じてご連絡</div>
+              <div className="mt-1 text-gray-500">
+                確認事項がある場合は、入力いただいた電話番号またはメールアドレスへご連絡します。
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-4">
+              <div className="font-medium">3. 修理手配・日程調整</div>
+              <div className="mt-1 text-gray-500">
+                保証対象の場合、修理手配または訪問日調整へ進みます。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-gray-50 p-4 text-xs text-gray-500">
+          追加の写真や内容変更が必要な場合は、担当者からの連絡時にお伝えください。
+          この画面を閉じても受付は完了しています。
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -263,12 +311,6 @@ function RepairRequestFormContent() {
       {errorMessage ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
-        </div>
-      ) : null}
-
-      {successMessage ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {successMessage}
         </div>
       ) : null}
 
