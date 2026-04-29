@@ -60,6 +60,15 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "キャンセル" },
 ] as const;
 
+const STATUS_FLOW = [
+  "received",
+  "checking",
+  "manufacturer_checking",
+  "repair_arranging",
+  "visit_scheduling",
+  "completed",
+] as const;
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -90,6 +99,17 @@ function getFileNameFromPath(filePath: string) {
 function toDateInputValue(value: string | null | undefined) {
   if (!value) return "";
   return value.slice(0, 10);
+}
+
+function statusLabel(status: string | null | undefined) {
+  const found = STATUS_OPTIONS.find((option) => option.value === status);
+  return found ? found.label : status || "-";
+}
+
+function getNextStatus(status: string) {
+  const currentIndex = STATUS_FLOW.findIndex((item) => item === status);
+  if (currentIndex === -1) return null;
+  return STATUS_FLOW[currentIndex + 1] || null;
 }
 
 export default async function RepairRequestDetailPage({
@@ -190,6 +210,7 @@ export default async function RepairRequestDetailPage({
 
   const nextPath = `/repair-requests/detail?id=${request.id}`;
   const remainingPhotoCount = Math.max(0, MAX_FILES - attachments.length);
+  const nextStatus = getNextStatus(request.status);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -480,6 +501,318 @@ export default async function RepairRequestDetailPage({
         </form>
 
         <div className="space-y-6">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="text-base font-semibold">ステータス操作</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              現在のステータス：{" "}
+              <span className="font-semibold">{statusLabel(request.status)}</span>
+            </p>
+
+            {nextStatus ? (
+              <form
+                method="post"
+                action="/api/repair-request-status"
+                className="mt-4 space-y-3"
+              >
+                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="next_path" value={nextPath} />
+                <input type="hidden" name="action" value="update" />
+
+                <input type="hidden" name="status" value={nextStatus} />
+                <input
+                  type="hidden"
+                  name="assigned_to"
+                  value={request.assigned_to || ""}
+                />
+                <input
+                  type="hidden"
+                  name="customer_name"
+                  value={request.customer_name}
+                />
+                <input
+                  type="hidden"
+                  name="customer_name_kana"
+                  value={request.customer_name_kana || ""}
+                />
+                <input type="hidden" name="phone" value={request.phone} />
+                <input type="hidden" name="email" value={request.email || ""} />
+                <input
+                  type="hidden"
+                  name="postal_code"
+                  value={request.postal_code || ""}
+                />
+                <input
+                  type="hidden"
+                  name="address"
+                  value={request.address || ""}
+                />
+                <input
+                  type="hidden"
+                  name="product_name"
+                  value={request.product_name}
+                />
+                <input
+                  type="hidden"
+                  name="manufacturer"
+                  value={request.manufacturer || ""}
+                />
+                <input
+                  type="hidden"
+                  name="model_no"
+                  value={request.model_no || ""}
+                />
+                <input
+                  type="hidden"
+                  name="installation_place"
+                  value={request.installation_place || ""}
+                />
+                <input
+                  type="hidden"
+                  name="failure_date"
+                  value={toDateInputValue(request.failure_date)}
+                />
+                <input
+                  type="hidden"
+                  name="symptom_category"
+                  value={request.symptom_category || ""}
+                />
+                <input
+                  type="hidden"
+                  name="symptom_detail"
+                  value={request.symptom_detail}
+                />
+                <input
+                  type="hidden"
+                  name="error_code"
+                  value={request.error_code || ""}
+                />
+                <input
+                  type="hidden"
+                  name="is_usable"
+                  value={
+                    request.is_usable === true
+                      ? "yes"
+                      : request.is_usable === false
+                        ? "no"
+                        : ""
+                  }
+                />
+                <input
+                  type="hidden"
+                  name="admin_note"
+                  value={request.admin_note || ""}
+                />
+
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+                >
+                  次へ進める：{statusLabel(nextStatus)}
+                </button>
+              </form>
+            ) : (
+              <div className="mt-4 rounded-xl border bg-gray-50 p-4 text-sm text-gray-500">
+                このステータスは次の進行ボタン対象外です。必要な場合は左側のステータス選択から変更してください。
+              </div>
+            )}
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <form method="post" action="/api/repair-request-status">
+                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="next_path" value={nextPath} />
+                <input type="hidden" name="action" value="update" />
+                <input type="hidden" name="status" value="out_of_warranty" />
+                <input
+                  type="hidden"
+                  name="assigned_to"
+                  value={request.assigned_to || ""}
+                />
+                <input
+                  type="hidden"
+                  name="customer_name"
+                  value={request.customer_name}
+                />
+                <input
+                  type="hidden"
+                  name="customer_name_kana"
+                  value={request.customer_name_kana || ""}
+                />
+                <input type="hidden" name="phone" value={request.phone} />
+                <input type="hidden" name="email" value={request.email || ""} />
+                <input
+                  type="hidden"
+                  name="postal_code"
+                  value={request.postal_code || ""}
+                />
+                <input
+                  type="hidden"
+                  name="address"
+                  value={request.address || ""}
+                />
+                <input
+                  type="hidden"
+                  name="product_name"
+                  value={request.product_name}
+                />
+                <input
+                  type="hidden"
+                  name="manufacturer"
+                  value={request.manufacturer || ""}
+                />
+                <input
+                  type="hidden"
+                  name="model_no"
+                  value={request.model_no || ""}
+                />
+                <input
+                  type="hidden"
+                  name="installation_place"
+                  value={request.installation_place || ""}
+                />
+                <input
+                  type="hidden"
+                  name="failure_date"
+                  value={toDateInputValue(request.failure_date)}
+                />
+                <input
+                  type="hidden"
+                  name="symptom_category"
+                  value={request.symptom_category || ""}
+                />
+                <input
+                  type="hidden"
+                  name="symptom_detail"
+                  value={request.symptom_detail}
+                />
+                <input
+                  type="hidden"
+                  name="error_code"
+                  value={request.error_code || ""}
+                />
+                <input
+                  type="hidden"
+                  name="is_usable"
+                  value={
+                    request.is_usable === true
+                      ? "yes"
+                      : request.is_usable === false
+                        ? "no"
+                        : ""
+                  }
+                />
+                <input
+                  type="hidden"
+                  name="admin_note"
+                  value={request.admin_note || ""}
+                />
+
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  保証対象外
+                </button>
+              </form>
+
+              <form method="post" action="/api/repair-request-status">
+                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="next_path" value={nextPath} />
+                <input type="hidden" name="action" value="update" />
+                <input type="hidden" name="status" value="cancelled" />
+                <input
+                  type="hidden"
+                  name="assigned_to"
+                  value={request.assigned_to || ""}
+                />
+                <input
+                  type="hidden"
+                  name="customer_name"
+                  value={request.customer_name}
+                />
+                <input
+                  type="hidden"
+                  name="customer_name_kana"
+                  value={request.customer_name_kana || ""}
+                />
+                <input type="hidden" name="phone" value={request.phone} />
+                <input type="hidden" name="email" value={request.email || ""} />
+                <input
+                  type="hidden"
+                  name="postal_code"
+                  value={request.postal_code || ""}
+                />
+                <input
+                  type="hidden"
+                  name="address"
+                  value={request.address || ""}
+                />
+                <input
+                  type="hidden"
+                  name="product_name"
+                  value={request.product_name}
+                />
+                <input
+                  type="hidden"
+                  name="manufacturer"
+                  value={request.manufacturer || ""}
+                />
+                <input
+                  type="hidden"
+                  name="model_no"
+                  value={request.model_no || ""}
+                />
+                <input
+                  type="hidden"
+                  name="installation_place"
+                  value={request.installation_place || ""}
+                />
+                <input
+                  type="hidden"
+                  name="failure_date"
+                  value={toDateInputValue(request.failure_date)}
+                />
+                <input
+                  type="hidden"
+                  name="symptom_category"
+                  value={request.symptom_category || ""}
+                />
+                <input
+                  type="hidden"
+                  name="symptom_detail"
+                  value={request.symptom_detail}
+                />
+                <input
+                  type="hidden"
+                  name="error_code"
+                  value={request.error_code || ""}
+                />
+                <input
+                  type="hidden"
+                  name="is_usable"
+                  value={
+                    request.is_usable === true
+                      ? "yes"
+                      : request.is_usable === false
+                        ? "no"
+                        : ""
+                  }
+                />
+                <input
+                  type="hidden"
+                  name="admin_note"
+                  value={request.admin_note || ""}
+                />
+
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-red-200 px-4 py-2 text-sm text-red-700 hover:bg-red-50"
+                >
+                  キャンセル
+                </button>
+              </form>
+            </div>
+          </div>
+
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">対応履歴タイムライン</h2>
 
