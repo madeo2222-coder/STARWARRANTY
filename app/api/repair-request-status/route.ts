@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +21,13 @@ type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
 
 type CurrentRepairRequest = {
   id: string;
+  request_no: string | null;
   status: string | null;
   admin_note: string | null;
   assigned_to: string | null;
+  email: string | null;
+  customer_name: string | null;
+  phone: string | null;
 };
 
 type HistoryInsertClient = {
@@ -37,32 +42,28 @@ function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
-  }
-
-  if (!serviceRoleKey) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
-  }
+  if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
+  if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
 
   return createClient(supabaseUrl, serviceRoleKey);
+}
+
+function getAppBaseUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    "http://localhost:3000"
+  ).replace(/\/$/, "");
 }
 
 function isAllowedStatus(value: string): value is AllowedStatus {
   return ALLOWED_STATUSES.includes(value as AllowedStatus);
 }
 
-function buildRedirectUrl(
-  baseUrl: string,
-  nextPath: string,
-  params: URLSearchParams
-) {
+function buildRedirectUrl(baseUrl: string, nextPath: string, params: URLSearchParams) {
   const url = new URL(nextPath, baseUrl);
-
-  params.forEach((value, key) => {
-    url.searchParams.set(key, value);
-  });
-
+  params.forEach((value, key) => url.searchParams.set(key, value));
   return url;
 }
 
@@ -73,24 +74,15 @@ function nullableText(value: FormDataEntryValue | null) {
 
 function statusLabel(status: string | null | undefined) {
   switch (status) {
-    case "received":
-      return "受付";
-    case "checking":
-      return "内容確認中";
-    case "manufacturer_checking":
-      return "メーカー確認中";
-    case "repair_arranging":
-      return "修理手配中";
-    case "visit_scheduling":
-      return "訪問日調整中";
-    case "completed":
-      return "修理完了";
-    case "out_of_warranty":
-      return "保証対象外";
-    case "cancelled":
-      return "キャンセル";
-    default:
-      return status || "-";
+    case "received": return "受付";
+    case "checking": return "内容確認中";
+    case "manufacturer_checking": return "メーカー確認中";
+    case "repair_arranging": return "修理手配中";
+    case "visit_scheduling": return "訪問日調整中";
+    case "completed": return "修理完了";
+    case "out_of_warranty": return "保証対象外";
+    case "cancelled": return "キャンセル";
+    default: return status || "-";
   }
 }
 
@@ -120,6 +112,57 @@ async function addHistory({
   if (error) {
     console.error("repair_request_histories insert error", error.message);
   }
+}
+
+async function sendCustomerStatusMail({
+  to,
+  customerName,
+  requestNo,
+  phone,
+  newStatus,
+}: {
+  to: string;
+  customerName: string;
+  requestNo: string;
+  phone: string;
+  newStatus: string;
+}) {
+  const resendKey = process.env.RESEND_API_KEY;
+
+  if (!resendKey || resendKey === "dummy") {
+    console.log("RESEND_API_KEY 未設定のため、お客様通知メールをスキップしました");
+    return;
+  }
+
+  const appBaseUrl = getAppBaseUrl();
+  const statusUrl = `${appBaseUrl}/repair-status?request_no=${encodeURIComponent(
+    requestNo
+  )}`;
+
+  const resend = new Resend(resendKey);
+
+  await resend.emails.send({
+    from: "STAR WARRANTY <onboarding@resend.dev>",
+    to,
+    subject: `【STAR WARRANTY】修理受付状況が更新されました（${requestNo}）`,
+    text: `${customerName} 様
+
+STAR WARRANTY 修理受付状況が更新されました。
+
+受付番号：${requestNo}
+現在のステータス：${statusLabel(newStatus)}
+
+受付状況は以下のページから確認できます。
+${statusUrl}
+
+確認時は、受付番号と受付時に入力した電話番号が必要です。
+
+電話番号：
+${phone}
+
+※本メールは自動送信です。
+`,
+  });
 }
 
 export async function POST(request: Request) {
@@ -178,8 +221,7 @@ export async function POST(request: Request) {
         symptom_category: body.symptom_category || null,
         symptom_detail: body.symptom_detail?.trim() || "",
         error_code: body.error_code || null,
-        is_usable:
-          typeof body.is_usable === "boolean" ? body.is_usable : null,
+        is_usable: typeof body.is_usable === "boolean" ? body.is_usable : null,
         admin_note: body.admin_note || null,
         assigned_to: body.assigned_to || null,
         status,
@@ -210,11 +252,7 @@ export async function POST(request: Request) {
         symptom_detail: String(formData.get("symptom_detail") || "").trim(),
         error_code: nullableText(formData.get("error_code")),
         is_usable:
-          isUsableValue === "yes"
-            ? true
-            : isUsableValue === "no"
-              ? false
-              : null,
+          isUsableValue === "yes" ? true : isUsableValue === "no" ? false : null,
         admin_note: nullableText(formData.get("admin_note")),
         assigned_to: nullableText(formData.get("assigned_to")),
         status,
@@ -226,16 +264,14 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent("request_id がありません"),
-          })
+          new URLSearchParams({ error: encodeURIComponent("request_id がありません") })
         )
       );
     }
 
     const { data: currentRequest } = await supabase
       .from("repair_requests")
-      .select("id, status, admin_note, assigned_to")
+      .select("id, request_no, status, admin_note, assigned_to, email, customer_name, phone")
       .eq("id", requestId)
       .single();
 
@@ -272,9 +308,7 @@ export async function POST(request: Request) {
           buildRedirectUrl(
             request.url,
             nextPath,
-            new URLSearchParams({
-              error: encodeURIComponent(deleteError.message),
-            })
+            new URLSearchParams({ error: encodeURIComponent(deleteError.message) })
           )
         );
       }
@@ -283,9 +317,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           "/repair-requests",
-          new URLSearchParams({
-            deleted: "1",
-          })
+          new URLSearchParams({ deleted: "1" })
         )
       );
     }
@@ -295,9 +327,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent("不正なステータスです"),
-          })
+          new URLSearchParams({ error: encodeURIComponent("不正なステータスです") })
         )
       );
     }
@@ -307,9 +337,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent("お名前がありません"),
-          })
+          new URLSearchParams({ error: encodeURIComponent("お名前がありません") })
         )
       );
     }
@@ -319,9 +347,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent("電話番号がありません"),
-          })
+          new URLSearchParams({ error: encodeURIComponent("電話番号がありません") })
         )
       );
     }
@@ -331,9 +357,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent("対象機器がありません"),
-          })
+          new URLSearchParams({ error: encodeURIComponent("対象機器がありません") })
         )
       );
     }
@@ -343,9 +367,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent("故障内容がありません"),
-          })
+          new URLSearchParams({ error: encodeURIComponent("故障内容がありません") })
         )
       );
     }
@@ -360,9 +382,7 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({
-            error: encodeURIComponent(error.message),
-          })
+          new URLSearchParams({ error: encodeURIComponent(error.message) })
         )
       );
     }
@@ -372,16 +392,37 @@ export async function POST(request: Request) {
     const newAssignedTo = String(updateBody.assigned_to || "").trim();
     const oldAssignedTo = String(typedCurrentRequest?.assigned_to || "").trim();
 
-    if (typedCurrentRequest?.status && typedCurrentRequest.status !== status) {
+    const statusChanged =
+      Boolean(typedCurrentRequest?.status) && typedCurrentRequest?.status !== status;
+
+    if (statusChanged) {
       await addHistory({
         supabase,
         repairRequestId: requestId,
         actionType: "status_changed",
         title: "ステータスを変更しました",
-        detail: `${statusLabel(typedCurrentRequest.status)} → ${statusLabel(
-          status
-        )}`,
+        detail: `${statusLabel(typedCurrentRequest?.status)} → ${statusLabel(status)}`,
       });
+
+      const notifyEmail =
+        String(updateBody.email || typedCurrentRequest?.email || "").trim();
+
+      if (notifyEmail) {
+        try {
+          await sendCustomerStatusMail({
+            to: notifyEmail,
+            customerName: String(updateBody.customer_name || typedCurrentRequest?.customer_name || "お客様"),
+            requestNo: String(typedCurrentRequest?.request_no || ""),
+            phone: String(updateBody.phone || typedCurrentRequest?.phone || ""),
+            newStatus: status,
+          });
+        } catch (mailError) {
+          console.error(
+            "customer status mail error",
+            mailError instanceof Error ? mailError.message : mailError
+          );
+        }
+      }
     }
 
     if (newAssignedTo !== oldAssignedTo) {
@@ -390,9 +431,7 @@ export async function POST(request: Request) {
         repairRequestId: requestId,
         actionType: "assigned_to_changed",
         title: "担当者を変更しました",
-        detail: `${oldAssignedTo || "未設定"} → ${
-          newAssignedTo || "未設定"
-        }`,
+        detail: `${oldAssignedTo || "未設定"} → ${newAssignedTo || "未設定"}`,
       });
     }
 
@@ -425,9 +464,7 @@ export async function POST(request: Request) {
       buildRedirectUrl(
         request.url,
         nextPath,
-        new URLSearchParams({
-          updated: "1",
-        })
+        new URLSearchParams({ updated: "1" })
       )
     );
   } catch (error) {
@@ -435,10 +472,7 @@ export async function POST(request: Request) {
       error instanceof Error ? error.message : "修理受付の更新に失敗しました";
 
     return NextResponse.json(
-      {
-        success: false,
-        error: message,
-      },
+      { success: false, error: message },
       { status: 500 }
     );
   }
