@@ -23,6 +23,26 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleDateString("ja-JP");
 }
 
+function normalizeDateForDb(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  const normalized = trimmed.replace(/\//g, "-");
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  const date = new Date(normalized);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().split("T")[0];
+}
+
 function RepairRequestFormContent() {
   const searchParams = useSearchParams();
   const token = useMemo(() => searchParams.get("token") || "", [searchParams]);
@@ -166,6 +186,8 @@ function RepairRequestFormContent() {
         throw new Error("写真は最大5枚までです");
       }
 
+      const normalizedFailureDate = normalizeDateForDb(failureDate);
+
       const res = await fetch("/api/repair-requests", {
         method: "POST",
         headers: {
@@ -183,7 +205,7 @@ function RepairRequestFormContent() {
           manufacturer: manufacturer.trim() || null,
           model_no: modelNo.trim() || null,
           installation_place: installationPlace.trim() || null,
-          failure_date: failureDate || null,
+          failure_date: normalizedFailureDate,
           symptom_category: symptomCategory.trim() || null,
           symptom_detail: symptomDetail.trim(),
           error_code: errorCode.trim() || null,
