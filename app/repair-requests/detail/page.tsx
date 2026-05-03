@@ -382,6 +382,19 @@ export default async function RepairRequestDetailPage({
                   className="mt-1 w-full rounded-lg border px-3 py-2"
                 />
               </div>
+                        <div>
+            <div className="text-xs text-gray-500">受付日時</div>
+            <div className="mt-1 text-sm font-semibold">
+              {new Date(request.created_at).toLocaleString("ja-JP")}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs text-gray-500">電話番号</div>
+            <div className="mt-1 text-sm font-semibold">
+              {request.phone || "-"}
+            </div>
+          </div>
 
               <div>
                 <label className="text-sm text-gray-500">メーカー名</label>
@@ -848,7 +861,51 @@ export default async function RepairRequestDetailPage({
               </div>
             )}
           </div>
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <h2 className="text-base font-semibold">故障内容</h2>
 
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <div className="text-xs text-gray-500">症状区分</div>
+                <div className="mt-1 text-sm font-semibold">
+                  {request.symptom_category || "-"}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-gray-500">故障発生日</div>
+                <div className="mt-1 text-sm font-semibold">
+                  {request.failure_date || "-"}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-gray-500">エラーコード</div>
+                <div className="mt-1 text-sm font-semibold">
+                  {request.error_code || "-"}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-gray-500">使用可否</div>
+                <div className="mt-1 text-sm font-semibold">
+                  {request.is_usable === true
+                    ? "使用できる"
+                    : request.is_usable === false
+                      ? "使用できない"
+                      : "-"}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-xs text-gray-500">故障詳細</div>
+              <div className="mt-2 whitespace-pre-wrap rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
+                {request.symptom_detail || "故障内容の入力はありません。"}
+              </div>
+            </div>
+          </div>
+          
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">添付写真</h2>
 
