@@ -1,3 +1,4 @@
+import RepairPhotoGallery from "./RepairPhotoGallery";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 
@@ -874,6 +875,9 @@ export default async function RepairRequestDetailPage({
                         写真を表示できません
                       </div>
                     )}
+                    <div className="mt-4">
+  <RepairPhotoGallery photos={attachments} />
+</div>
 
                     <div className="mt-3 break-all text-xs text-gray-500">
                       {getFileNameFromPath(attachment.file_path)}
