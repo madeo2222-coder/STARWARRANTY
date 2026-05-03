@@ -827,6 +827,84 @@ export default async function RepairRequestDetailPage({
             </div>
           </div>
 
+<div className="rounded-2xl border bg-white p-6 shadow-sm">
+  <h2 className="text-base font-semibold">ステータス変更</h2>
+
+  <div className="rounded-2xl border bg-white p-6 shadow-sm">
+  <h2 className="text-base font-semibold">担当者変更</h2>
+
+  <form
+    action="/api/repair-request-status"
+    method="POST"
+    className="mt-4 flex flex-col gap-3"
+  >
+    <input type="hidden" name="request_id" value={request.id} />
+    <input type="hidden" name="next_path" value={nextPath} />
+    <input type="hidden" name="status" value={request.status} />
+
+    <input
+      type="text"
+      name="assigned_to"
+      defaultValue={request.assigned_to || ""}
+      placeholder="担当者名を入力"
+      className="rounded-lg border p-2 text-sm"
+    />
+
+    <textarea
+      name="detail"
+      placeholder="担当者変更メモ（任意）"
+      className="rounded-lg border p-2 text-sm"
+      rows={3}
+    />
+
+    <button
+      type="submit"
+      className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+    >
+      担当者を更新
+    </button>
+  </form>
+</div>
+
+  <form
+    action="/api/repair-request-status"
+    method="POST"
+    className="mt-4 flex flex-col gap-3"
+  >
+    <input type="hidden" name="request_id" value={request.id} />
+    <input type="hidden" name="next_path" value={nextPath} />
+
+    <select
+      name="status"
+      defaultValue={request.status}
+      className="rounded-lg border p-2 text-sm"
+    >
+      <option value="received">受付済み</option>
+      <option value="checking">確認中</option>
+      <option value="manufacturer_checking">メーカー確認中</option>
+      <option value="repair_arranging">修理手配中</option>
+      <option value="visit_scheduling">訪問日程調整中</option>
+      <option value="completed">完了</option>
+      <option value="out_of_warranty">保証対象外</option>
+      <option value="cancelled">キャンセル</option>
+    </select>
+
+    <textarea
+      name="detail"
+      placeholder="対応内容メモ（任意）"
+      className="rounded-lg border p-2 text-sm"
+      rows={3}
+    />
+
+    <button
+      type="submit"
+      className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+    >
+      ステータス更新
+    </button>
+  </form>
+</div>
+
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">対応履歴タイムライン</h2>
 
@@ -905,7 +983,7 @@ export default async function RepairRequestDetailPage({
               </div>
             </div>
           </div>
-          
+
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">添付写真</h2>
 
