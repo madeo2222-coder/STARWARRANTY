@@ -175,11 +175,10 @@ export async function GET(request: Request) {
 
     const appBaseUrl = getAppBaseUrl();
     const repairFormUrl = `${appBaseUrl}/repair-request-form?token=${cert.repair_form_token}`;
-    const qrCodeDataUrl = await QRCode.toDataURL(repairFormUrl, {
-      width: 180,
-      margin: 1,
-    });
-
+  const qrDataUrl = await QRCode.toDataURL(repairFormUrl, {
+  width: 180,
+  margin: 1,
+});
     const enabledItemsHtml =
       enabledItems.length === 0
         ? `<div class="muted">対象機器はありません。</div>`
@@ -459,6 +458,16 @@ export async function GET(request: Request) {
       <div class="footer-note">※メーカー保証期間中は、恐れ入りますが各メーカーへ直接お問合せください。</div>
     </div>
 
+    <div style="margin-top:20px; text-align:center;">
+  <div style="font-size:12px; margin-bottom:8px;">
+    修理受付はこちら
+  </div>
+  <img src="${qrDataUrl}" style="width:120px; height:120px;" />
+  <div style="font-size:10px; margin-top:6px;">
+   ${repairFormUrl}
+  </div>
+</div>
+
     <div class="card">
       <div class="section-title">対象機器</div>
       ${enabledItemsHtml}
@@ -474,7 +483,7 @@ export async function GET(request: Request) {
           <div class="footer-note">修理受付URL: ${escapeHtml(repairFormUrl)}</div>
         </div>
         <div class="qr-box">
-          <img class="qr-image" src="${qrCodeDataUrl}" alt="修理受付QRコード" />
+          <img class="qr-image" src="${qrDataUrl}" alt="修理受付QRコード" />
           <div class="qr-label">修理受付はこちら</div>
         </div>
       </div>
