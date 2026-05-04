@@ -1,16 +1,32 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
 const BUCKET_NAME = "repair-attachments";
 
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey);
+}
+
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-
+    const supabase = getAdminClient();
     const formData = await request.formData();
 
-    const requestId = formData.get("request_id") as string;
-    const files = formData.getAll("files") as File[];
+    const requestId = String(formData.get("request_id") || "");
+    const files = formData.getAll("files").filter((item): item is File => {
+      return item instanceof File;
+    });
 
     if (!requestId) {
       return NextResponse.json(
@@ -19,7 +35,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!files || files.length === 0) {
+    if (files.length === 0) {
       return NextResponse.json(
         { success: false, error: "ファイルがありません" },
         { status: 400 }
@@ -30,7 +46,8 @@ export async function POST(request: Request) {
 
     for (const file of files) {
       const fileExt = file.name.split(".").pop() || "jpg";
-      const fileName = `${requestId}/${Date.now()}-${file.name}`;
+      const safeFileName = file.name.replace(/[^\w.\-ぁ-んァ-ヶ一-龠]/g, "_");
+      const fileName = `${requestId}/${Date.now()}-${safeFileName || `photo.${fileExt}`}`;
 
       const arrayBuffer = await file.arrayBuffer();
       const buffer = new Uint8Array(arrayBuffer);
@@ -53,8 +70,6 @@ export async function POST(request: Request) {
         .from(BUCKET_NAME)
         .getPublicUrl(fileName);
 
-      uploadedUrls.push(publicUrlData.publicUrl);
-
       const { error: insertError } = await supabase
         .from("repair_request_attachments")
         .insert({
@@ -70,17 +85,20 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
+
+      uploadedUrls.push(publicUrlData.publicUrl);
     }
 
     return NextResponse.json({
       success: true,
       urls: uploadedUrls,
     });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "写真保存に失敗しました";
-
+  } catch (error) {
     return NextResponse.json(
-      { success: false, error: message },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "写真保存に失敗しました",
+      },
       { status: 500 }
     );
   }
@@ -88,7 +106,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const supabase = await createClient();
+    const supabase = getAdminClient();
 
     const body = (await request.json()) as {
       id?: string;
@@ -102,7 +120,25 @@ export async function DELETE(request: Request) {
       );
     }
 
-    if (!body.file_path) {
+    const { data: attachment, error: fetchError } = await supabase
+      .from("repair_request_attachments")
+      .select("id, file_path")
+      .eq("id", body.id)
+      .single();
+
+    if (fetchError || !attachment) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: fetchError?.message || "削除対象の写真が見つかりません",
+        },
+        { status: 404 }
+      );
+    }
+
+    const filePath = attachment.file_path || body.file_path;
+
+    if (!filePath) {
       return NextResponse.json(
         { success: false, error: "file_path がありません" },
         { status: 400 }
@@ -111,7 +147,7 @@ export async function DELETE(request: Request) {
 
     const { error: storageError } = await supabase.storage
       .from(BUCKET_NAME)
-      .remove([body.file_path]);
+      .remove([filePath]);
 
     if (storageError) {
       return NextResponse.json(
@@ -132,12 +168,15 @@ export async function DELETE(request: Request) {
       );
     }
 
-    return NextResponse.json({ success: true });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "写真削除に失敗しました";
-
+    return NextResponse.json({
+      success: true,
+    });
+  } catch (error) {
     return NextResponse.json(
-      { success: false, error: message },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "写真削除に失敗しました",
+      },
       { status: 500 }
     );
   }
