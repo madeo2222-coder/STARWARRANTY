@@ -334,12 +334,20 @@ export default async function RepairRequestDetailPage({
 
               <div>
                 <label className="text-sm text-gray-500">担当者</label>
-                <input
-                  name="assigned_to"
-                  defaultValue={request.assigned_to || ""}
-                  className="mt-1 w-full rounded-lg border px-3 py-2"
-                  placeholder="例：清水、山田、メーカー確認中 など"
-                />
+               <input
+  name="assigned_to"
+  list="assigned-to-options"
+  defaultValue={request.assigned_to || ""}
+  className="mt-1 w-full rounded-lg border px-3 py-2"
+  placeholder="担当者を選択または入力"
+/>
+
+<datalist id="assigned-to-options">
+  <option value="清水" />
+  <option value="日髙" />
+  <option value="平賀" />
+  <option value="福田" />
+</datalist>
               </div>
 
               <div>
