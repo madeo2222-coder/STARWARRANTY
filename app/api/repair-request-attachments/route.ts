@@ -77,13 +77,14 @@ export async function POST(request: Request) {
         .from(BUCKET_NAME)
         .getPublicUrl(fileName);
 
-      const { error: insertError } = await supabase
-        .from("repair_request_attachments")
-        .insert({
-          repair_request_id: requestId,
-          file_path: fileName,
-        });
-
+    const { error: insertError } = await supabase
+  .from("repair_request_attachments")
+  .insert({
+    repair_request_id: requestId,
+    file_path: fileName,
+    file_name: safeFileName,
+  });
+  
       if (insertError) {
         await supabase.storage.from(BUCKET_NAME).remove([fileName]);
 
@@ -97,10 +98,10 @@ export async function POST(request: Request) {
     }
 
     if (nextPath) {
-      const redirectUrl = new URL(nextPath, request.url);
-      redirectUrl.searchParams.set("photo_added", "1");
-      return NextResponse.redirect(redirectUrl, 303);
-    }
+  const redirectUrl = new URL(nextPath, request.url);
+  redirectUrl.searchParams.set("photo_added", "1");
+  return NextResponse.redirect(redirectUrl, 303);
+}
 
     return NextResponse.json({
       success: true,
