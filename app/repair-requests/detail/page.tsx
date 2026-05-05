@@ -1,6 +1,6 @@
-import RepairPhotoGallery from "./RepairPhotoGallery";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import RepairPhotoGallery from "./RepairPhotoGallery";
 
 export const dynamic = "force-dynamic";
 
@@ -249,6 +249,54 @@ export default async function RepairRequestDetailPage({
           処理に失敗しました: {decodeURIComponent(error)}
         </div>
       ) : null}
+            <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <h2 className="text-base font-semibold">修理進行状況</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          現在の対応ステータスを確認できます。
+        </p>
+
+        <div className="mt-5">
+          <div className="flex flex-col gap-4">
+            {STATUS_FLOW.map((statusItem, index) => {
+              const currentIndex = STATUS_FLOW.findIndex(
+                (item) => item === request.status
+              );
+              const isDone = currentIndex >= index;
+              const isCurrent = request.status === statusItem;
+
+              return (
+                <div key={statusItem} className="flex items-center gap-3">
+                  <div
+                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-bold ${
+                      isDone
+                        ? "border-black bg-black text-white"
+                        : "border-gray-300 bg-white text-gray-400"
+                    }`}
+                  >
+                    {index + 1}
+                  </div>
+
+                  <div className="flex-1">
+                    <div
+                      className={`text-sm font-semibold ${
+                        isCurrent ? "text-black" : isDone ? "text-gray-800" : "text-gray-400"
+                      }`}
+                    >
+                      {statusLabel(statusItem)}
+                    </div>
+
+                    {isCurrent ? (
+                      <div className="mt-1 text-xs text-blue-600">
+                        現在このステータスです
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <form
@@ -382,19 +430,6 @@ export default async function RepairRequestDetailPage({
                   className="mt-1 w-full rounded-lg border px-3 py-2"
                 />
               </div>
-                        <div>
-            <div className="text-xs text-gray-500">受付日時</div>
-            <div className="mt-1 text-sm font-semibold">
-              {new Date(request.created_at).toLocaleString("ja-JP")}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-gray-500">電話番号</div>
-            <div className="mt-1 text-sm font-semibold">
-              {request.phone || "-"}
-            </div>
-          </div>
 
               <div>
                 <label className="text-sm text-gray-500">メーカー名</label>
@@ -827,84 +862,6 @@ export default async function RepairRequestDetailPage({
             </div>
           </div>
 
-<div className="rounded-2xl border bg-white p-6 shadow-sm">
-  <h2 className="text-base font-semibold">ステータス変更</h2>
-
-  <div className="rounded-2xl border bg-white p-6 shadow-sm">
-  <h2 className="text-base font-semibold">担当者変更</h2>
-
-  <form
-    action="/api/repair-request-status"
-    method="POST"
-    className="mt-4 flex flex-col gap-3"
-  >
-    <input type="hidden" name="request_id" value={request.id} />
-    <input type="hidden" name="next_path" value={nextPath} />
-    <input type="hidden" name="status" value={request.status} />
-
-    <input
-      type="text"
-      name="assigned_to"
-      defaultValue={request.assigned_to || ""}
-      placeholder="担当者名を入力"
-      className="rounded-lg border p-2 text-sm"
-    />
-
-    <textarea
-      name="detail"
-      placeholder="担当者変更メモ（任意）"
-      className="rounded-lg border p-2 text-sm"
-      rows={3}
-    />
-
-    <button
-      type="submit"
-      className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
-    >
-      担当者を更新
-    </button>
-  </form>
-</div>
-
-  <form
-    action="/api/repair-request-status"
-    method="POST"
-    className="mt-4 flex flex-col gap-3"
-  >
-    <input type="hidden" name="request_id" value={request.id} />
-    <input type="hidden" name="next_path" value={nextPath} />
-
-    <select
-      name="status"
-      defaultValue={request.status}
-      className="rounded-lg border p-2 text-sm"
-    >
-      <option value="received">受付済み</option>
-      <option value="checking">確認中</option>
-      <option value="manufacturer_checking">メーカー確認中</option>
-      <option value="repair_arranging">修理手配中</option>
-      <option value="visit_scheduling">訪問日程調整中</option>
-      <option value="completed">完了</option>
-      <option value="out_of_warranty">保証対象外</option>
-      <option value="cancelled">キャンセル</option>
-    </select>
-
-    <textarea
-      name="detail"
-      placeholder="対応内容メモ（任意）"
-      className="rounded-lg border p-2 text-sm"
-      rows={3}
-    />
-
-    <button
-      type="submit"
-      className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-    >
-      ステータス更新
-    </button>
-  </form>
-</div>
-
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">対応履歴タイムライン</h2>
 
@@ -939,92 +896,11 @@ export default async function RepairRequestDetailPage({
               </div>
             )}
           </div>
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h2 className="text-base font-semibold">故障内容</h2>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <div className="text-xs text-gray-500">症状区分</div>
-                <div className="mt-1 text-sm font-semibold">
-                  {request.symptom_category || "-"}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-gray-500">故障発生日</div>
-                <div className="mt-1 text-sm font-semibold">
-                  {request.failure_date || "-"}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-gray-500">エラーコード</div>
-                <div className="mt-1 text-sm font-semibold">
-                  {request.error_code || "-"}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-gray-500">使用可否</div>
-                <div className="mt-1 text-sm font-semibold">
-                  {request.is_usable === true
-                    ? "使用できる"
-                    : request.is_usable === false
-                      ? "使用できない"
-                      : "-"}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <div className="text-xs text-gray-500">故障詳細</div>
-              <div className="mt-2 whitespace-pre-wrap rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-                {request.symptom_detail || "故障内容の入力はありません。"}
-              </div>
-            </div>
-          </div>
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">添付写真</h2>
 
-            {attachments.length > 0 ? (
-              <div className="mt-4 grid gap-4">
-                {attachments.map((attachment) => (
-                  <div key={attachment.id} className="rounded-xl border p-3">
-                    {attachment.signed_url ? (
-                      <a
-                        href={attachment.signed_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={attachment.signed_url}
-                          alt="添付写真"
-                          className="h-56 w-full rounded-lg object-cover"
-                        />
-                      </a>
-                    ) : (
-                      <div className="flex h-56 items-center justify-center rounded-lg bg-gray-100 text-sm text-gray-500">
-                        写真を表示できません
-                      </div>
-                    )}
-                    <div className="mt-4">
-  <RepairPhotoGallery photos={attachments} />
-</div>
-
-                    <div className="mt-3 break-all text-xs text-gray-500">
-                      {getFileNameFromPath(attachment.file_path)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border bg-gray-50 p-4 text-sm text-gray-500">
-                添付写真はありません。
-              </div>
-            )}
+            <RepairPhotoGallery photos={attachments} />
           </div>
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
