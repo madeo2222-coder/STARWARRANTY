@@ -42,10 +42,59 @@ function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
-  if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
+  if (!supabaseUrl) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
+  }
 
   return createClient(supabaseUrl, serviceRoleKey);
+}
+
+function nullableText(value: FormDataEntryValue | null) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function isAllowedStatus(value: string): value is AllowedStatus {
+  return ALLOWED_STATUSES.includes(value as AllowedStatus);
+}
+
+function statusLabel(status: string | null | undefined) {
+  switch (status) {
+    case "received":
+      return "受付";
+    case "checking":
+      return "内容確認中";
+    case "manufacturer_checking":
+      return "メーカー確認中";
+    case "repair_arranging":
+      return "修理手配中";
+    case "visit_scheduling":
+      return "訪問日調整中";
+    case "completed":
+      return "修理完了";
+    case "out_of_warranty":
+      return "保証対象外";
+    case "cancelled":
+      return "キャンセル";
+    default:
+      return status || "-";
+  }
+}
+
+function buildRedirectUrl(
+  baseUrl: string,
+  nextPath: string,
+  params: URLSearchParams
+) {
+  const url = new URL(nextPath, baseUrl);
+  params.forEach((value, key) => {
+    url.searchParams.set(key, value);
+  });
+  return url;
 }
 
 function getAppBaseUrl() {
@@ -55,35 +104,6 @@ function getAppBaseUrl() {
     process.env.NEXT_PUBLIC_BASE_URL ||
     "http://localhost:3000"
   ).replace(/\/$/, "");
-}
-
-function isAllowedStatus(value: string): value is AllowedStatus {
-  return ALLOWED_STATUSES.includes(value as AllowedStatus);
-}
-
-function buildRedirectUrl(baseUrl: string, nextPath: string, params: URLSearchParams) {
-  const url = new URL(nextPath, baseUrl);
-  params.forEach((value, key) => url.searchParams.set(key, value));
-  return url;
-}
-
-function nullableText(value: FormDataEntryValue | null) {
-  const text = String(value || "").trim();
-  return text || null;
-}
-
-function statusLabel(status: string | null | undefined) {
-  switch (status) {
-    case "received": return "受付";
-    case "checking": return "内容確認中";
-    case "manufacturer_checking": return "メーカー確認中";
-    case "repair_arranging": return "修理手配中";
-    case "visit_scheduling": return "訪問日調整中";
-    case "completed": return "修理完了";
-    case "out_of_warranty": return "保証対象外";
-    case "cancelled": return "キャンセル";
-    default: return status || "-";
-  }
 }
 
 async function addHistory({
@@ -252,7 +272,11 @@ export async function POST(request: Request) {
         symptom_detail: String(formData.get("symptom_detail") || "").trim(),
         error_code: nullableText(formData.get("error_code")),
         is_usable:
-          isUsableValue === "yes" ? true : isUsableValue === "no" ? false : null,
+          isUsableValue === "yes"
+            ? true
+            : isUsableValue === "no"
+              ? false
+              : null,
         admin_note: nullableText(formData.get("admin_note")),
         assigned_to: nullableText(formData.get("assigned_to")),
         status,
@@ -264,19 +288,22 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent("request_id がありません") })
+          new URLSearchParams({
+            error: encodeURIComponent("request_id がありません"),
+          })
         )
       );
     }
 
     const { data: currentRequest } = await supabase
       .from("repair_requests")
-      .select("id, request_no, status, admin_note, assigned_to, email, customer_name, phone")
+      .select(
+        "id, request_no, status, admin_note, assigned_to, email, customer_name, phone"
+      )
       .eq("id", requestId)
       .single();
 
-    const typedCurrentRequest =
-      (currentRequest as CurrentRepairRequest | null) || null;
+    const before = (currentRequest as CurrentRepairRequest | null) || null;
 
     if (action === "delete") {
       const { data: attachments } = await supabase
@@ -308,7 +335,9 @@ export async function POST(request: Request) {
           buildRedirectUrl(
             request.url,
             nextPath,
-            new URLSearchParams({ error: encodeURIComponent(deleteError.message) })
+            new URLSearchParams({
+              error: encodeURIComponent(deleteError.message),
+            })
           )
         );
       }
@@ -327,7 +356,9 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent("不正なステータスです") })
+          new URLSearchParams({
+            error: encodeURIComponent("不正なステータスです"),
+          })
         )
       );
     }
@@ -337,7 +368,9 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent("お名前がありません") })
+          new URLSearchParams({
+            error: encodeURIComponent("お名前がありません"),
+          })
         )
       );
     }
@@ -347,7 +380,9 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent("電話番号がありません") })
+          new URLSearchParams({
+            error: encodeURIComponent("電話番号がありません"),
+          })
         )
       );
     }
@@ -357,7 +392,9 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent("対象機器がありません") })
+          new URLSearchParams({
+            error: encodeURIComponent("対象機器がありません"),
+          })
         )
       );
     }
@@ -367,7 +404,9 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent("故障内容がありません") })
+          new URLSearchParams({
+            error: encodeURIComponent("故障内容がありません"),
+          })
         )
       );
     }
@@ -382,39 +421,81 @@ export async function POST(request: Request) {
         buildRedirectUrl(
           request.url,
           nextPath,
-          new URLSearchParams({ error: encodeURIComponent(error.message) })
+          new URLSearchParams({
+            error: encodeURIComponent(error.message),
+          })
         )
       );
     }
 
-    const newAdminNote = String(updateBody.admin_note || "").trim();
-    const oldAdminNote = String(typedCurrentRequest?.admin_note || "").trim();
+    const oldStatus = String(before?.status || "");
+    const newStatus = String(status || "");
+    const oldAssignedTo = String(before?.assigned_to || "").trim();
     const newAssignedTo = String(updateBody.assigned_to || "").trim();
-    const oldAssignedTo = String(typedCurrentRequest?.assigned_to || "").trim();
+    const oldAdminNote = String(before?.admin_note || "").trim();
+    const newAdminNote = String(updateBody.admin_note || "").trim();
 
-    const statusChanged =
-      Boolean(typedCurrentRequest?.status) && typedCurrentRequest?.status !== status;
+    const changedHistories: Array<{
+      actionType: string;
+      title: string;
+      detail: string;
+    }> = [];
 
-    if (statusChanged) {
+    if (oldStatus && oldStatus !== newStatus) {
+      changedHistories.push({
+        actionType: "status_changed",
+        title: "ステータスを変更しました",
+        detail: `${statusLabel(oldStatus)} → ${statusLabel(newStatus)}`,
+      });
+    }
+
+    if (oldAssignedTo !== newAssignedTo) {
+      changedHistories.push({
+        actionType: "assigned_to_changed",
+        title: "担当者を変更しました",
+        detail: `${oldAssignedTo || "未設定"} → ${newAssignedTo || "未設定"}`,
+      });
+    }
+
+    if (oldAdminNote !== newAdminNote) {
+      changedHistories.push({
+        actionType: "admin_note_updated",
+        title: "社内対応メモを更新しました",
+        detail: newAdminNote || "社内対応メモを空にしました。",
+      });
+    }
+
+    if (changedHistories.length === 0) {
+      changedHistories.push({
+        actionType: "request_updated",
+        title: "修理受付情報を更新しました",
+        detail: "お客様情報・故障内容などを更新しました。",
+      });
+    }
+
+    for (const history of changedHistories) {
       await addHistory({
         supabase,
         repairRequestId: requestId,
-        actionType: "status_changed",
-        title: "ステータスを変更しました",
-        detail: `${statusLabel(typedCurrentRequest?.status)} → ${statusLabel(status)}`,
+        actionType: history.actionType,
+        title: history.title,
+        detail: history.detail,
       });
+    }
 
-      const notifyEmail =
-        String(updateBody.email || typedCurrentRequest?.email || "").trim();
+    if (oldStatus && oldStatus !== newStatus) {
+      const notifyEmail = String(updateBody.email || before?.email || "").trim();
 
       if (notifyEmail) {
         try {
           await sendCustomerStatusMail({
             to: notifyEmail,
-            customerName: String(updateBody.customer_name || typedCurrentRequest?.customer_name || "お客様"),
-            requestNo: String(typedCurrentRequest?.request_no || ""),
-            phone: String(updateBody.phone || typedCurrentRequest?.phone || ""),
-            newStatus: status,
+            customerName: String(
+              updateBody.customer_name || before?.customer_name || "お客様"
+            ),
+            requestNo: String(before?.request_no || ""),
+            phone: String(updateBody.phone || before?.phone || ""),
+            newStatus,
           });
         } catch (mailError) {
           console.error(
@@ -423,41 +504,6 @@ export async function POST(request: Request) {
           );
         }
       }
-    }
-
-    if (newAssignedTo !== oldAssignedTo) {
-      await addHistory({
-        supabase,
-        repairRequestId: requestId,
-        actionType: "assigned_to_changed",
-        title: "担当者を変更しました",
-        detail: `${oldAssignedTo || "未設定"} → ${newAssignedTo || "未設定"}`,
-      });
-    }
-
-    if (newAdminNote && newAdminNote !== oldAdminNote) {
-      await addHistory({
-        supabase,
-        repairRequestId: requestId,
-        actionType: "admin_note_updated",
-        title: "社内対応メモを更新しました",
-        detail: newAdminNote,
-      });
-    }
-
-    if (
-      !typedCurrentRequest?.status ||
-      (typedCurrentRequest.status === status &&
-        newAdminNote === oldAdminNote &&
-        newAssignedTo === oldAssignedTo)
-    ) {
-      await addHistory({
-        supabase,
-        repairRequestId: requestId,
-        actionType: "request_updated",
-        title: "修理受付情報を更新しました",
-        detail: "お客様情報・故障内容などを更新しました。",
-      });
     }
 
     return NextResponse.redirect(
@@ -471,9 +517,6 @@ export async function POST(request: Request) {
     const message =
       error instanceof Error ? error.message : "修理受付の更新に失敗しました";
 
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
