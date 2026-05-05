@@ -23,10 +23,15 @@ export async function POST(request: Request) {
     const supabase = getAdminClient();
     const formData = await request.formData();
 
-    const requestId = String(formData.get("request_id") || "");
+    const requestId =
+      String(formData.get("request_id") || "") ||
+      String(formData.get("repair_request_id") || "");
+
     const files = formData.getAll("files").filter((item): item is File => {
       return item instanceof File;
     });
+
+    const nextPath = String(formData.get("next_path") || "");
 
     if (!requestId) {
       return NextResponse.json(
@@ -46,8 +51,10 @@ export async function POST(request: Request) {
 
     for (const file of files) {
       const fileExt = file.name.split(".").pop() || "jpg";
-      const safeFileName = file.name.replace(/[^\w.\-ぁ-んァ-ヶ一-龠]/g, "_");
-      const fileName = `${requestId}/${Date.now()}-${safeFileName || `photo.${fileExt}`}`;
+      const safeFileName =
+        file.name.replace(/[^\w.\-ぁ-んァ-ヶ一-龠]/g, "_") ||
+        `photo.${fileExt}`;
+      const fileName = `${requestId}/${Date.now()}-${safeFileName}`;
 
       const arrayBuffer = await file.arrayBuffer();
       const buffer = new Uint8Array(arrayBuffer);
@@ -87,6 +94,12 @@ export async function POST(request: Request) {
       }
 
       uploadedUrls.push(publicUrlData.publicUrl);
+    }
+
+    if (nextPath) {
+      const redirectUrl = new URL(nextPath, request.url);
+      redirectUrl.searchParams.set("photo_added", "1");
+      return NextResponse.redirect(redirectUrl, 303);
     }
 
     return NextResponse.json({
