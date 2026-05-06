@@ -486,17 +486,39 @@ export async function POST(request: Request) {
     if (oldStatus && oldStatus !== newStatus) {
       const notifyEmail = String(updateBody.email || before?.email || "").trim();
 
-      if (notifyEmail) {
-        try {
-          await sendCustomerStatusMail({
-            to: notifyEmail,
-            customerName: String(
-              updateBody.customer_name || before?.customer_name || "お客様"
-            ),
-            requestNo: String(before?.request_no || ""),
-            phone: String(updateBody.phone || before?.phone || ""),
-            newStatus,
-          });
+     if (notifyEmail) {
+  let mailSent = false;
+
+  try {
+    await sendCustomerStatusMail({
+      to: notifyEmail,
+      customerName: String(
+        updateBody.customer_name || before?.customer_name || "お客様"
+      ),
+      requestNo: String(before?.request_no || ""),
+      phone: String(updateBody.phone || before?.phone || ""),
+      newStatus,
+    });
+
+    mailSent = true;
+  } catch (mailError) {
+    console.error(
+      "customer status mail error",
+      mailError instanceof Error ? mailError.message : mailError
+    );
+  }
+
+  // 🔥 必ず実行
+  await addHistory({
+    supabase,
+    repairRequestId: requestId,
+    actionType: "customer_notified",
+    title: mailSent
+      ? "お客様へステータス通知を送信しました"
+      : "お客様への通知に失敗しました",
+    detail: `送信先: ${notifyEmail}\nステータス: ${statusLabel(newStatus)}`,
+  });
+}
         } catch (mailError) {
           console.error(
             "customer status mail error",
