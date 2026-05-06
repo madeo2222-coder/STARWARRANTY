@@ -30,22 +30,18 @@ export async function POST(request: Request) {
     let status = "";
     let nextPath = "/repair-requests";
 
-    // ▼ JSON or FormData 判定
     if (contentType.includes("application/json")) {
       const body = await request.json();
-
       requestId = body.request_id || "";
       status = body.status || "";
       nextPath = body.next_path || "/repair-requests";
     } else {
       const formData = await request.formData();
-
       requestId = String(formData.get("request_id") || "");
       status = String(formData.get("status") || "");
       nextPath = String(formData.get("next_path") || "/repair-requests");
     }
 
-    // ▼ バリデーション
     if (!requestId || !status) {
       return NextResponse.json(
         { success: false, error: "パラメータ不足" },
@@ -53,8 +49,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // ✅ ▼ ステータス更新（ここが今回の本命）
-    const { error } = await supabase
+    // 🔥 ① 現在のステータス取得
+    const { data: current, error: fetchError } = await supabase
+      .from("repair_requests")
+      .select("status")
+      .eq("id", requestId)
+      .single();
+
+    if (fetchError || !current) {
+      return NextResponse.json(
+        { success: false, error: "データ取得失敗" },
+        { status: 500 }
+      );
+    }
+
+    const oldStatus = current.status;
+
+    // 🔥 ② ステータス更新
+    const { error: updateError } = await supabase
       .from("repair_requests")
       .update({
         status,
@@ -62,15 +74,27 @@ export async function POST(request: Request) {
       })
       .eq("id", requestId);
 
-    if (error) {
-      console.error("status update error:", error);
+    if (updateError) {
       return NextResponse.json(
         { success: false, error: "ステータス更新失敗" },
         { status: 500 }
       );
     }
 
-    // ✅ 成功時
+    // 🔥 ③ 履歴保存（ここが今回の追加）
+    const { error: logError } = await supabase
+      .from("repair_request_status_logs")
+      .insert({
+        request_id: requestId,
+        old_status: oldStatus,
+        new_status: status,
+        created_at: new Date().toISOString(),
+      });
+
+    if (logError) {
+      console.error("log insert error:", logError);
+    }
+
     return NextResponse.redirect(
       buildRedirectUrl(
         request.url,
