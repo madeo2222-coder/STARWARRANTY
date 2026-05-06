@@ -174,6 +174,17 @@ export async function POST(request: Request) {
     }
 
     const requestNo = buildRequestNo();
+    function normalizeDateForDb(value: string | null | undefined) {
+  if (!value) return null;
+
+  const normalized = value.trim().replace(/\//g, "-");
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  return null;
+}
 
     const { data: inserted, error: insertError } = await supabase
       .from("repair_requests")
@@ -191,7 +202,7 @@ export async function POST(request: Request) {
         manufacturer: body.manufacturer?.trim() || null,
         model_no: body.model_no?.trim() || null,
         installation_place: body.installation_place?.trim() || null,
-        failure_date: body.failure_date || null,
+        failure_date: normalizeDateForDb(body.failure_date),
         symptom_category: body.symptom_category?.trim() || null,
         symptom_detail: body.symptom_detail.trim(),
         error_code: body.error_code?.trim() || null,
@@ -211,6 +222,34 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+// 🔥 本部通知メール
+try {
+  const resendKey = process.env.RESEND_API_KEY;
+  const notifyEmail = process.env.WARRANTY_NOTIFY_EMAIL;
+
+  if (resendKey && resendKey !== "dummy" && notifyEmail) {
+    const resend = new (await import("resend")).Resend(resendKey);
+
+    await resend.emails.send({
+      from: "STAR WARRANTY <onboarding@resend.dev>",
+      to: notifyEmail,
+      subject: `【新規修理受付】${requestNo}`,
+      text: `
+新しい修理受付が登録されました。
+
+受付番号：${requestNo}
+お客様名：${body.customer_name}
+電話番号：${body.phone}
+対象機器：${body.product_name}
+
+管理画面で確認してください。
+`,
+    });
+  }
+} catch (e) {
+  console.error("admin notify mail error", e);
+}
 
     return NextResponse.json({
       success: true,

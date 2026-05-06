@@ -491,12 +491,17 @@ function RepairRequestFormContent() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">故障発生日</label>
-            <input
-              type="date"
-              value={failureDate}
-              onChange={(e) => setFailureDate(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2"
-            />
+           <input
+  type="text"
+  inputMode="numeric"
+  value={failureDate}
+  onChange={(e) => setFailureDate(e.target.value)}
+  className="w-full rounded-lg border px-3 py-2"
+  placeholder="例：2026-05-04"
+/>
+<p className="text-xs text-gray-500">
+  日付は 2026-05-04 または 2026/05/04 の形式で入力できます。
+</p>
           </div>
 
           <div className="space-y-2">

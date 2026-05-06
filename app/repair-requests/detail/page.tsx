@@ -689,6 +689,14 @@ export default async function RepairRequestDetailPage({
                   name="customer_name"
                   value={request.customer_name}
                 />
+                 <input
+    type="hidden"
+    name="email"
+    value={request.email || ""}
+  />
+
+  <button type="submit">変更</button>
+</form>
                 <input
                   type="hidden"
                   name="customer_name_kana"

@@ -1,12 +1,10 @@
-import { createClient } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 export default async function Page({
   searchParams,
 }: {
   searchParams: { request_no?: string; phone?: string };
 }) {
-  const supabase = createClient();
-
   const requestNo = searchParams.request_no || "";
   const phone = searchParams.phone || "";
 
@@ -32,7 +30,6 @@ export default async function Page({
               name="phone"
               defaultValue={phone}
               required
-              // ❌ pattern削除
               style={{ display: "block", marginBottom: 10 }}
             />
           </div>
