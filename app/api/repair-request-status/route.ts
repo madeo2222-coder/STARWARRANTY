@@ -11,20 +11,6 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-function buildRedirectUrl(
-  baseUrl: string,
-  path: string,
-  params?: URLSearchParams
-) {
-  const url = new URL(path, baseUrl);
-  if (params) {
-    params.forEach((value, key) => {
-      url.searchParams.set(key, value);
-    });
-  }
-  return url;
-}
-
 // ステータス日本語化
 function getStatusLabel(status: string) {
   switch (status) {
@@ -56,20 +42,17 @@ export async function POST(request: Request) {
     let requestId = "";
     let status = "";
     let nextPath = "/repair-requests";
-    let email = "";
 
     if (contentType.includes("application/json")) {
       const body = await request.json();
       requestId = body.request_id || "";
       status = body.status || "";
       nextPath = body.next_path || "/repair-requests";
-      email = body.email || "";
     } else {
       const formData = await request.formData();
       requestId = String(formData.get("request_id") || "");
       status = String(formData.get("status") || "");
       nextPath = String(formData.get("next_path") || "/repair-requests");
-      email = String(formData.get("email") || "");
     }
 
     if (!requestId || !status) {
@@ -79,7 +62,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // ① 現在データ取得
+    // 現在データ取得
     const { data: current, error: fetchError } = await supabase
       .from("repair_requests")
       .select("status, email, customer_name")
@@ -95,7 +78,7 @@ export async function POST(request: Request) {
 
     const oldStatus = current.status;
 
-    // ② 更新
+    // 更新
     const { error: updateError } = await supabase
       .from("repair_requests")
       .update({
@@ -106,12 +89,12 @@ export async function POST(request: Request) {
 
     if (updateError) {
       return NextResponse.json(
-        { success: false, error: "ステータス更新失敗" },
+        { success: false, error: "更新失敗" },
         { status: 500 }
       );
     }
 
-    // ③ 履歴
+    // 履歴
     await supabase.from("repair_request_status_logs").insert({
       request_id: requestId,
       old_status: oldStatus,
@@ -119,54 +102,47 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
     });
 
-    // 🔥 ④ メール送信（修正ポイント）
-    const targetEmail = email || current.email;
-
-    console.log("送信チェック", {
-      formEmail: email,
-      dbEmail: current.email,
-      final: targetEmail,
-      status,
-    });
-
-    if (targetEmail) {
+    // メール送信
+    if (current.email) {
       try {
         await resend.emails.send({
           from: "onboarding@resend.dev",
-          to: targetEmail,
-          subject: "【STAR WARRANTY】修理受付状況が更新されました",
+          to: current.email,
+          subject: `【STAR WARRANTY】修理状況更新（${requestId}）`,
           html: `
-            <p>${current.customer_name || ""} 様</p>
-            <p>修理受付のステータスが更新されました。</p>
-            <p><strong>${getStatusLabel(status)}</strong></p>
-            <p>以下のページから確認できます。</p>
-            <p>
-              <a href="https://starwarranty.vercel.app/repair-status">
-                確認ページはこちら
-              </a>
-            </p>
+            <div style="font-family:sans-serif;">
+              <p>${current.customer_name || ""} 様</p>
+
+              <p>修理受付のステータスが更新されました。</p>
+
+              <p><strong>${getStatusLabel(status)}</strong></p>
+
+              <p>
+                <a href="https://starwarranty.vercel.app/repair-status?request_no=${requestId}">
+                  確認ページはこちら
+                </a>
+              </p>
+
+              <p style="font-size:12px;color:#888;">
+                STAR WARRANTY
+              </p>
+            </div>
           `,
         });
-      } catch (mailError) {
-        console.error("mail error:", mailError);
+      } catch (e) {
+        console.error("mail error:", e);
       }
-    } else {
-      console.warn("メール送信スキップ：emailなし");
     }
 
     return NextResponse.redirect(
-      buildRedirectUrl(
-        request.url,
-        nextPath,
-        new URLSearchParams({ updated: "1" })
-      )
+      new URL(`${nextPath}?updated=1`, request.url)
     );
 
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
-        : "修理受付の更新に失敗しました";
+        : "処理に失敗しました";
 
     return NextResponse.json(
       { success: false, error: message },
