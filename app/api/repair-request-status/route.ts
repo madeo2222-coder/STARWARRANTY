@@ -484,59 +484,54 @@ export async function POST(request: Request) {
     }
 
     if (oldStatus && oldStatus !== newStatus) {
-  const notifyEmail = String(updateBody.email || before?.email || "").trim();
+      const notifyEmail = String(updateBody.email || before?.email || "").trim();
 
-  if (notifyEmail) {
-    let mailSent = false;
+let mailSent = false;
 
-    try {
-      await sendCustomerStatusMail({
-        to: notifyEmail,
-        customerName: String(
-          updateBody.customer_name || before?.customer_name || "お客様"
-        ),
-        requestNo: String(before?.request_no || ""),
-        phone: String(updateBody.phone || before?.phone || ""),
-        newStatus,
-      });
-
-      mailSent = true;
-    } catch (mailError) {
-      console.error(
-        "customer status mail error",
-        mailError instanceof Error ? mailError.message : mailError
-      );
-    }
-
-    await addHistory({
-      supabase,
-      repairRequestId: requestId,
-      actionType: "customer_notified",
-      title: mailSent
-        ? "お客様へステータス通知を送信しました"
-        : "お客様への通知に失敗しました",
-      detail: `送信先: ${notifyEmail}\nステータス: ${statusLabel(newStatus)}`,
+if (notifyEmail) {
+  try {
+    await sendCustomerStatusMail({
+      to: notifyEmail,
+      customerName: String(
+        updateBody.customer_name || before?.customer_name || "お客様"
+      ),
+      requestNo: String(before?.request_no || ""),
+      phone: String(updateBody.phone || before?.phone || ""),
+      newStatus,
     });
-  }
 
-        } catch (mailError) {
-          console.error(
-            "customer status mail error",
-            mailError instanceof Error ? mailError.message : mailError
-          );
-        }
-      }
-
-    return NextResponse.redirect(
-      buildRedirectUrl(
-        request.url,
-        nextPath,
-        new URLSearchParams({ updated: "1" })
-      )
+    mailSent = true;
+  } catch (mailError) {
+    console.error(
+      "customer status mail error",
+      mailError instanceof Error ? mailError.message : mailError
     );
+  }
+}
+
+await addHistory({
+  supabase,
+  repairRequestId: requestId,
+  actionType: "customer_notified",
+  title: mailSent
+    ? "お客様へステータス通知を送信しました"
+    : "お客様への通知に失敗しました",
+  detail: `送信先: ${notifyEmail}\nステータス: ${statusLabel(newStatus)}`,
+});
+
+return NextResponse.redirect(
+  buildRedirectUrl(
+    request.url,
+    nextPath,
+    new URLSearchParams({ updated: "1" })
+  )
+);
+
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "修理受付の更新に失敗しました";
 
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
+}
+}
