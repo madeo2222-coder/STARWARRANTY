@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 function buildRedirectUrl(
   baseUrl: string,
@@ -47,9 +53,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // ▼ ダミー処理（まずビルド優先）
-    // ※ここは後でSupabase更新ロジック戻す
+    // ✅ ▼ ステータス更新（ここが今回の本命）
+    const { error } = await supabase
+      .from("repair_requests")
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", requestId);
 
+    if (error) {
+      console.error("status update error:", error);
+      return NextResponse.json(
+        { success: false, error: "ステータス更新失敗" },
+        { status: 500 }
+      );
+    }
+
+    // ✅ 成功時
     return NextResponse.redirect(
       buildRedirectUrl(
         request.url,
