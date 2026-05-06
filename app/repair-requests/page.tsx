@@ -23,7 +23,7 @@ const STATUS_OPTIONS = [
   { value: "repair_arranging", label: "修理手配中" },
   { value: "visit_scheduling", label: "訪問日調整中" },
   { value: "completed", label: "修理完了" },
-  { value: "out_of_warranty", label: "保証対象外" },
+  { value: "out_of_warranty", label: "" },
   { value: "cancelled", label: "キャンセル" },
 ] as const;
 

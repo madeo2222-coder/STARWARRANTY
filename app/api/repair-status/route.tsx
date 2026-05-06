@@ -29,7 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
   repair_arranging: "修理手配中",
   visit_scheduling: "訪問日調整中",
   completed: "修理完了",
-  out_of_warranty: "保証対象外",
+  out_of_warranty: "",
   cancelled: "キャンセル",
 };
 

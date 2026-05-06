@@ -534,7 +534,7 @@ export async function GET(request: Request) {
     </div>
 
     <div class="card">
-      <div class="sub-title">6. 保証対象外</div>
+      <div class="sub-title">6. </div>
       <div class="text">
         火災・地震・落雷・水害等の外的要因、誤使用、改造、消耗品交換、施工不良起因、業務用利用、故障ではないナンセンスコール等は対象外です。
       </div>

@@ -57,7 +57,7 @@ const STATUS_OPTIONS = [
   { value: "repair_arranging", label: "修理手配中" },
   { value: "visit_scheduling", label: "訪問日調整中" },
   { value: "completed", label: "修理完了" },
-  { value: "out_of_warranty", label: "保証対象外" },
+  { value: "out_of_warranty", label: "" },
   { value: "cancelled", label: "キャンセル" },
 ] as const;
 
@@ -557,7 +557,7 @@ export default async function RepairRequestDetailPage({
           </div>
         </form>
 
-        <div className="space-y-6">
+       <div className="space-y-2">
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">ステータス操作</h2>
             <p className="mt-2 text-sm text-gray-600">
@@ -771,19 +771,18 @@ export default async function RepairRequestDetailPage({
                   value={request.admin_note || ""}
                 />
 
-                <button
-                  type="submit"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-                >
-                  保証対象外
-                </button>
-              </form>
+               <button
+    type="submit"
+    className="w-full rounded-lg border border-red-300 text-red-600 px-4 py-2 text-sm"
+  >
+    キャンセル
+  </button>
 
-              <form method="post" action="/api/repair-request-status">
-                <input type="hidden" name="request_id" value={request.id} />
-                <input type="hidden" name="next_path" value={nextPath} />
-                <input type="hidden" name="action" value="update" />
-                <input type="hidden" name="status" value="cancelled" />
+               <form method="post" action="/api/repair-request-status">
+    <input type="hidden" name="request_id" value={request.id} />
+    <input type="hidden" name="next_path" value={nextPath} />
+    <input type="hidden" name="action" value="update" />
+    <input type="hidden" name="status" value="cancelled" />
                 <input
                   type="hidden"
                   name="assigned_to"
@@ -869,13 +868,14 @@ export default async function RepairRequestDetailPage({
                 />
 
                 <button
-                  type="submit"
-                  className="w-full rounded-lg border border-red-200 px-4 py-2 text-sm text-red-700 hover:bg-red-50"
-                >
-                  キャンセル
-                </button>
-              </form>
-            </div>
+      type="submit"
+      className="w-full rounded-lg border border-red-300 text-red-600 px-4 py-2 text-sm"
+    >
+      キャンセル
+    </button>
+  </form>
+
+</div>
           </div>
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
