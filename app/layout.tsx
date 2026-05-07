@@ -1,60 +1,37 @@
-import "./globals.css";
-import type { Metadata } from "next";
-import Link from "next/link";
+"use client";
 
-export const metadata: Metadata = {
-  title: "STAR WARRANTY",
-  description: "STAR WARRANTY",
-};
+import "./globals.css";
+import { usePathname } from "next/navigation";
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
+  const pathname = usePathname();
+
+  const shouldHideNav =
+    pathname === "/login" ||
+    pathname.startsWith("/invite") ||
+    pathname === "/repair-status" ||
+    pathname.startsWith("/repair-status/");
+
   return (
     <html lang="ja">
-      <body className="bg-white text-black">
-        <header className="border-b bg-white">
-          <div className="mx-auto flex max-w-7xl flex-wrap gap-2 px-4 py-4">
-            <Link
-              href="/"
-              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium"
-            >
-              ホーム
-            </Link>
-
-            <Link
-              href="/warranty-certificates"
-              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium"
-            >
-              保証書管理
-            </Link>
-
-            <Link
-              href="/repair-requests"
-              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium"
-            >
-              修理受付管理
-            </Link>
-
-            <Link
-              href="/warranty-invoices"
-              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium"
-            >
-              請求書管理
-            </Link>
-
-            <Link
-              href="/headquarters"
-              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium"
-            >
-              本部管理
-            </Link>
+      <body>
+        {!shouldHideNav && (
+          <div className="p-4 border-b bg-white">
+            <div className="flex flex-wrap gap-2">
+              <a href="/" className="btn">ホーム</a>
+              <a href="/warranty-certificates" className="btn">保証書管理</a>
+              <a href="/repair-requests" className="btn">修理受付管理</a>
+              <a href="/warranty-invoices" className="btn">請求書管理</a>
+              <a href="/headquarters" className="btn">本部管理</a>
+            </div>
           </div>
-        </header>
+        )}
 
-        <main className="mx-auto max-w-7xl">{children}</main>
+        <main>{children}</main>
       </body>
     </html>
   );

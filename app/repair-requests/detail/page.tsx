@@ -695,189 +695,88 @@ export default async function RepairRequestDetailPage({
     value={request.email || ""}
   />
 
-  <button type="submit">変更</button>
-</form>
-                <input
-                  type="hidden"
-                  name="customer_name_kana"
-                  value={request.customer_name_kana || ""}
-                />
-                <input type="hidden" name="phone" value={request.phone} />
-                <input type="hidden" name="email" value={request.email || ""} />
-                <input
-                  type="hidden"
-                  name="postal_code"
-                  value={request.postal_code || ""}
-                />
-                <input
-                  type="hidden"
-                  name="address"
-                  value={request.address || ""}
-                />
-                <input
-                  type="hidden"
-                  name="product_name"
-                  value={request.product_name}
-                />
-                <input
-                  type="hidden"
-                  name="manufacturer"
-                  value={request.manufacturer || ""}
-                />
-                <input
-                  type="hidden"
-                  name="model_no"
-                  value={request.model_no || ""}
-                />
-                <input
-                  type="hidden"
-                  name="installation_place"
-                  value={request.installation_place || ""}
-                />
-                <input
-                  type="hidden"
-                  name="failure_date"
-                  value={toDateInputValue(request.failure_date)}
-                />
-                <input
-                  type="hidden"
-                  name="symptom_category"
-                  value={request.symptom_category || ""}
-                />
-                <input
-                  type="hidden"
-                  name="symptom_detail"
-                  value={request.symptom_detail}
-                />
-                <input
-                  type="hidden"
-                  name="error_code"
-                  value={request.error_code || ""}
-                />
-                <input
-                  type="hidden"
-                  name="is_usable"
-                  value={
-                    request.is_usable === true
-                      ? "yes"
-                      : request.is_usable === false
-                        ? "no"
-                        : ""
-                  }
-                />
-                <input
-                  type="hidden"
-                  name="admin_note"
-                  value={request.admin_note || ""}
-                />
+{/* ===== ステータス操作 修正版 ===== */}
+<div className="space-y-2">
 
-               <button
-    type="submit"
-    className="w-full rounded-lg border border-red-300 text-red-600 px-4 py-2 text-sm"
-  >
-    キャンセル
-  </button>
+  {/* 保証対象外 */}
+  <form method="post" action="/api/repair-request-status">
+    <input type="hidden" name="request_id" value={request.id} />
+    <input type="hidden" name="next_path" value={nextPath} />
+    <input type="hidden" name="action" value="update" />
+    <input type="hidden" name="status" value="out_of_warranty" />
+    <input type="hidden" name="assigned_to" value={request.assigned_to || ""} />
+    <input type="hidden" name="customer_name" value={request.customer_name} />
+    <input type="hidden" name="customer_name_kana" value={request.customer_name_kana || ""} />
+    <input type="hidden" name="phone" value={request.phone} />
+    <input type="hidden" name="email" value={request.email || ""} />
+    <input type="hidden" name="postal_code" value={request.postal_code || ""} />
+    <input type="hidden" name="address" value={request.address || ""} />
+    <input type="hidden" name="product_name" value={request.product_name} />
+    <input type="hidden" name="manufacturer" value={request.manufacturer || ""} />
+    <input type="hidden" name="model_no" value={request.model_no || ""} />
+    <input type="hidden" name="installation_place" value={request.installation_place || ""} />
+    <input type="hidden" name="failure_date" value={toDateInputValue(request.failure_date)} />
+    <input type="hidden" name="symptom_category" value={request.symptom_category || ""} />
+    <input type="hidden" name="symptom_detail" value={request.symptom_detail} />
+    <input type="hidden" name="error_code" value={request.error_code || ""} />
+    <input
+      type="hidden"
+      name="is_usable"
+      value={
+        request.is_usable === true
+          ? "yes"
+          : request.is_usable === false
+          ? "no"
+          : ""
+      }
+    />
+    <input type="hidden" name="admin_note" value={request.admin_note || ""} />
 
-               <form method="post" action="/api/repair-request-status">
+    <button className="w-full rounded-lg border px-4 py-2 text-sm">
+      保証対象外
+    </button>
+  </form>
+
+  {/* キャンセル */}
+  <form method="post" action="/api/repair-request-status">
     <input type="hidden" name="request_id" value={request.id} />
     <input type="hidden" name="next_path" value={nextPath} />
     <input type="hidden" name="action" value="update" />
     <input type="hidden" name="status" value="cancelled" />
-                <input
-                  type="hidden"
-                  name="assigned_to"
-                  value={request.assigned_to || ""}
-                />
-                <input
-                  type="hidden"
-                  name="customer_name"
-                  value={request.customer_name}
-                />
-                <input
-                  type="hidden"
-                  name="customer_name_kana"
-                  value={request.customer_name_kana || ""}
-                />
-                <input type="hidden" name="phone" value={request.phone} />
-                <input type="hidden" name="email" value={request.email || ""} />
-                <input
-                  type="hidden"
-                  name="postal_code"
-                  value={request.postal_code || ""}
-                />
-                <input
-                  type="hidden"
-                  name="address"
-                  value={request.address || ""}
-                />
-                <input
-                  type="hidden"
-                  name="product_name"
-                  value={request.product_name}
-                />
-                <input
-                  type="hidden"
-                  name="manufacturer"
-                  value={request.manufacturer || ""}
-                />
-                <input
-                  type="hidden"
-                  name="model_no"
-                  value={request.model_no || ""}
-                />
-                <input
-                  type="hidden"
-                  name="installation_place"
-                  value={request.installation_place || ""}
-                />
-                <input
-                  type="hidden"
-                  name="failure_date"
-                  value={toDateInputValue(request.failure_date)}
-                />
-                <input
-                  type="hidden"
-                  name="symptom_category"
-                  value={request.symptom_category || ""}
-                />
-                <input
-                  type="hidden"
-                  name="symptom_detail"
-                  value={request.symptom_detail}
-                />
-                <input
-                  type="hidden"
-                  name="error_code"
-                  value={request.error_code || ""}
-                />
-                <input
-                  type="hidden"
-                  name="is_usable"
-                  value={
-                    request.is_usable === true
-                      ? "yes"
-                      : request.is_usable === false
-                        ? "no"
-                        : ""
-                  }
-                />
-                <input
-                  type="hidden"
-                  name="admin_note"
-                  value={request.admin_note || ""}
-                />
+    <input type="hidden" name="assigned_to" value={request.assigned_to || ""} />
+    <input type="hidden" name="customer_name" value={request.customer_name} />
+    <input type="hidden" name="customer_name_kana" value={request.customer_name_kana || ""} />
+    <input type="hidden" name="phone" value={request.phone} />
+    <input type="hidden" name="email" value={request.email || ""} />
+    <input type="hidden" name="postal_code" value={request.postal_code || ""} />
+    <input type="hidden" name="address" value={request.address || ""} />
+    <input type="hidden" name="product_name" value={request.product_name} />
+    <input type="hidden" name="manufacturer" value={request.manufacturer || ""} />
+    <input type="hidden" name="model_no" value={request.model_no || ""} />
+    <input type="hidden" name="installation_place" value={request.installation_place || ""} />
+    <input type="hidden" name="failure_date" value={toDateInputValue(request.failure_date)} />
+    <input type="hidden" name="symptom_category" value={request.symptom_category || ""} />
+    <input type="hidden" name="symptom_detail" value={request.symptom_detail} />
+    <input type="hidden" name="error_code" value={request.error_code || ""} />
+    <input
+      type="hidden"
+      name="is_usable"
+      value={
+        request.is_usable === true
+          ? "yes"
+          : request.is_usable === false
+          ? "no"
+          : ""
+      }
+    />
+    <input type="hidden" name="admin_note" value={request.admin_note || ""} />
 
-                <button
-      type="submit"
-      className="w-full rounded-lg border border-red-300 text-red-600 px-4 py-2 text-sm"
-    >
+    <button className="w-full rounded-lg border border-red-300 text-red-600 px-4 py-2 text-sm">
       キャンセル
     </button>
   </form>
 
 </div>
-          </div>
-
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">対応履歴タイムライン</h2>
 
