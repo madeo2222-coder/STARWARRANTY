@@ -51,13 +51,13 @@ type RepairRequestHistory = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "received", label: "受付" },
+  { value: "received", label: "受付完了" },
   { value: "checking", label: "内容確認中" },
   { value: "manufacturer_checking", label: "メーカー確認中" },
   { value: "repair_arranging", label: "修理手配中" },
-  { value: "visit_scheduling", label: "訪問日調整中" },
+  { value: "visit_scheduling", label: "訪問日程調整中" },
   { value: "completed", label: "修理完了" },
-  { value: "out_of_warranty", label: "" },
+  { value: "out_of_warranty", label: "保証対象外" },
   { value: "cancelled", label: "キャンセル" },
 ] as const;
 
@@ -92,11 +92,6 @@ function formatDateTime(value: string | null | undefined) {
   return date.toLocaleString("ja-JP");
 }
 
-function getFileNameFromPath(filePath: string) {
-  const parts = filePath.split("/");
-  return parts[parts.length - 1] || filePath;
-}
-
 function toDateInputValue(value: string | null | undefined) {
   if (!value) return "";
   return value.slice(0, 10);
@@ -111,6 +106,59 @@ function getNextStatus(status: string) {
   const currentIndex = STATUS_FLOW.findIndex((item) => item === status);
   if (currentIndex === -1) return null;
   return STATUS_FLOW[currentIndex + 1] || null;
+}
+
+function getIsUsableValue(value: boolean | null) {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "";
+}
+
+function HiddenRequestFields({
+  request,
+  status,
+}: {
+  request: RepairRequestDetail;
+  status: string;
+}) {
+  return (
+    <>
+      <input type="hidden" name="status" value={status} />
+      <input type="hidden" name="assigned_to" value={request.assigned_to || ""} />
+      <input type="hidden" name="customer_name" value={request.customer_name} />
+      <input
+        type="hidden"
+        name="customer_name_kana"
+        value={request.customer_name_kana || ""}
+      />
+      <input type="hidden" name="phone" value={request.phone} />
+      <input type="hidden" name="email" value={request.email || ""} />
+      <input type="hidden" name="postal_code" value={request.postal_code || ""} />
+      <input type="hidden" name="address" value={request.address || ""} />
+      <input type="hidden" name="product_name" value={request.product_name} />
+      <input type="hidden" name="manufacturer" value={request.manufacturer || ""} />
+      <input type="hidden" name="model_no" value={request.model_no || ""} />
+      <input
+        type="hidden"
+        name="installation_place"
+        value={request.installation_place || ""}
+      />
+      <input
+        type="hidden"
+        name="failure_date"
+        value={toDateInputValue(request.failure_date)}
+      />
+      <input
+        type="hidden"
+        name="symptom_category"
+        value={request.symptom_category || ""}
+      />
+      <input type="hidden" name="symptom_detail" value={request.symptom_detail} />
+      <input type="hidden" name="error_code" value={request.error_code || ""} />
+      <input type="hidden" name="is_usable" value={getIsUsableValue(request.is_usable)} />
+      <input type="hidden" name="admin_note" value={request.admin_note || ""} />
+    </>
+  );
 }
 
 export default async function RepairRequestDetailPage({
@@ -201,17 +249,15 @@ export default async function RepairRequestDetailPage({
 
   const { data: historyRows } = await supabase
     .from("repair_request_histories")
-    .select(
-      "id, repair_request_id, action_type, title, detail, created_by, created_at"
-    )
+    .select("id, repair_request_id, action_type, title, detail, created_by, created_at")
     .eq("repair_request_id", request.id)
     .order("created_at", { ascending: false });
 
   const histories = (historyRows || []) as RepairRequestHistory[];
-
   const nextPath = `/repair-requests/detail?id=${request.id}`;
   const remainingPhotoCount = Math.max(0, MAX_FILES - attachments.length);
   const nextStatus = getNextStatus(request.status);
+  const currentStatusIndex = STATUS_FLOW.findIndex((item) => item === request.status);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -249,61 +295,57 @@ export default async function RepairRequestDetailPage({
           処理に失敗しました: {decodeURIComponent(error)}
         </div>
       ) : null}
-            <div className="rounded-2xl border bg-white p-6 shadow-sm">
+
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h2 className="text-base font-semibold">修理進行状況</h2>
         <p className="mt-1 text-sm text-gray-500">
           現在の対応ステータスを確認できます。
         </p>
 
-        <div className="mt-5">
-          <div className="flex flex-col gap-4">
-            {STATUS_FLOW.map((statusItem, index) => {
-              const currentIndex = STATUS_FLOW.findIndex(
-                (item) => item === request.status
-              );
-              const isDone = currentIndex >= index;
-              const isCurrent = request.status === statusItem;
+        <div className="mt-5 flex flex-col gap-4">
+          {STATUS_FLOW.map((statusItem, index) => {
+            const isDone = currentStatusIndex >= index;
+            const isCurrent = request.status === statusItem;
 
-              return (
-                <div key={statusItem} className="flex items-center gap-3">
+            return (
+              <div key={statusItem} className="flex items-center gap-3">
+                <div
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-bold ${
+                    isDone
+                      ? "border-black bg-black text-white"
+                      : "border-gray-300 bg-white text-gray-400"
+                  }`}
+                >
+                  {index + 1}
+                </div>
+
+                <div className="flex-1">
                   <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-bold ${
-                      isDone
-                        ? "border-black bg-black text-white"
-                        : "border-gray-300 bg-white text-gray-400"
+                    className={`text-sm font-semibold ${
+                      isCurrent
+                        ? "text-black"
+                        : isDone
+                          ? "text-gray-800"
+                          : "text-gray-400"
                     }`}
                   >
-                    {index + 1}
+                    {statusLabel(statusItem)}
                   </div>
 
-                  <div className="flex-1">
-                    <div
-                      className={`text-sm font-semibold ${
-                        isCurrent ? "text-black" : isDone ? "text-gray-800" : "text-gray-400"
-                      }`}
-                    >
-                      {statusLabel(statusItem)}
+                  {isCurrent ? (
+                    <div className="mt-1 text-xs text-blue-600">
+                      現在このステータスです
                     </div>
-
-                    {isCurrent ? (
-                      <div className="mt-1 text-xs text-blue-600">
-                        現在このステータスです
-                      </div>
-                    ) : null}
-                  </div>
+                  ) : null}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <form
-          method="post"
-          action="/api/repair-request-status"
-          className="space-y-6"
-        >
+        <form method="post" action="/api/repair-request-status" className="space-y-6">
           <input type="hidden" name="request_id" value={request.id} />
           <input type="hidden" name="next_path" value={nextPath} />
           <input type="hidden" name="action" value="update" />
@@ -334,27 +376,24 @@ export default async function RepairRequestDetailPage({
 
               <div>
                 <label className="text-sm text-gray-500">担当者</label>
-               <input
-  name="assigned_to"
-  list="assigned-to-options"
-  defaultValue={request.assigned_to || ""}
-  className="mt-1 w-full rounded-lg border px-3 py-2"
-  placeholder="担当者を選択または入力"
-/>
-
-<datalist id="assigned-to-options">
-  <option value="清水" />
-  <option value="日髙" />
-  <option value="平賀" />
-  <option value="福田" />
-</datalist>
+                <input
+                  name="assigned_to"
+                  list="assigned-to-options"
+                  defaultValue={request.assigned_to || ""}
+                  className="mt-1 w-full rounded-lg border px-3 py-2"
+                  placeholder="担当者を選択または入力"
+                />
+                <datalist id="assigned-to-options">
+                  <option value="清水" />
+                  <option value="日髙" />
+                  <option value="平賀" />
+                  <option value="福田" />
+                </datalist>
               </div>
 
               <div>
                 <div className="text-sm text-gray-500">保証書番号</div>
-                <div className="mt-1 font-medium">
-                  {request.certificate_no || "-"}
-                </div>
+                <div className="mt-1 font-medium">{request.certificate_no || "-"}</div>
               </div>
 
               <div>
@@ -495,18 +534,10 @@ export default async function RepairRequestDetailPage({
               </div>
 
               <div>
-                <label className="text-sm text-gray-500">
-                  現在使用できますか
-                </label>
+                <label className="text-sm text-gray-500">現在使用できますか</label>
                 <select
                   name="is_usable"
-                  defaultValue={
-                    request.is_usable === true
-                      ? "yes"
-                      : request.is_usable === false
-                        ? "no"
-                        : ""
-                  }
+                  defaultValue={getIsUsableValue(request.is_usable)}
                   className="mt-1 w-full rounded-lg border px-3 py-2"
                 >
                   <option value="">未選択</option>
@@ -557,7 +588,7 @@ export default async function RepairRequestDetailPage({
           </div>
         </form>
 
-       <div className="space-y-2">
+        <div className="space-y-6">
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">ステータス操作</h2>
             <p className="mt-2 text-sm text-gray-600">
@@ -574,91 +605,7 @@ export default async function RepairRequestDetailPage({
                 <input type="hidden" name="request_id" value={request.id} />
                 <input type="hidden" name="next_path" value={nextPath} />
                 <input type="hidden" name="action" value="update" />
-
-                <input type="hidden" name="status" value={nextStatus} />
-                <input
-                  type="hidden"
-                  name="assigned_to"
-                  value={request.assigned_to || ""}
-                />
-                <input
-                  type="hidden"
-                  name="customer_name"
-                  value={request.customer_name}
-                />
-                <input
-                  type="hidden"
-                  name="customer_name_kana"
-                  value={request.customer_name_kana || ""}
-                />
-                <input type="hidden" name="phone" value={request.phone} />
-                <input type="hidden" name="email" value={request.email || ""} />
-                <input
-                  type="hidden"
-                  name="postal_code"
-                  value={request.postal_code || ""}
-                />
-                <input
-                  type="hidden"
-                  name="address"
-                  value={request.address || ""}
-                />
-                <input
-                  type="hidden"
-                  name="product_name"
-                  value={request.product_name}
-                />
-                <input
-                  type="hidden"
-                  name="manufacturer"
-                  value={request.manufacturer || ""}
-                />
-                <input
-                  type="hidden"
-                  name="model_no"
-                  value={request.model_no || ""}
-                />
-                <input
-                  type="hidden"
-                  name="installation_place"
-                  value={request.installation_place || ""}
-                />
-                <input
-                  type="hidden"
-                  name="failure_date"
-                  value={toDateInputValue(request.failure_date)}
-                />
-                <input
-                  type="hidden"
-                  name="symptom_category"
-                  value={request.symptom_category || ""}
-                />
-                <input
-                  type="hidden"
-                  name="symptom_detail"
-                  value={request.symptom_detail}
-                />
-                <input
-                  type="hidden"
-                  name="error_code"
-                  value={request.error_code || ""}
-                />
-                <input
-                  type="hidden"
-                  name="is_usable"
-                  value={
-                    request.is_usable === true
-                      ? "yes"
-                      : request.is_usable === false
-                        ? "no"
-                        : ""
-                  }
-                />
-                <input
-                  type="hidden"
-                  name="admin_note"
-                  value={request.admin_note || ""}
-                />
+                <HiddenRequestFields request={request} status={nextStatus} />
 
                 <button
                   type="submit"
@@ -678,105 +625,32 @@ export default async function RepairRequestDetailPage({
                 <input type="hidden" name="request_id" value={request.id} />
                 <input type="hidden" name="next_path" value={nextPath} />
                 <input type="hidden" name="action" value="update" />
-                <input type="hidden" name="status" value="out_of_warranty" />
-                <input
-                  type="hidden"
-                  name="assigned_to"
-                  value={request.assigned_to || ""}
-                />
-                <input
-                  type="hidden"
-                  name="customer_name"
-                  value={request.customer_name}
-                />
-                 <input
-    type="hidden"
-    name="email"
-    value={request.email || ""}
-  />
+                <HiddenRequestFields request={request} status="out_of_warranty" />
 
-{/* ===== ステータス操作 修正版 ===== */}
-<div className="space-y-2">
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                >
+                  保証対象外
+                </button>
+              </form>
 
-  {/* 保証対象外 */}
-  <form method="post" action="/api/repair-request-status">
-    <input type="hidden" name="request_id" value={request.id} />
-    <input type="hidden" name="next_path" value={nextPath} />
-    <input type="hidden" name="action" value="update" />
-    <input type="hidden" name="status" value="out_of_warranty" />
-    <input type="hidden" name="assigned_to" value={request.assigned_to || ""} />
-    <input type="hidden" name="customer_name" value={request.customer_name} />
-    <input type="hidden" name="customer_name_kana" value={request.customer_name_kana || ""} />
-    <input type="hidden" name="phone" value={request.phone} />
-    <input type="hidden" name="email" value={request.email || ""} />
-    <input type="hidden" name="postal_code" value={request.postal_code || ""} />
-    <input type="hidden" name="address" value={request.address || ""} />
-    <input type="hidden" name="product_name" value={request.product_name} />
-    <input type="hidden" name="manufacturer" value={request.manufacturer || ""} />
-    <input type="hidden" name="model_no" value={request.model_no || ""} />
-    <input type="hidden" name="installation_place" value={request.installation_place || ""} />
-    <input type="hidden" name="failure_date" value={toDateInputValue(request.failure_date)} />
-    <input type="hidden" name="symptom_category" value={request.symptom_category || ""} />
-    <input type="hidden" name="symptom_detail" value={request.symptom_detail} />
-    <input type="hidden" name="error_code" value={request.error_code || ""} />
-    <input
-      type="hidden"
-      name="is_usable"
-      value={
-        request.is_usable === true
-          ? "yes"
-          : request.is_usable === false
-          ? "no"
-          : ""
-      }
-    />
-    <input type="hidden" name="admin_note" value={request.admin_note || ""} />
+              <form method="post" action="/api/repair-request-status">
+                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="next_path" value={nextPath} />
+                <input type="hidden" name="action" value="update" />
+                <HiddenRequestFields request={request} status="cancelled" />
 
-    <button className="w-full rounded-lg border px-4 py-2 text-sm">
-      保証対象外
-    </button>
-  </form>
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  キャンセル
+                </button>
+              </form>
+            </div>
+          </div>
 
-  {/* キャンセル */}
-  <form method="post" action="/api/repair-request-status">
-    <input type="hidden" name="request_id" value={request.id} />
-    <input type="hidden" name="next_path" value={nextPath} />
-    <input type="hidden" name="action" value="update" />
-    <input type="hidden" name="status" value="cancelled" />
-    <input type="hidden" name="assigned_to" value={request.assigned_to || ""} />
-    <input type="hidden" name="customer_name" value={request.customer_name} />
-    <input type="hidden" name="customer_name_kana" value={request.customer_name_kana || ""} />
-    <input type="hidden" name="phone" value={request.phone} />
-    <input type="hidden" name="email" value={request.email || ""} />
-    <input type="hidden" name="postal_code" value={request.postal_code || ""} />
-    <input type="hidden" name="address" value={request.address || ""} />
-    <input type="hidden" name="product_name" value={request.product_name} />
-    <input type="hidden" name="manufacturer" value={request.manufacturer || ""} />
-    <input type="hidden" name="model_no" value={request.model_no || ""} />
-    <input type="hidden" name="installation_place" value={request.installation_place || ""} />
-    <input type="hidden" name="failure_date" value={toDateInputValue(request.failure_date)} />
-    <input type="hidden" name="symptom_category" value={request.symptom_category || ""} />
-    <input type="hidden" name="symptom_detail" value={request.symptom_detail} />
-    <input type="hidden" name="error_code" value={request.error_code || ""} />
-    <input
-      type="hidden"
-      name="is_usable"
-      value={
-        request.is_usable === true
-          ? "yes"
-          : request.is_usable === false
-          ? "no"
-          : ""
-      }
-    />
-    <input type="hidden" name="admin_note" value={request.admin_note || ""} />
-
-    <button className="w-full rounded-lg border border-red-300 text-red-600 px-4 py-2 text-sm">
-      キャンセル
-    </button>
-  </form>
-
-</div>
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">対応履歴タイムライン</h2>
 
@@ -814,7 +688,6 @@ export default async function RepairRequestDetailPage({
 
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">添付写真</h2>
-
             <RepairPhotoGallery photos={attachments} />
           </div>
 
@@ -869,11 +742,7 @@ export default async function RepairRequestDetailPage({
               この修理受付と添付写真を削除します。削除後は一覧へ戻ります。
             </p>
 
-            <form
-              method="post"
-              action="/api/repair-request-status"
-              className="mt-4"
-            >
+            <form method="post" action="/api/repair-request-status" className="mt-4">
               <input type="hidden" name="request_id" value={request.id} />
               <input type="hidden" name="next_path" value={nextPath} />
               <input type="hidden" name="action" value="delete" />
@@ -905,5 +774,7 @@ export default async function RepairRequestDetailPage({
             </div>
           </div>
         </div>
+      </div>
+    </div>
   );
 }
