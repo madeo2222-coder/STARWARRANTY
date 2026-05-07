@@ -34,12 +34,6 @@ function getStatusLabel(status: string) {
   }
 }
 
-function buildRedirectUrl(request: Request, nextPath: string) {
-  const url = new URL(nextPath || "/repair-requests", request.url);
-  url.searchParams.set("updated", "1");
-  return url;
-}
-
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") || "";
@@ -50,11 +44,13 @@ export async function POST(request: Request) {
 
     if (contentType.includes("application/json")) {
       const body = await request.json();
+
       requestNo = String(body.request_no || "");
       status = String(body.status || "");
       nextPath = String(body.next_path || "/repair-requests");
     } else {
       const formData = await request.formData();
+
       requestNo = String(formData.get("request_no") || "");
       status = String(formData.get("status") || "");
       nextPath = String(formData.get("next_path") || "/repair-requests");
@@ -106,11 +102,7 @@ export async function POST(request: Request) {
 
     if (current.email) {
       try {
-        const statusUrl = new URL(
-          "https://starwarranty.vercel.app/repair-status"
-        );
-        statusUrl.searchParams.set("request_no", requestNo);
-        statusUrl.searchParams.set("phone", current.phone || "");
+        const statusUrl = `https://starwarranty.vercel.app/repair-status?request_no=${requestNo}&phone=${current.phone || ""}`;
 
         await resend.emails.send({
           from: "onboarding@resend.dev",
@@ -124,37 +116,75 @@ export async function POST(request: Request) {
       <tr>
         <td align="center">
           <table width="100%" style="max-width:500px;background:#ffffff;border-radius:12px;padding:24px;">
+
             <tr>
               <td style="font-size:20px;font-weight:bold;">
                 STAR WARRANTY
               </td>
             </tr>
+
             <tr>
               <td style="font-size:16px;padding-top:10px;">
                 修理状況が更新されました
               </td>
             </tr>
+
             <tr>
-              <td style="padding:16px;background:#f9fafb;border-radius:8px;margin-top:16px;text-align:center;">
-                <div style="font-size:12px;color:#666;">現在のステータス</div>
-                <div style="font-size:18px;font-weight:bold;margin-top:4px;">
-                  ${getStatusLabel(status)}
-                </div>
+              <td style="padding-top:24px;font-size:14px;color:#6b7280;">
+                受付番号
               </td>
             </tr>
+
             <tr>
-              <td style="padding-top:20px;text-align:center;">
-                <a href="${statusUrl.toString()}"
-                   style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;">
+              <td style="font-size:28px;font-weight:bold;padding-top:4px;">
+                ${requestNo}
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-top:20px;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:8px;padding:16px;">
+                  <tr>
+                    <td style="font-size:14px;color:#6b7280;">
+                      現在のステータス
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:24px;font-weight:bold;padding-top:8px;">
+                      ${getStatusLabel(status)}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-top:20px;font-size:14px;line-height:1.8;color:#374151;">
+                修理状況確認ページでは、以下を入力してください。
+                <br />
+                ・受付番号：${requestNo}
+                <br />
+                ・電話番号：${current.phone || "-"}
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding-top:28px;">
+                <a
+                  href="${statusUrl}"
+                  style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:bold;"
+                >
                   修理状況を確認する
                 </a>
               </td>
             </tr>
+
             <tr>
               <td style="padding-top:20px;font-size:12px;color:#999;text-align:center;">
                 ※本メールは自動送信です
               </td>
             </tr>
+
           </table>
         </td>
       </tr>
@@ -168,7 +198,9 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.redirect(buildRedirectUrl(request, nextPath));
+    return NextResponse.redirect(
+      new URL(`${nextPath}?updated=1`, request.url)
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "処理に失敗しました";
