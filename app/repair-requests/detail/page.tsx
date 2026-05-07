@@ -905,7 +905,5 @@ export default async function RepairRequestDetailPage({
             </div>
           </div>
         </div>
-      </div>
-    </div>
   );
 }
