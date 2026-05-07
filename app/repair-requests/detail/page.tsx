@@ -155,7 +155,11 @@ function HiddenRequestFields({
       />
       <input type="hidden" name="symptom_detail" value={request.symptom_detail} />
       <input type="hidden" name="error_code" value={request.error_code || ""} />
-      <input type="hidden" name="is_usable" value={getIsUsableValue(request.is_usable)} />
+      <input
+        type="hidden"
+        name="is_usable"
+        value={getIsUsableValue(request.is_usable)}
+      />
       <input type="hidden" name="admin_note" value={request.admin_note || ""} />
     </>
   );
@@ -346,7 +350,7 @@ export default async function RepairRequestDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <form method="post" action="/api/repair-request-status" className="space-y-6">
-          <input type="hidden" name="request_id" value={request.id} />
+          <input type="hidden" name="request_no" value={request.request_no} />
           <input type="hidden" name="next_path" value={nextPath} />
           <input type="hidden" name="action" value="update" />
 
@@ -602,7 +606,7 @@ export default async function RepairRequestDetailPage({
                 action="/api/repair-request-status"
                 className="mt-4 space-y-3"
               >
-                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="request_no" value={request.request_no} />
                 <input type="hidden" name="next_path" value={nextPath} />
                 <input type="hidden" name="action" value="update" />
                 <HiddenRequestFields request={request} status={nextStatus} />
@@ -622,7 +626,7 @@ export default async function RepairRequestDetailPage({
 
             <div className="mt-4 grid grid-cols-2 gap-2">
               <form method="post" action="/api/repair-request-status">
-                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="request_no" value={request.request_no} />
                 <input type="hidden" name="next_path" value={nextPath} />
                 <input type="hidden" name="action" value="update" />
                 <HiddenRequestFields request={request} status="out_of_warranty" />
@@ -636,7 +640,7 @@ export default async function RepairRequestDetailPage({
               </form>
 
               <form method="post" action="/api/repair-request-status">
-                <input type="hidden" name="request_id" value={request.id} />
+                <input type="hidden" name="request_no" value={request.request_no} />
                 <input type="hidden" name="next_path" value={nextPath} />
                 <input type="hidden" name="action" value="update" />
                 <HiddenRequestFields request={request} status="cancelled" />
@@ -743,7 +747,7 @@ export default async function RepairRequestDetailPage({
             </p>
 
             <form method="post" action="/api/repair-request-status" className="mt-4">
-              <input type="hidden" name="request_id" value={request.id} />
+              <input type="hidden" name="request_no" value={request.request_no} />
               <input type="hidden" name="next_path" value={nextPath} />
               <input type="hidden" name="action" value="delete" />
 
