@@ -11,7 +11,6 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ステータス日本語化
 function getStatusLabel(status: string) {
   switch (status) {
     case "received":
@@ -35,6 +34,12 @@ function getStatusLabel(status: string) {
   }
 }
 
+function buildRedirectUrl(request: Request, nextPath: string) {
+  const url = new URL(nextPath || "/repair-requests", request.url);
+  url.searchParams.set("updated", "1");
+  return url;
+}
+
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") || "";
@@ -45,9 +50,9 @@ export async function POST(request: Request) {
 
     if (contentType.includes("application/json")) {
       const body = await request.json();
-      requestNo = body.request_no || "";
-      status = body.status || "";
-      nextPath = body.next_path || "/repair-requests";
+      requestNo = String(body.request_no || "");
+      status = String(body.status || "");
+      nextPath = String(body.next_path || "/repair-requests");
     } else {
       const formData = await request.formData();
       requestNo = String(formData.get("request_no") || "");
@@ -62,7 +67,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // 現在データ取得
     const { data: current, error: fetchError } = await supabase
       .from("repair_requests")
       .select("request_no, status, email, customer_name, phone")
@@ -78,7 +82,6 @@ export async function POST(request: Request) {
 
     const oldStatus = current.status;
 
-    // 更新
     const { error: updateError } = await supabase
       .from("repair_requests")
       .update({
@@ -94,7 +97,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // 履歴
     await supabase.from("repair_request_status_logs").insert({
       request_no: requestNo,
       old_status: oldStatus,
@@ -102,13 +104,18 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
     });
 
-    // メール送信
     if (current.email) {
       try {
+        const statusUrl = new URL(
+          "https://starwarranty.vercel.app/repair-status"
+        );
+        statusUrl.searchParams.set("request_no", requestNo);
+        statusUrl.searchParams.set("phone", current.phone || "");
+
         await resend.emails.send({
           from: "onboarding@resend.dev",
           to: current.email,
-          subject: `【STAR WARRANTY】修理状況更新`,
+          subject: "【STAR WARRANTY】修理状況更新",
           html: `
 <!doctype html>
 <html lang="ja">
@@ -117,19 +124,16 @@ export async function POST(request: Request) {
       <tr>
         <td align="center">
           <table width="100%" style="max-width:500px;background:#ffffff;border-radius:12px;padding:24px;">
-            
             <tr>
               <td style="font-size:20px;font-weight:bold;">
                 STAR WARRANTY
               </td>
             </tr>
-
             <tr>
               <td style="font-size:16px;padding-top:10px;">
                 修理状況が更新されました
               </td>
             </tr>
-
             <tr>
               <td style="padding:16px;background:#f9fafb;border-radius:8px;margin-top:16px;text-align:center;">
                 <div style="font-size:12px;color:#666;">現在のステータス</div>
@@ -138,22 +142,19 @@ export async function POST(request: Request) {
                 </div>
               </td>
             </tr>
-
             <tr>
               <td style="padding-top:20px;text-align:center;">
-                <a href="https://starwarranty.vercel.app/repair-status?request_no=${requestNo}&phone=${current.phone || ""}"
+                <a href="${statusUrl.toString()}"
                    style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;">
                   修理状況を確認する
                 </a>
               </td>
             </tr>
-
             <tr>
               <td style="padding-top:20px;font-size:12px;color:#999;text-align:center;">
                 ※本メールは自動送信です
               </td>
             </tr>
-
           </table>
         </td>
       </tr>
@@ -167,10 +168,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.redirect(
-      new URL(`${nextPath}?updated=1`, request.url)
-    );
-
+    return NextResponse.redirect(buildRedirectUrl(request, nextPath));
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "処理に失敗しました";
