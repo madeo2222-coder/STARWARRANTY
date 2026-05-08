@@ -81,10 +81,16 @@ function getStatusMessage(status: string | null | undefined) {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: { request_no?: string; phone?: string };
+  searchParams: Promise<{
+    request_no?: string;
+    phone?: string;
+  }>;
 }) {
-  const requestNo = (searchParams.request_no || "").trim();
-  const phone = (searchParams.phone || "").trim();
+  const params = await searchParams;
+
+  const requestNo = (params.request_no || "").trim();
+  const phone = (params.phone || "").trim();
+
   const normalizedInputPhone = normalizePhone(phone);
 
   if (!requestNo) {
@@ -95,9 +101,11 @@ export default async function Page({
             <p className="text-xs font-semibold tracking-widest text-gray-400">
               STAR WARRANTY
             </p>
+
             <h1 className="mt-2 text-xl font-bold text-gray-900">
               修理受付状況の確認
             </h1>
+
             <p className="mt-2 text-sm leading-6 text-gray-500">
               メールに記載された受付番号を入力して、現在の修理状況をご確認ください。
             </p>
@@ -108,6 +116,7 @@ export default async function Page({
               <label className="mb-1 block text-sm font-semibold text-gray-700">
                 受付番号
               </label>
+
               <input
                 name="request_no"
                 required
@@ -120,12 +129,14 @@ export default async function Page({
               <label className="mb-1 block text-sm font-semibold text-gray-700">
                 電話番号
               </label>
+
               <input
                 name="phone"
                 inputMode="tel"
                 placeholder="例：09012345678"
                 className="w-full rounded-xl border border-gray-300 px-3 py-3 text-base outline-none focus:border-black"
               />
+
               <p className="mt-1 text-xs text-gray-400">
                 ハイフンあり・なし、どちらでも確認できます。
               </p>
@@ -153,12 +164,15 @@ export default async function Page({
           <p className="text-xs font-semibold tracking-widest text-gray-400">
             STAR WARRANTY
           </p>
+
           <h1 className="mt-3 text-lg font-bold text-red-600">
             修理受付が見つかりません
           </h1>
+
           <p className="mt-3 text-sm leading-6 text-gray-500">
             受付番号をご確認のうえ、もう一度お試しください。
           </p>
+
           <a
             href="/repair-status"
             className="mt-6 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
@@ -183,12 +197,15 @@ export default async function Page({
           <p className="text-xs font-semibold tracking-widest text-gray-400">
             STAR WARRANTY
           </p>
+
           <h1 className="mt-3 text-lg font-bold text-red-600">
             電話番号が一致しません
           </h1>
+
           <p className="mt-3 text-sm leading-6 text-gray-500">
             受付番号または電話番号をご確認ください。
           </p>
+
           <a
             href="/repair-status"
             className="mt-6 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
@@ -212,25 +229,32 @@ export default async function Page({
   ];
 
   const isStopped =
-    data.status === "out_of_warranty" || data.status === "cancelled";
+    data.status === "out_of_warranty" ||
+    data.status === "cancelled";
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="mx-auto max-w-md space-y-5">
+
         <section className="rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-xs font-semibold tracking-widest text-gray-400">
             STAR WARRANTY
           </p>
+
           <h1 className="mt-2 text-xl font-bold text-gray-900">
             修理状況のご案内
           </h1>
+
           <p className="mt-2 text-sm text-gray-500">
             受付番号：{data.request_no}
           </p>
         </section>
 
         <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold text-gray-500">現在の状況</p>
+          <p className="text-sm font-semibold text-gray-500">
+            現在の状況
+          </p>
+
           <div
             className={`mt-3 rounded-2xl p-4 ${
               isStopped ? "bg-red-50" : "bg-gray-900"
@@ -243,6 +267,7 @@ export default async function Page({
             >
               {getStatusLabel(data.status)}
             </p>
+
             <p
               className={`mt-2 text-sm leading-6 ${
                 isStopped ? "text-red-500" : "text-gray-200"
@@ -255,7 +280,9 @@ export default async function Page({
 
         {!isStopped && (
           <section className="rounded-2xl bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-bold text-gray-900">進行状況</h2>
+            <h2 className="text-sm font-bold text-gray-900">
+              進行状況
+            </h2>
 
             <div className="mt-5 space-y-4">
               {steps.map((label, index) => {
@@ -264,6 +291,7 @@ export default async function Page({
 
                 return (
                   <div key={label} className="flex items-center gap-3">
+
                     <div
                       className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
                         current
@@ -277,17 +305,21 @@ export default async function Page({
                     <div className="flex-1">
                       <p
                         className={`text-sm ${
-                          current ? "font-bold text-gray-900" : "text-gray-400"
+                          current
+                            ? "font-bold text-gray-900"
+                            : "text-gray-400"
                         }`}
                       >
                         {label}
                       </p>
+
                       {active && (
                         <p className="mt-1 text-xs text-gray-500">
                           現在この段階です
                         </p>
                       )}
                     </div>
+
                   </div>
                 );
               })}
@@ -301,6 +333,7 @@ export default async function Page({
             ご不明点がある場合は、受付番号をお控えのうえお問い合わせください。
           </p>
         </section>
+
       </div>
     </main>
   );
