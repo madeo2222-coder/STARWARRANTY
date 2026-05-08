@@ -170,18 +170,22 @@ export default async function RepairRequestDetailPage({
 }: {
   searchParams: Promise<{
     id?: string;
+    request_no?: string;
     updated?: string;
     error?: string;
     photo_added?: string;
   }>;
 }) {
-  const { id, updated, error, photo_added } = await searchParams;
+  const { id, request_no, updated, error, photo_added } = await searchParams;
 
-  if (!id) {
+  const targetId = (id || "").trim();
+  const targetRequestNo = (request_no || "").trim();
+
+  if (!targetId && !targetRequestNo) {
     return (
       <div className="mx-auto max-w-4xl p-4 md:p-6">
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          id が指定されていません
+          id または request_no が指定されていません
         </div>
       </div>
     );
@@ -189,37 +193,56 @@ export default async function RepairRequestDetailPage({
 
   const supabase = getAdminClient();
 
-  const { data, error: fetchError } = await supabase
-    .from("repair_requests")
-    .select(
-      `
-      id,
-      request_no,
-      certificate_id,
-      certificate_no,
-      customer_name,
-      customer_name_kana,
-      phone,
-      email,
-      postal_code,
-      address,
-      product_name,
-      manufacturer,
-      model_no,
-      installation_place,
-      failure_date,
-      symptom_category,
-      symptom_detail,
-      error_code,
-      is_usable,
-      status,
-      assigned_to,
-      admin_note,
-      created_at
-    `
-    )
-    .eq("id", id)
-    .single();
+  const selectColumns = `
+    id,
+    request_no,
+    certificate_id,
+    certificate_no,
+    customer_name,
+    customer_name_kana,
+    phone,
+    email,
+    postal_code,
+    address,
+    product_name,
+    manufacturer,
+    model_no,
+    installation_place,
+    failure_date,
+    symptom_category,
+    symptom_detail,
+    error_code,
+    is_usable,
+    status,
+    assigned_to,
+    admin_note,
+    created_at
+  `;
+
+  let data: RepairRequestDetail | null = null;
+  let fetchError: unknown = null;
+
+  if (targetId) {
+    const result = await supabase
+      .from("repair_requests")
+      .select(selectColumns)
+      .eq("id", targetId)
+      .maybeSingle();
+
+    data = result.data as RepairRequestDetail | null;
+    fetchError = result.error;
+  }
+
+  if (!data && targetRequestNo) {
+    const result = await supabase
+      .from("repair_requests")
+      .select(selectColumns)
+      .eq("request_no", targetRequestNo)
+      .maybeSingle();
+
+    data = result.data as RepairRequestDetail | null;
+    fetchError = result.error;
+  }
 
   if (fetchError || !data) {
     return (
@@ -231,7 +254,7 @@ export default async function RepairRequestDetailPage({
     );
   }
 
-  const request = data as RepairRequestDetail;
+  const request = data;
 
   const { data: attachmentRows } = await supabase
     .from("repair_request_attachments")
