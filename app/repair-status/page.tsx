@@ -1,6 +1,21 @@
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient();
+export const dynamic = "force-dynamic";
+
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey);
+}
 
 function normalizePhone(value: string | null | undefined) {
   return (value || "")
@@ -90,7 +105,6 @@ export default async function Page({
 
   const requestNo = (params.request_no || "").trim();
   const phone = (params.phone || "").trim();
-
   const normalizedInputPhone = normalizePhone(phone);
 
   if (!requestNo) {
@@ -101,11 +115,9 @@ export default async function Page({
             <p className="text-xs font-semibold tracking-widest text-gray-400">
               STAR WARRANTY
             </p>
-
             <h1 className="mt-2 text-xl font-bold text-gray-900">
               修理受付状況の確認
             </h1>
-
             <p className="mt-2 text-sm leading-6 text-gray-500">
               メールに記載された受付番号を入力して、現在の修理状況をご確認ください。
             </p>
@@ -116,11 +128,10 @@ export default async function Page({
               <label className="mb-1 block text-sm font-semibold text-gray-700">
                 受付番号
               </label>
-
               <input
                 name="request_no"
                 required
-                placeholder="例：REQ-000001"
+                placeholder="例：RR-20260506-204901"
                 className="w-full rounded-xl border border-gray-300 px-3 py-3 text-base outline-none focus:border-black"
               />
             </div>
@@ -129,14 +140,12 @@ export default async function Page({
               <label className="mb-1 block text-sm font-semibold text-gray-700">
                 電話番号
               </label>
-
               <input
                 name="phone"
                 inputMode="tel"
                 placeholder="例：09012345678"
                 className="w-full rounded-xl border border-gray-300 px-3 py-3 text-base outline-none focus:border-black"
               />
-
               <p className="mt-1 text-xs text-gray-400">
                 ハイフンあり・なし、どちらでも確認できます。
               </p>
@@ -151,6 +160,8 @@ export default async function Page({
     );
   }
 
+  const supabase = getSupabaseAdmin();
+
   const { data, error } = await supabase
     .from("repair_requests")
     .select("*")
@@ -164,15 +175,12 @@ export default async function Page({
           <p className="text-xs font-semibold tracking-widest text-gray-400">
             STAR WARRANTY
           </p>
-
           <h1 className="mt-3 text-lg font-bold text-red-600">
             修理受付が見つかりません
           </h1>
-
           <p className="mt-3 text-sm leading-6 text-gray-500">
             受付番号をご確認のうえ、もう一度お試しください。
           </p>
-
           <a
             href="/repair-status"
             className="mt-6 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
@@ -197,15 +205,12 @@ export default async function Page({
           <p className="text-xs font-semibold tracking-widest text-gray-400">
             STAR WARRANTY
           </p>
-
           <h1 className="mt-3 text-lg font-bold text-red-600">
             電話番号が一致しません
           </h1>
-
           <p className="mt-3 text-sm leading-6 text-gray-500">
             受付番号または電話番号をご確認ください。
           </p>
-
           <a
             href="/repair-status"
             className="mt-6 inline-block rounded-xl bg-black px-5 py-3 text-sm font-bold text-white"
@@ -218,6 +223,8 @@ export default async function Page({
   }
 
   const step = getStep(data.status);
+  const isStopped =
+    data.status === "out_of_warranty" || data.status === "cancelled";
 
   const steps = [
     "受付",
@@ -228,33 +235,23 @@ export default async function Page({
     "完了",
   ];
 
-  const isStopped =
-    data.status === "out_of_warranty" ||
-    data.status === "cancelled";
-
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="mx-auto max-w-md space-y-5">
-
         <section className="rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-xs font-semibold tracking-widest text-gray-400">
             STAR WARRANTY
           </p>
-
           <h1 className="mt-2 text-xl font-bold text-gray-900">
             修理状況のご案内
           </h1>
-
           <p className="mt-2 text-sm text-gray-500">
             受付番号：{data.request_no}
           </p>
         </section>
 
         <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold text-gray-500">
-            現在の状況
-          </p>
-
+          <p className="text-sm font-semibold text-gray-500">現在の状況</p>
           <div
             className={`mt-3 rounded-2xl p-4 ${
               isStopped ? "bg-red-50" : "bg-gray-900"
@@ -267,7 +264,6 @@ export default async function Page({
             >
               {getStatusLabel(data.status)}
             </p>
-
             <p
               className={`mt-2 text-sm leading-6 ${
                 isStopped ? "text-red-500" : "text-gray-200"
@@ -280,9 +276,7 @@ export default async function Page({
 
         {!isStopped && (
           <section className="rounded-2xl bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-bold text-gray-900">
-              進行状況
-            </h2>
+            <h2 className="text-sm font-bold text-gray-900">進行状況</h2>
 
             <div className="mt-5 space-y-4">
               {steps.map((label, index) => {
@@ -291,7 +285,6 @@ export default async function Page({
 
                 return (
                   <div key={label} className="flex items-center gap-3">
-
                     <div
                       className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
                         current
@@ -305,35 +298,23 @@ export default async function Page({
                     <div className="flex-1">
                       <p
                         className={`text-sm ${
-                          current
-                            ? "font-bold text-gray-900"
-                            : "text-gray-400"
+                          current ? "font-bold text-gray-900" : "text-gray-400"
                         }`}
                       >
                         {label}
                       </p>
-
-                      {active && (
+                      {active ? (
                         <p className="mt-1 text-xs text-gray-500">
                           現在この段階です
                         </p>
-                      )}
+                      ) : null}
                     </div>
-
                   </div>
                 );
               })}
             </div>
           </section>
         )}
-
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <p className="text-xs leading-6 text-gray-500">
-            状況に変更があった場合は、担当者よりメール等でご案内いたします。
-            ご不明点がある場合は、受付番号をお控えのうえお問い合わせください。
-          </p>
-        </section>
-
       </div>
     </main>
   );
