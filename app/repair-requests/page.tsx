@@ -188,6 +188,20 @@ export default async function RepairRequestsPage({
           >
             保証書管理へ
           </Link>
+          <a
+  href={
+    selectedAgency
+      ? `/api/repair-requests-csv?agency=${encodeURIComponent(
+          selectedAgency
+        )}`
+      : "/api/repair-requests-csv"
+  }
+  className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+>
+  {selectedAgency
+    ? `${selectedAgency} CSV出力`
+    : "CSV出力"}
+</a>
         </div>
       </div>
 
