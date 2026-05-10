@@ -182,12 +182,19 @@ export default async function RepairRequestsPage({
           >
             本部管理へ
           </Link>
+
           <Link
             href="/warranty-certificates"
             className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
           >
             保証書管理へ
           </Link>
+          <a
+  href="/api/repair-requests/export"
+  className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+>
+  CSV出力
+</a>
           <a
   href={
     selectedAgency
