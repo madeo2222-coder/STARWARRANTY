@@ -163,6 +163,50 @@ export default async function RepairRequestsPage({
   const agencyStats = Array.from(agencyStatsMap.entries()).sort(
     (a, b) => b[1].total - a[1].total
   );
+const monthlyStatsMap = new Map<
+  string,
+  {
+    total: number;
+    active: number;
+    completed: number;
+    closed: number;
+  }
+>();
+
+for (const row of rows) {
+  const date = new Date(row.created_at);
+
+  const monthKey = `${date.getFullYear()}-${String(
+    date.getMonth() + 1
+  ).padStart(2, "0")}`;
+
+  if (!monthlyStatsMap.has(monthKey)) {
+    monthlyStatsMap.set(monthKey, {
+      total: 0,
+      active: 0,
+      completed: 0,
+      closed: 0,
+    });
+  }
+
+  const stats = monthlyStatsMap.get(monthKey)!;
+
+  stats.total += 1;
+
+  if (row.status === "completed") {
+    stats.completed += 1;
+  } else if (
+    ["out_of_warranty", "cancelled"].includes(row.status)
+  ) {
+    stats.closed += 1;
+  } else {
+    stats.active += 1;
+  }
+}
+
+const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
+  (a, b) => b[0].localeCompare(a[0])
+);
 
   const csvHref = selectedAgency
     ? `/api/repair-requests-csv?agency=${encodeURIComponent(selectedAgency)}`
@@ -255,7 +299,46 @@ export default async function RepairRequestsPage({
           <div className="mt-2 text-3xl font-bold">{closedRows.length}</div>
         </div>
       </div>
+<div className="rounded-2xl border bg-white shadow-sm">
+  <div className="border-b px-5 py-4">
+    <h2 className="text-base font-semibold">月別修理件数</h2>
+    <p className="mt-1 text-sm text-gray-500">
+      月ごとの修理受付数・対応状況を確認できます。
+    </p>
+  </div>
 
+  {monthlyStats.length === 0 ? (
+    <div className="p-6 text-sm text-gray-500">
+      データがありません。
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-left">
+          <tr>
+            <th className="px-4 py-3 font-medium">月</th>
+            <th className="px-4 py-3 font-medium">全受付</th>
+            <th className="px-4 py-3 font-medium">対応中</th>
+            <th className="px-4 py-3 font-medium">修理完了</th>
+            <th className="px-4 py-3 font-medium">対象外・キャンセル</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {monthlyStats.map(([month, stats]) => (
+            <tr key={month} className="border-t hover:bg-gray-50">
+              <td className="px-4 py-3 font-medium">{month}</td>
+              <td className="px-4 py-3">{stats.total}</td>
+              <td className="px-4 py-3">{stats.active}</td>
+              <td className="px-4 py-3">{stats.completed}</td>
+              <td className="px-4 py-3">{stats.closed}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
       <div className="rounded-2xl border bg-white shadow-sm">
         <div className="border-b px-5 py-4">
           <h2 className="text-base font-semibold">代理店別修理統計</h2>
