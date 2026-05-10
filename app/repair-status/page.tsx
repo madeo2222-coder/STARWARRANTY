@@ -11,6 +11,16 @@ type RepairRequestAttachment = {
   signed_url?: string | null;
 };
 
+type RepairRequestHistory = {
+  id: string;
+  repair_request_id: string;
+  action_type: string;
+  title: string;
+  detail: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -32,6 +42,13 @@ function normalizePhone(value: string | null | undefined) {
       String.fromCharCode(char.charCodeAt(0) - 0xfee0)
     )
     .replace(/[^0-9]/g, "");
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ja-JP");
 }
 
 function getStep(status: string | null | undefined) {
@@ -249,6 +266,14 @@ export default async function Page({
     });
   }
 
+  const { data: historyRows } = await supabase
+    .from("repair_request_histories")
+    .select("id, repair_request_id, action_type, title, detail, created_by, created_at")
+    .eq("repair_request_id", data.id)
+    .order("created_at", { ascending: false });
+
+  const histories = (historyRows || []) as RepairRequestHistory[];
+
   const step = getStep(data.status);
   const isStopped =
     data.status === "out_of_warranty" || data.status === "cancelled";
@@ -342,6 +367,39 @@ export default async function Page({
             </div>
           </section>
         )}
+
+        {histories.length > 0 ? (
+          <section className="rounded-2xl bg-white p-6 shadow-sm">
+            <h2 className="text-sm font-bold text-gray-900">対応履歴</h2>
+            <p className="mt-2 text-xs leading-5 text-gray-500">
+              修理受付後の対応状況を時系列で確認できます。
+            </p>
+
+            <div className="mt-5 space-y-4">
+              {histories.map((history) => (
+                <div key={history.id} className="flex gap-3">
+                  <div className="mt-1 flex h-6 w-6 items-center justify-center rounded-full bg-black text-xs text-white">
+                    ✓
+                  </div>
+
+                  <div className="flex-1 rounded-xl border bg-gray-50 p-3">
+                    <p className="text-sm font-bold text-gray-900">
+                      {history.title}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formatDateTime(history.created_at)}
+                    </p>
+                    {history.detail ? (
+                      <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-gray-600">
+                        {history.detail}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {attachments.length > 0 ? (
           <section className="rounded-2xl bg-white p-6 shadow-sm">
