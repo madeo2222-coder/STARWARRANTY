@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
     const { data: current, error: fetchError } = await supabase
       .from("repair_requests")
-      .select("request_no, status, email, customer_name, phone")
+      .select("id, request_no, status, email, customer_name, phone")
       .eq("request_no", requestNo)
       .maybeSingle();
 
@@ -79,12 +79,13 @@ export async function POST(request: Request) {
     }
 
     const oldStatus = current.status;
+    const now = new Date().toISOString();
 
     const { error: updateError } = await supabase
       .from("repair_requests")
       .update({
         status,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq("request_no", requestNo);
 
@@ -99,7 +100,20 @@ export async function POST(request: Request) {
       request_no: requestNo,
       old_status: oldStatus,
       new_status: status,
-      created_at: new Date().toISOString(),
+      created_at: now,
+    });
+
+    await supabase.from("repair_request_histories").insert({
+      repair_request_id: current.id,
+      action_type: "status_update",
+      title: `ステータス変更：${getStatusLabel(oldStatus)} → ${getStatusLabel(
+        status
+      )}`,
+      detail: `受付番号 ${requestNo} のステータスを「${getStatusLabel(
+        oldStatus
+      )}」から「${getStatusLabel(status)}」へ変更しました。`,
+      created_by: "system",
+      created_at: now,
     });
 
     if (current.email) {
