@@ -208,7 +208,7 @@ export default async function RepairRequestsPage() {
                   <tr key={row.id} className="border-t hover:bg-gray-50">
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
                       <Link
-                        href={`/repair-requests/detail?id=${row.id}`}
+                        href={`/repair-requests/detail?request_no=${row.request_no}`}
                         className="text-blue-600 hover:underline"
                       >
                         {row.request_no}
@@ -255,7 +255,7 @@ export default async function RepairRequestsPage() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <Link
-                        href={`/repair-requests/detail?id=${row.id}`}
+                        href={`/repair-requests/detail?request_no=${row.request_no}`}
                         className="rounded-lg bg-black px-3 py-2 text-xs text-white hover:opacity-90"
                       >
                         詳細・編集
