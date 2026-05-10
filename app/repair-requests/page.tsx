@@ -14,6 +14,7 @@ type RepairRequestRow = {
   status: string;
   assigned_to: string | null;
   created_at: string;
+  agency_name: string | null;
 };
 
 const STATUS_OPTIONS = [
@@ -23,7 +24,7 @@ const STATUS_OPTIONS = [
   { value: "repair_arranging", label: "修理手配中" },
   { value: "visit_scheduling", label: "訪問日調整中" },
   { value: "completed", label: "修理完了" },
-  { value: "out_of_warranty", label: "" },
+  { value: "out_of_warranty", label: "対象外" },
   { value: "cancelled", label: "キャンセル" },
 ] as const;
 
@@ -81,7 +82,16 @@ function isActiveStatus(status: string) {
   return !["completed", "out_of_warranty", "cancelled"].includes(status);
 }
 
-export default async function RepairRequestsPage() {
+export default async function RepairRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    agency?: string;
+  }>;
+}) {
+  const params = await searchParams;
+  const selectedAgency = (params.agency || "").trim();
+
   let rows: RepairRequestRow[] = [];
   let errorMessage = "";
 
@@ -91,7 +101,7 @@ export default async function RepairRequestsPage() {
     const { data, error } = await supabase
       .from("repair_requests")
       .select(
-        "id, request_no, certificate_no, customer_name, phone, product_name, symptom_category, status, assigned_to, created_at"
+        "id, request_no, certificate_no, customer_name, phone, product_name, symptom_category, status, assigned_to, created_at, agency_name"
       )
       .order("created_at", { ascending: false });
 
@@ -105,12 +115,54 @@ export default async function RepairRequestsPage() {
       error instanceof Error ? error.message : "一覧取得に失敗しました";
   }
 
-  const activeRows = rows.filter((row) => isActiveStatus(row.status));
-  const completedRows = rows.filter((row) => row.status === "completed");
-  const closedRows = rows.filter((row) =>
+  const filteredRows = selectedAgency
+    ? rows.filter((row) => (row.agency_name || "未設定") === selectedAgency)
+    : rows;
+
+  const activeRows = filteredRows.filter((row) => isActiveStatus(row.status));
+  const completedRows = filteredRows.filter((row) => row.status === "completed");
+  const closedRows = filteredRows.filter((row) =>
     ["out_of_warranty", "cancelled"].includes(row.status)
   );
   const unassignedRows = activeRows.filter((row) => !row.assigned_to);
+
+  const agencyStatsMap = new Map<
+    string,
+    {
+      total: number;
+      active: number;
+      completed: number;
+      closed: number;
+    }
+  >();
+
+  for (const row of rows) {
+    const agencyName = row.agency_name || "未設定";
+
+    if (!agencyStatsMap.has(agencyName)) {
+      agencyStatsMap.set(agencyName, {
+        total: 0,
+        active: 0,
+        completed: 0,
+        closed: 0,
+      });
+    }
+
+    const stats = agencyStatsMap.get(agencyName)!;
+    stats.total += 1;
+
+    if (row.status === "completed") {
+      stats.completed += 1;
+    } else if (["out_of_warranty", "cancelled"].includes(row.status)) {
+      stats.closed += 1;
+    } else {
+      stats.active += 1;
+    }
+  }
+
+  const agencyStats = Array.from(agencyStatsMap.entries()).sort(
+    (a, b) => b[1].total - a[1].total
+  );
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
@@ -145,10 +197,30 @@ export default async function RepairRequestsPage() {
         </div>
       ) : null}
 
+      {selectedAgency ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-blue-800">
+              代理店で絞り込み中
+            </div>
+            <div className="mt-1 text-lg font-bold text-blue-900">
+              {selectedAgency}
+            </div>
+          </div>
+
+          <Link
+            href="/repair-requests"
+            className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm text-blue-700 hover:bg-blue-50"
+          >
+            絞り込み解除
+          </Link>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-5">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-gray-500">全受付</div>
-          <div className="mt-2 text-3xl font-bold">{rows.length}</div>
+          <div className="mt-2 text-3xl font-bold">{filteredRows.length}</div>
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -173,6 +245,56 @@ export default async function RepairRequestsPage() {
       </div>
 
       <div className="rounded-2xl border bg-white shadow-sm">
+        <div className="border-b px-5 py-4">
+          <h2 className="text-base font-semibold">代理店別修理統計</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            代理店名をクリックすると、その代理店の修理受付だけに絞り込めます。
+          </p>
+        </div>
+
+        {agencyStats.length === 0 ? (
+          <div className="p-6 text-sm text-gray-500">
+            データがありません。
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">代理店名</th>
+                  <th className="px-4 py-3 font-medium">全受付</th>
+                  <th className="px-4 py-3 font-medium">対応中</th>
+                  <th className="px-4 py-3 font-medium">修理完了</th>
+                  <th className="px-4 py-3 font-medium">対象外・キャンセル</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {agencyStats.map(([agencyName, stats]) => (
+                  <tr key={agencyName} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        href={`/repair-requests?agency=${encodeURIComponent(
+                          agencyName
+                        )}`}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {agencyName}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">{stats.total}</td>
+                    <td className="px-4 py-3">{stats.active}</td>
+                    <td className="px-4 py-3">{stats.completed}</td>
+                    <td className="px-4 py-3">{stats.closed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border bg-white shadow-sm">
         <div className="flex flex-col gap-2 border-b px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-base font-semibold">修理受付一覧</h2>
@@ -182,9 +304,9 @@ export default async function RepairRequestsPage() {
           </div>
         </div>
 
-        {rows.length === 0 ? (
+        {filteredRows.length === 0 ? (
           <div className="p-6 text-sm text-gray-500">
-            まだ修理受付はありません。
+            該当する修理受付はありません。
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -203,8 +325,9 @@ export default async function RepairRequestsPage() {
                   <th className="px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
+
               <tbody>
-                {rows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr key={row.id} className="border-t hover:bg-gray-50">
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
                       <Link
