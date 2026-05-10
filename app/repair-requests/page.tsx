@@ -164,6 +164,10 @@ export default async function RepairRequestsPage({
     (a, b) => b[1].total - a[1].total
   );
 
+  const csvHref = selectedAgency
+    ? `/api/repair-requests-csv?agency=${encodeURIComponent(selectedAgency)}`
+    : "/api/repair-requests-csv";
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -189,26 +193,13 @@ export default async function RepairRequestsPage({
           >
             保証書管理へ
           </Link>
+
           <a
-  href="/api/repair-requests/export"
-  className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-gray-50"
->
-  CSV出力
-</a>
-          <a
-  href={
-    selectedAgency
-      ? `/api/repair-requests-csv?agency=${encodeURIComponent(
-          selectedAgency
-        )}`
-      : "/api/repair-requests-csv"
-  }
-  className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
->
-  {selectedAgency
-    ? `${selectedAgency} CSV出力`
-    : "CSV出力"}
-</a>
+            href={csvHref}
+            className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+          >
+            {selectedAgency ? `${selectedAgency} CSV出力` : "CSV出力"}
+          </a>
         </div>
       </div>
 
