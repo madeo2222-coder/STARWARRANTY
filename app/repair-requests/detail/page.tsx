@@ -281,7 +281,9 @@ export default async function RepairRequestDetailPage({
     .order("created_at", { ascending: false });
 
   const histories = (historyRows || []) as RepairRequestHistory[];
-  const nextPath = `/repair-requests/detail?id=${request.id}`;
+  const nextPath = `/repair-requests/detail?request_no=${encodeURIComponent(
+  request.request_no
+)}`;
   const remainingPhotoCount = Math.max(0, MAX_FILES - attachments.length);
   const nextStatus = getNextStatus(request.status);
   const currentStatusIndex = STATUS_FLOW.findIndex((item) => item === request.status);
