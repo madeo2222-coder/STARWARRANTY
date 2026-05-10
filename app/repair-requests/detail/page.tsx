@@ -245,14 +245,26 @@ export default async function RepairRequestDetailPage({
   }
 
   if (fetchError || !data) {
-    return (
-      <div className="mx-auto max-w-4xl p-4 md:p-6">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          修理受付が見つかりませんでした
-        </div>
+  return (
+    <div className="mx-auto max-w-4xl p-4 md:p-6">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div>修理受付が見つかりませんでした</div>
+        <pre className="mt-4 whitespace-pre-wrap text-xs">
+          {JSON.stringify(
+            {
+              targetId,
+              targetRequestNo,
+              fetchError,
+              hasData: !!data,
+            },
+            null,
+            2
+          )}
+        </pre>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   const request = data;
 
