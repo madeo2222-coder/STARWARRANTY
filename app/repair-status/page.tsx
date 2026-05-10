@@ -2,6 +2,15 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+const BUCKET_NAME = "repair_request_attachments";
+
+type RepairRequestAttachment = {
+  id: string;
+  repair_request_id: string;
+  file_path: string;
+  signed_url?: string | null;
+};
+
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -222,6 +231,24 @@ export default async function Page({
     );
   }
 
+  const { data: attachmentRows } = await supabase
+    .from("repair_request_attachments")
+    .select("id, repair_request_id, file_path")
+    .eq("repair_request_id", data.id);
+
+  const attachments: RepairRequestAttachment[] = [];
+
+  for (const attachment of (attachmentRows || []) as RepairRequestAttachment[]) {
+    const { data: signedData } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(attachment.file_path, 60 * 60);
+
+    attachments.push({
+      ...attachment,
+      signed_url: signedData?.signedUrl || null,
+    });
+  }
+
   const step = getStep(data.status);
   const isStopped =
     data.status === "out_of_warranty" || data.status === "cancelled";
@@ -315,6 +342,40 @@ export default async function Page({
             </div>
           </section>
         )}
+
+        {attachments.length > 0 ? (
+          <section className="rounded-2xl bg-white p-6 shadow-sm">
+            <h2 className="text-sm font-bold text-gray-900">添付写真</h2>
+            <p className="mt-2 text-xs leading-5 text-gray-500">
+              受付時または対応中に登録された写真です。
+            </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {attachments.map((photo, index) => (
+                <a
+                  key={photo.id}
+                  href={photo.signed_url || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block overflow-hidden rounded-xl border bg-gray-100"
+                >
+                  {photo.signed_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photo.signed_url}
+                      alt={`修理受付写真 ${index + 1}`}
+                      className="h-36 w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-36 items-center justify-center text-xs text-gray-400">
+                      写真を表示できません
+                    </div>
+                  )}
+                </a>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   );
