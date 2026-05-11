@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
-import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
 import WarrantyInvoiceSendForm from "./WarrantyInvoiceSendForm";
+import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +14,6 @@ type WarrantyInvoice = {
   subject: string | null;
   bill_to_company_name: string | null;
   bill_to_name: string | null;
-  bill_to_postal_code: string | null;
-  bill_to_address: string | null;
   subtotal: number | null;
   tax_rate: number | null;
   tax_amount: number | null;
@@ -104,7 +102,7 @@ export default async function WarrantyInvoiceDetailPage({
   const { data: invoice, error: invoiceError } = await supabase
     .from("warranty_invoices")
     .select(
-      "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, bill_to_postal_code, bill_to_address, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at"
+      "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at"
     )
     .eq("id", params.id)
     .single();
@@ -141,6 +139,13 @@ export default async function WarrantyInvoiceDetailPage({
             className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
           >
             請求書一覧へ戻る
+          </Link>
+
+          <Link
+            href={`/warranty-invoices/${invoiceData.id}/edit`}
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            編集
           </Link>
 
           <form
@@ -213,10 +218,14 @@ export default async function WarrantyInvoiceDetailPage({
         invoiceId={invoiceData.id}
         currentStatus={invoiceData.status}
       />
-<WarrantyInvoiceSendForm
-  invoiceId={invoiceData.id}
-  defaultSubject={`【株式会社スター・ワランティ】請求書送付のご案内 (${invoiceData.invoice_no || ""})`}
-/>
+
+      <WarrantyInvoiceSendForm
+        invoiceId={invoiceData.id}
+        defaultSubject={`【株式会社スター・ワランティ】請求書送付のご案内 (${
+          invoiceData.invoice_no || ""
+        })`}
+      />
+
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold">宛先情報</h2>
@@ -233,20 +242,6 @@ export default async function WarrantyInvoiceDetailPage({
               <p className="text-gray-500">担当者名</p>
               <p className="mt-1 font-medium">
                 {invoiceData.bill_to_name || "-"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-gray-500">郵便番号</p>
-              <p className="mt-1 font-medium">
-                {invoiceData.bill_to_postal_code || "-"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-gray-500">住所</p>
-              <p className="mt-1 font-medium">
-                {invoiceData.bill_to_address || "-"}
               </p>
             </div>
           </div>
