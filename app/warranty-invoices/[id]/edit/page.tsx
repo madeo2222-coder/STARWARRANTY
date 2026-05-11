@@ -5,6 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+type InvoiceItem = {
+  item_name: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+};
+
 const STATUS_OPTIONS = [
   {
     value: "draft",
@@ -28,6 +35,10 @@ const STATUS_OPTIONS = [
   },
 ];
 
+function formatYen(value: number) {
+  return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
+}
+
 export default function EditWarrantyInvoicePage() {
   const params = useParams();
   const router = useRouter();
@@ -45,10 +56,25 @@ export default function EditWarrantyInvoicePage() {
   const [invoiceDate, setInvoiceDate] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
   const [subject, setSubject] = useState("");
-  const [billToCompanyName, setBillToCompanyName] = useState("");
+  const [billToCompanyName, setBillToCompanyName] =
+    useState("");
   const [billToName, setBillToName] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState("draft");
+
+  const [items, setItems] = useState<InvoiceItem[]>([]);
+
+  const subtotal = items.reduce(
+    (sum, item) =>
+      sum +
+      Number(item.quantity || 0) *
+        Number(item.unit_price || 0),
+    0
+  );
+
+  const taxAmount = Math.floor(subtotal * 0.1);
+
+  const totalAmount = subtotal + taxAmount;
 
   useEffect(() => {
     async function fetchInvoice() {
@@ -80,6 +106,26 @@ export default function EditWarrantyInvoicePage() {
           );
         }
 
+        const { data: itemData, error: itemError } =
+          await supabase
+            .from("warranty_invoice_items")
+            .select(
+              `
+                item_name,
+                description,
+                quantity,
+                unit_price
+              `
+            )
+            .eq("invoice_id", invoiceId)
+            .order("sort_order", {
+              ascending: true,
+            });
+
+        if (itemError) {
+          throw new Error(itemError.message);
+        }
+
         setInvoiceNo(data.invoice_no || "");
         setInvoiceDate(data.invoice_date || "");
         setPaymentDueDate(data.payment_due_date || "");
@@ -90,6 +136,15 @@ export default function EditWarrantyInvoicePage() {
         setBillToName(data.bill_to_name || "");
         setNote(data.note || "");
         setStatus(data.status || "draft");
+
+        setItems(
+          (itemData || []).map((item) => ({
+            item_name: item.item_name || "",
+            description: item.description || "",
+            quantity: Number(item.quantity || 0),
+            unit_price: Number(item.unit_price || 0),
+          }))
+        );
       } catch (error) {
         setErrorMessage(
           error instanceof Error
@@ -105,6 +160,47 @@ export default function EditWarrantyInvoicePage() {
       fetchInvoice();
     }
   }, [invoiceId, supabase]);
+
+  function updateItem(
+    index: number,
+    field: keyof InvoiceItem,
+    value: string | number
+  ) {
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              [field]:
+                field === "quantity" ||
+                field === "unit_price"
+                  ? Number(value || 0)
+                  : value,
+            }
+          : item
+      )
+    );
+  }
+
+  function addItem() {
+    setItems((current) => [
+      ...current,
+      {
+        item_name: "",
+        description: "",
+        quantity: 1,
+        unit_price: 0,
+      },
+    ]);
+  }
+
+  function removeItem(index: number) {
+    setItems((current) =>
+      current.filter(
+        (_, itemIndex) => itemIndex !== index
+      )
+    );
+  }
 
   async function handleSubmit(
     e: React.FormEvent<HTMLFormElement>
@@ -127,10 +223,12 @@ export default function EditWarrantyInvoicePage() {
             invoice_date: invoiceDate,
             payment_due_date: paymentDueDate,
             subject,
-            bill_to_company_name: billToCompanyName,
+            bill_to_company_name:
+              billToCompanyName,
             bill_to_name: billToName,
             note,
             status,
+            items,
           }),
         }
       );
@@ -143,7 +241,10 @@ export default function EditWarrantyInvoicePage() {
         );
       }
 
-      router.push(`/warranty-invoices/${invoiceId}`);
+      router.push(
+        `/warranty-invoices/${invoiceId}`
+      );
+
       router.refresh();
     } catch (error) {
       setErrorMessage(
@@ -165,7 +266,7 @@ export default function EditWarrantyInvoicePage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm text-gray-500">
@@ -333,6 +434,173 @@ export default function EditWarrantyInvoicePage() {
                 }
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">
+                請求明細
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                明細を編集できます。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={addItem}
+              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+            >
+              明細追加
+            </button>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {items.map((item, index) => {
+              const amount =
+                Number(item.quantity || 0) *
+                Number(item.unit_price || 0);
+
+              return (
+                <div
+                  key={index}
+                  className="rounded-xl border p-4"
+                >
+                  <div className="grid gap-4 md:grid-cols-[1.5fr_1fr_100px_140px_140px_auto]">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        明細名
+                      </label>
+
+                      <input
+                        type="text"
+                        value={item.item_name}
+                        onChange={(e) =>
+                          updateItem(
+                            index,
+                            "item_name",
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-lg border px-3 py-2 outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        説明
+                      </label>
+
+                      <input
+                        type="text"
+                        value={item.description}
+                        onChange={(e) =>
+                          updateItem(
+                            index,
+                            "description",
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-lg border px-3 py-2 outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        数量
+                      </label>
+
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.quantity}
+                        onChange={(e) =>
+                          updateItem(
+                            index,
+                            "quantity",
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-lg border px-3 py-2 outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        単価
+                      </label>
+
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.unit_price}
+                        onChange={(e) =>
+                          updateItem(
+                            index,
+                            "unit_price",
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-lg border px-3 py-2 outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        金額
+                      </label>
+
+                      <div className="rounded-lg border bg-gray-50 px-3 py-2 font-semibold">
+                        {formatYen(amount)}
+                      </div>
+                    </div>
+
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          removeItem(index)
+                        }
+                        disabled={
+                          items.length === 1
+                        }
+                        className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-5 flex justify-end">
+            <div className="w-full max-w-sm space-y-2 rounded-xl border bg-gray-50 p-4">
+              <div className="flex justify-between text-sm">
+                <span>小計</span>
+                <span>
+                  {formatYen(subtotal)}
+                </span>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span>消費税 10%</span>
+                <span>
+                  {formatYen(taxAmount)}
+                </span>
+              </div>
+
+              <div className="flex justify-between border-t pt-2 text-lg font-bold">
+                <span>合計</span>
+                <span>
+                  {formatYen(totalAmount)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
