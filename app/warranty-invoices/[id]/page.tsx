@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
 
 export const dynamic = "force-dynamic";
 
@@ -141,24 +142,20 @@ export default async function WarrantyInvoiceDetailPage({
             請求書一覧へ戻る
           </Link>
 
-         <form
-  action="/api/generate-warranty-invoice-pdf"
-  method="POST"
-  target="_blank"
->
-  <input
-    type="hidden"
-    name="invoice_id"
-    value={invoiceData.id}
-  />
+          <form
+            action="/api/generate-warranty-invoice-pdf"
+            method="POST"
+            target="_blank"
+          >
+            <input type="hidden" name="invoice_id" value={invoiceData.id} />
 
-  <button
-    type="submit"
-    className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
-  >
-    PDF発行
-  </button>
-</form>
+            <button
+              type="submit"
+              className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+            >
+              PDF発行
+            </button>
+          </form>
         </div>
       </div>
 
@@ -210,6 +207,11 @@ export default async function WarrantyInvoiceDetailPage({
           </p>
         </div>
       </div>
+
+      <WarrantyInvoiceStatusForm
+        invoiceId={invoiceData.id}
+        currentStatus={invoiceData.status}
+      />
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
