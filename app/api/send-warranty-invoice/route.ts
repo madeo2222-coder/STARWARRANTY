@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { createClient } from "@supabase/supabase-js";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -10,9 +11,22 @@ type SendWarrantyInvoiceBody = {
   subject?: string;
 };
 
-function buildEmailHtml(params: {
-  subject: string;
-}) {
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
+  }
+
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey);
+}
+
+function buildEmailHtml(params: { subject: string }) {
   return `
 <!doctype html>
 <html lang="ja">
@@ -27,7 +41,6 @@ function buildEmailHtml(params: {
       <tr>
         <td align="center">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:640px; width:100%; background:#ffffff; border:1px solid #e5e7eb; border-radius:16px; overflow:hidden;">
-
             <tr>
               <td style="padding:24px; background:#111827;">
                 <div style="font-size:22px; line-height:1.4; font-weight:700; color:#ffffff;">
@@ -49,7 +62,6 @@ function buildEmailHtml(params: {
                 </div>
               </td>
             </tr>
-
           </table>
         </td>
       </tr>
@@ -63,9 +75,7 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as SendWarrantyInvoiceBody;
 
-    const invoiceId =
-      body.invoice_id?.trim() || body.invoiceId?.trim();
-
+    const invoiceId = body.invoice_id?.trim() || body.invoiceId?.trim();
     const toEmail = body.to_email?.trim();
 
     const subject =
@@ -87,28 +97,22 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_SITE_URL ||
       new URL(req.url).origin;
 
-    const pdfRes = await fetch(
-      `${origin}/api/generate-warranty-invoice-pdf`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: req.headers.get("cookie") || "",
-        },
-        body: JSON.stringify({
-          invoice_id: invoiceId,
-        }),
-        cache: "no-store",
-      }
-    );
+    const pdfRes = await fetch(`${origin}/api/generate-warranty-invoice-pdf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: req.headers.get("cookie") || "",
+      },
+      body: JSON.stringify({
+        invoice_id: invoiceId,
+      }),
+      cache: "no-store",
+    });
 
     if (!pdfRes.ok) {
       const errorText = await pdfRes.text();
 
-      console.error(
-        "generate-warranty-invoice-pdf failed:",
-        errorText
-      );
+      console.error("generate-warranty-invoice-pdf failed:", errorText);
 
       return NextResponse.json(
         {
@@ -120,10 +124,7 @@ export async function POST(req: Request) {
     }
 
     const pdfArrayBuffer = await pdfRes.arrayBuffer();
-
-    const pdfBase64 = Buffer.from(pdfArrayBuffer).toString(
-      "base64"
-    );
+    const pdfBase64 = Buffer.from(pdfArrayBuffer).toString("base64");
 
     const html = buildEmailHtml({
       subject,
@@ -152,6 +153,21 @@ export async function POST(req: Request) {
         },
         { status: 500 }
       );
+    }
+
+    const supabase = getAdminClient();
+
+    const { error: logError } = await supabase
+      .from("warranty_invoice_send_logs")
+      .insert({
+        invoice_id: invoiceId,
+        to_email: toEmail,
+        subject,
+        sent_at: new Date().toISOString(),
+      });
+
+    if (logError) {
+      console.error("warranty_invoice_send_logs insert error:", logError);
     }
 
     return NextResponse.json({
