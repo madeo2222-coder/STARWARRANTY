@@ -137,13 +137,12 @@ export default async function WarrantyInvoicesPage() {
             ホームへ
           </Link>
 
-          <button
-            type="button"
-            disabled
-            className="rounded-lg bg-gray-300 px-4 py-2 text-sm text-white"
+          <Link
+            href="/warranty-invoices/new"
+            className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
           >
-            新規作成 準備中
-          </button>
+            新規作成
+          </Link>
         </div>
       </div>
 
@@ -187,7 +186,7 @@ export default async function WarrantyInvoicesPage() {
 
         {invoices.length === 0 ? (
           <div className="p-6 text-sm text-gray-500">
-            まだ請求書データはありません。次の実装で新規作成画面を追加します。
+            まだ請求書データはありません。右上の新規作成から請求書を作成できます。
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -274,9 +273,9 @@ export default async function WarrantyInvoicesPage() {
 
         <div className="grid gap-4 p-5 md:grid-cols-2">
           <div className="rounded-xl border p-4">
-            <h3 className="font-semibold">新規請求書作成</h3>
+            <h3 className="font-semibold">作成済み請求書の詳細表示</h3>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              宛先・件名・明細・支払期限を入力して請求書を作成します。
+              請求書一覧から詳細画面へ移動し、明細・宛先・発行元情報を確認できるようにします。
             </p>
           </div>
 
