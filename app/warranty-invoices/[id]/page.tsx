@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
+import WarrantyInvoiceSendForm from "./WarrantyInvoiceSendForm";
 
 export const dynamic = "force-dynamic";
 
@@ -212,7 +213,10 @@ export default async function WarrantyInvoiceDetailPage({
         invoiceId={invoiceData.id}
         currentStatus={invoiceData.status}
       />
-
+<WarrantyInvoiceSendForm
+  invoiceId={invoiceData.id}
+  defaultSubject={`【株式会社スター・ワランティ】請求書送付のご案内 (${invoiceData.invoice_no || ""})`}
+/>
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold">宛先情報</h2>
