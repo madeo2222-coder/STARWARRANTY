@@ -141,13 +141,24 @@ export default async function WarrantyInvoiceDetailPage({
             請求書一覧へ戻る
           </Link>
 
-          <button
-            type="button"
-            disabled
-            className="rounded-lg bg-gray-300 px-4 py-2 text-sm text-white"
-          >
-            PDF発行 準備中
-          </button>
+         <form
+  action="/api/generate-warranty-invoice-pdf"
+  method="POST"
+  target="_blank"
+>
+  <input
+    type="hidden"
+    name="invoice_id"
+    value={invoiceData.id}
+  />
+
+  <button
+    type="submit"
+    className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+  >
+    PDF発行
+  </button>
+</form>
         </div>
       </div>
 

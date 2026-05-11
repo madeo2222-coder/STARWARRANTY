@@ -127,21 +127,19 @@ export default function NewWarrantyInvoicePage() {
       const { data: invoice, error: invoiceError } = await supabase
         .from("warranty_invoices")
         .insert({
-          invoice_no: invoiceNo,
-          invoice_date: invoiceDate || null,
-          payment_due_date: paymentDueDate || null,
-          subject: subject.trim() || null,
-          bill_to_company_name: billToCompanyName.trim() || null,
-          bill_to_name: billToName.trim() || null,
-          bill_to_postal_code: billToPostalCode.trim() || null,
-          bill_to_address: billToAddress.trim() || null,
-          subtotal,
-          tax_rate: taxRate,
-          tax_amount: taxAmount,
-          total_amount: totalAmount,
-          status: "draft",
-          note: note.trim() || null,
-        })
+  invoice_no: invoiceNo,
+  invoice_date: invoiceDate || null,
+  payment_due_date: paymentDueDate || null,
+  subject: subject.trim() || null,
+  bill_to_company_name: billToCompanyName.trim() || null,
+  bill_to_name: billToName.trim() || null,
+  subtotal,
+  tax_rate: taxRate,
+  tax_amount: taxAmount,
+  total_amount: totalAmount,
+  status: "draft",
+  note: note.trim() || null,
+})
         .select("id")
         .single();
 
