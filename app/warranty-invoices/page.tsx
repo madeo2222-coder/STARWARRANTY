@@ -246,13 +246,12 @@ export default async function WarrantyInvoicesPage() {
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3">
-                        <button
-                          type="button"
-                          disabled
-                          className="rounded-lg border px-3 py-2 text-xs text-gray-400"
+                        <Link
+                          href={`/warranty-invoices/${invoice.id}`}
+                          className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
                         >
-                          詳細 準備中
-                        </button>
+                          詳細を見る
+                        </Link>
                       </td>
                     </tr>
                   );
@@ -273,16 +272,16 @@ export default async function WarrantyInvoicesPage() {
 
         <div className="grid gap-4 p-5 md:grid-cols-2">
           <div className="rounded-xl border p-4">
-            <h3 className="font-semibold">作成済み請求書の詳細表示</h3>
+            <h3 className="font-semibold">PDF発行</h3>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              請求書一覧から詳細画面へ移動し、明細・宛先・発行元情報を確認できるようにします。
+              登録済み請求書をPDFとして出力できるようにします。
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
-            <h3 className="font-semibold">PDF発行</h3>
+            <h3 className="font-semibold">入金ステータス変更</h3>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              登録済み請求書をPDFとして出力できるようにします。
+              未入金・入金済み・取消などの状態を管理できるようにします。
             </p>
           </div>
         </div>
