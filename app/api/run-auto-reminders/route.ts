@@ -18,6 +18,14 @@ type InvoiceRow = {
   status: string | null;
 };
 
+type RunResult = {
+  invoice_id: string;
+  invoice_no: string | null;
+  status: "skipped" | "sent" | "failed";
+  reason?: string;
+  to_email?: string;
+};
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -93,7 +101,7 @@ function getOverdueDays(paymentDueDate: string | null) {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-export async function POST(req: Request) {
+async function runAutoReminders(req: Request) {
   try {
     const supabase = getAdminClient();
 
@@ -134,13 +142,7 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_SITE_URL ||
       new URL(req.url).origin;
 
-    const results: {
-      invoice_id: string;
-      invoice_no: string | null;
-      status: "skipped" | "sent" | "failed";
-      reason?: string;
-      to_email?: string;
-    }[] = [];
+    const results: RunResult[] = [];
 
     for (const invoice of overdueInvoices) {
       const overdueDays = getOverdueDays(invoice.payment_due_date);
@@ -286,4 +288,12 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: Request) {
+  return runAutoReminders(req);
+}
+
+export async function POST(req: Request) {
+  return runAutoReminders(req);
 }
