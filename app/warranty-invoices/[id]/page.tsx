@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import WarrantyInvoiceSendForm from "./WarrantyInvoiceSendForm";
 import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
+import WarrantyInvoiceCopyButton from "./WarrantyInvoiceCopyButton";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,13 @@ type WarrantyInvoiceItem = {
   amount: number | null;
   sort_order: number | null;
   created_at: string | null;
+};
+
+type WarrantyInvoiceSendLog = {
+  id: string;
+  to_email: string | null;
+  subject: string | null;
+  sent_at: string | null;
 };
 
 function getAdminClient() {
@@ -119,8 +127,28 @@ export default async function WarrantyInvoiceDetailPage({
     .eq("invoice_id", params.id)
     .order("sort_order", { ascending: true });
 
+const { data: sendLogs } = await supabase
+  .from("warranty_invoice_send_logs")
+  .select(
+    `
+      id,
+      to_email,
+      subject,
+      sent_at
+    `
+  )
+  .eq("invoice_id", params.id)
+  .order("sent_at", {
+    ascending: false,
+  });
+
   const invoiceData = invoice as WarrantyInvoice;
-  const itemRows = (items || []) as WarrantyInvoiceItem[];
+
+const itemRows =
+  (items || []) as WarrantyInvoiceItem[];
+
+const sendLogRows =
+  (sendLogs || []) as WarrantyInvoiceSendLog[];
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -147,7 +175,18 @@ export default async function WarrantyInvoiceDetailPage({
           >
             編集
           </Link>
+          <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
+          
+<form action="/api/warranty-invoice-copy" method="POST">
+  <input type="hidden" name="invoice_id" value={invoiceData.id} />
 
+  <button
+    type="submit"
+    className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+  >
+    コピー作成
+  </button>
+</form>
           <form
             action="/api/generate-warranty-invoice-pdf"
             method="POST"
@@ -331,7 +370,58 @@ export default async function WarrantyInvoiceDetailPage({
           </div>
         )}
       </div>
+<div className="rounded-2xl border bg-white p-5 shadow-sm">
+  <h2 className="text-base font-semibold">
+    メール送信履歴
+  </h2>
 
+  {sendLogRows.length === 0 ? (
+    <p className="mt-3 text-sm text-gray-500">
+      送信履歴はありません。
+    </p>
+  ) : (
+    <div className="mt-4 overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-left">
+          <tr>
+            <th className="px-4 py-3 font-medium">
+              送信日時
+            </th>
+
+            <th className="px-4 py-3 font-medium">
+              送信先
+            </th>
+
+            <th className="px-4 py-3 font-medium">
+              件名
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {sendLogRows.map((log) => (
+            <tr
+              key={log.id}
+              className="border-t"
+            >
+              <td className="whitespace-nowrap px-4 py-3">
+                {formatDate(log.sent_at)}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {log.to_email || "-"}
+              </td>
+
+              <td className="px-4 py-3">
+                {log.subject || "-"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
       <div className="rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold">備考</h2>
         <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-700">
