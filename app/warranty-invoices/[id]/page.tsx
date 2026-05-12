@@ -43,6 +43,7 @@ type WarrantyInvoiceSendLog = {
   to_email: string | null;
   subject: string | null;
   sent_at: string | null;
+  send_type?: string | null;
 };
 
 function getAdminClient() {
@@ -136,7 +137,8 @@ const { data: sendLogs } = await supabase
       id,
       to_email,
       subject,
-      sent_at
+sent_at,
+send_type
     `
   )
   .eq("invoice_id", params.id)
@@ -396,7 +398,9 @@ const sendLogRows =
             <th className="px-4 py-3 font-medium">
               送信先
             </th>
-
+<th className="px-4 py-3 font-medium">
+  種別
+</th>
             <th className="px-4 py-3 font-medium">
               件名
             </th>
@@ -416,7 +420,17 @@ const sendLogRows =
               <td className="whitespace-nowrap px-4 py-3">
                 {log.to_email || "-"}
               </td>
-
+<td className="whitespace-nowrap px-4 py-3">
+  {log.send_type === "reminder" ? (
+    <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+      督促
+    </span>
+  ) : (
+    <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+      通常
+    </span>
+  )}
+</td>
               <td className="px-4 py-3">
                 {log.subject || "-"}
               </td>

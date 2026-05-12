@@ -160,11 +160,12 @@ export async function POST(req: Request) {
     const { error: logError } = await supabase
       .from("warranty_invoice_send_logs")
       .insert({
-        invoice_id: invoiceId,
-        to_email: toEmail,
-        subject,
-        sent_at: new Date().toISOString(),
-      });
+  invoice_id: invoiceId,
+  to_email: toEmail,
+  subject,
+  send_type: "reminder",
+  sent_at: new Date().toISOString(),
+});
 
     if (logError) {
       console.error("warranty_invoice_send_logs insert error:", logError);
