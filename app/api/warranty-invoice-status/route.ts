@@ -48,14 +48,26 @@ export async function POST(req: Request) {
       );
     }
 
+    const now = new Date().toISOString();
+
+    const updateValues =
+      status === "paid"
+        ? {
+            status,
+            paid_at: now,
+            updated_at: now,
+          }
+        : {
+            status,
+            paid_at: null,
+            updated_at: now,
+          };
+
     const supabase = getAdminClient();
 
     const { error } = await supabase
       .from("warranty_invoices")
-      .update({
-        status,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateValues)
       .eq("id", invoiceId);
 
     if (error) {

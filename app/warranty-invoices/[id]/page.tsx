@@ -22,6 +22,7 @@ type WarrantyInvoice = {
   status: string | null;
   note: string | null;
   created_at: string | null;
+paid_at: string | null;
 };
 
 type WarrantyInvoiceItem = {
@@ -110,7 +111,7 @@ export default async function WarrantyInvoiceDetailPage({
   const { data: invoice, error: invoiceError } = await supabase
     .from("warranty_invoices")
     .select(
-      "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at"
+      "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at, paid_at"
     )
     .eq("id", params.id)
     .single();
@@ -176,17 +177,8 @@ const sendLogRows =
             編集
           </Link>
           <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
-          
-<form action="/api/warranty-invoice-copy" method="POST">
-  <input type="hidden" name="invoice_id" value={invoiceData.id} />
 
-  <button
-    type="submit"
-    className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
-  >
-    コピー作成
-  </button>
-</form>
+
           <form
             action="/api/generate-warranty-invoice-pdf"
             method="POST"
@@ -222,7 +214,7 @@ const sendLogRows =
           </span>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <div className="mt-5 grid gap-4 md:grid-cols-4">
           <div className="rounded-xl border bg-gray-50 p-4">
             <p className="text-sm text-gray-500">請求日</p>
             <p className="mt-1 font-semibold">
@@ -239,12 +231,19 @@ const sendLogRows =
 
           <div className="rounded-xl border bg-gray-50 p-4">
             <p className="text-sm text-gray-500">請求額</p>
+            
             <p className="mt-1 font-semibold">
               {formatYen(invoiceData.total_amount)}
             </p>
           </div>
         </div>
+<div className="rounded-xl border bg-gray-50 p-4">
+  <p className="text-sm text-gray-500">入金日</p>
 
+  <p className="mt-1 font-semibold">
+    {formatDate(invoiceData.paid_at)}
+  </p>
+</div>
         <div className="mt-5">
           <p className="text-sm text-gray-500">件名</p>
           <p className="mt-1 text-lg font-semibold">
