@@ -110,7 +110,18 @@ export default async function WarrantyInvoicesPage() {
   const currentMonthTotal = invoices
     .filter((invoice) => (invoice.invoice_date || "").startsWith(currentMonth))
     .reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
+const unpaidTotal = unpaidInvoices.reduce(
+  (sum, invoice) => sum + Number(invoice.total_amount || 0),
+  0
+);
 
+const overdueInvoices = unpaidInvoices.filter((invoice) => {
+  if (!invoice.payment_due_date) return false;
+
+  const dueDate = new Date(invoice.payment_due_date);
+
+  return dueDate.getTime() < now.getTime();
+});
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -136,7 +147,12 @@ export default async function WarrantyInvoicesPage() {
           >
             ホームへ
           </Link>
-
+<Link
+  href="/api/warranty-invoices-csv"
+  className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+>
+  CSV出力
+</Link>
           <Link
             href="/warranty-invoices/new"
             className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
@@ -152,7 +168,7 @@ export default async function WarrantyInvoicesPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-6">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-gray-500">全請求書</div>
           <div className="mt-2 text-3xl font-bold">{invoices.length}</div>
@@ -175,7 +191,21 @@ export default async function WarrantyInvoicesPage() {
           </div>
         </div>
       </div>
+<div className="rounded-2xl border bg-white p-5 shadow-sm">
+  <div className="text-sm text-gray-500">未入金合計</div>
 
+  <div className="mt-2 text-2xl font-bold text-red-600">
+    {formatYen(unpaidTotal)}
+  </div>
+</div>
+
+<div className="rounded-2xl border bg-white p-5 shadow-sm">
+  <div className="text-sm text-gray-500">期限超過</div>
+
+  <div className="mt-2 text-3xl font-bold text-red-600">
+    {overdueInvoices.length}
+  </div>
+</div>
       <div className="rounded-2xl border bg-white shadow-sm">
         <div className="border-b px-5 py-4">
           <h2 className="text-base font-semibold">請求書一覧</h2>
@@ -244,7 +274,11 @@ export default async function WarrantyInvoicesPage() {
                           {statusLabel(invoice.status)}
                         </span>
                       </td>
-
+{overdueInvoices.some((item) => item.id === invoice.id) ? (
+  <span className="ml-2 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">
+    期限超過
+  </span>
+) : null}
                       <td className="whitespace-nowrap px-4 py-3">
                         <Link
                           href={`/warranty-invoices/${invoice.id}`}
