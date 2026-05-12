@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import WarrantyInvoiceSendForm from "./WarrantyInvoiceSendForm";
 import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
 import WarrantyInvoiceCopyButton from "./WarrantyInvoiceCopyButton";
+import WarrantyInvoiceReminderForm from "./WarrantyInvoiceReminderForm";
 
 export const dynamic = "force-dynamic";
 
@@ -263,7 +264,12 @@ const sendLogRows =
           invoiceData.invoice_no || ""
         })`}
       />
-
+<WarrantyInvoiceReminderForm
+  invoiceId={invoiceData.id}
+  defaultSubject={`【株式会社スター・ワランティ】請求書ご確認のお願い (${
+    invoiceData.invoice_no || ""
+  })`}
+/>
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold">宛先情報</h2>
