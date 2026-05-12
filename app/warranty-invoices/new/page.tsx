@@ -49,6 +49,7 @@ export default function NewWarrantyInvoicePage() {
   const [subject, setSubject] = useState("保証関連費用のご請求");
   const [billToCompanyName, setBillToCompanyName] = useState("");
   const [billToName, setBillToName] = useState("");
+  const [billToEmail, setBillToEmail] = useState("");
   const [billToPostalCode, setBillToPostalCode] = useState("");
   const [billToAddress, setBillToAddress] = useState("");
   const [note, setNote] = useState("");
@@ -127,19 +128,20 @@ export default function NewWarrantyInvoicePage() {
       const { data: invoice, error: invoiceError } = await supabase
         .from("warranty_invoices")
         .insert({
-  invoice_no: invoiceNo,
-  invoice_date: invoiceDate || null,
-  payment_due_date: paymentDueDate || null,
-  subject: subject.trim() || null,
-  bill_to_company_name: billToCompanyName.trim() || null,
-  bill_to_name: billToName.trim() || null,
-  subtotal,
-  tax_rate: taxRate,
-  tax_amount: taxAmount,
-  total_amount: totalAmount,
-  status: "draft",
-  note: note.trim() || null,
-})
+          invoice_no: invoiceNo,
+          invoice_date: invoiceDate || null,
+          payment_due_date: paymentDueDate || null,
+          subject: subject.trim() || null,
+          bill_to_company_name: billToCompanyName.trim() || null,
+          bill_to_name: billToName.trim() || null,
+          bill_to_email: billToEmail.trim() || null,
+          subtotal,
+          tax_rate: taxRate,
+          tax_amount: taxAmount,
+          total_amount: totalAmount,
+          status: "draft",
+          note: note.trim() || null,
+        })
         .select("id")
         .single();
 
@@ -272,6 +274,20 @@ export default function NewWarrantyInvoicePage() {
                 className="w-full rounded-lg border px-3 py-2 outline-none"
                 placeholder="山田 太郎"
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">請求先メールアドレス</label>
+              <input
+                type="email"
+                value={billToEmail}
+                onChange={(e) => setBillToEmail(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+                placeholder="example@example.com"
+              />
+              <p className="text-xs text-gray-500">
+                請求書送信・督促メール送信に使用します。
+              </p>
             </div>
 
             <div className="space-y-2">
