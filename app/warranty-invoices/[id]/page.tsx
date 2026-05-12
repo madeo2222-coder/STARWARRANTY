@@ -16,6 +16,7 @@ type WarrantyInvoice = {
   subject: string | null;
   bill_to_company_name: string | null;
   bill_to_name: string | null;
+  bill_to_email: string | null;
   subtotal: number | null;
   tax_rate: number | null;
   tax_amount: number | null;
@@ -23,7 +24,7 @@ type WarrantyInvoice = {
   status: string | null;
   note: string | null;
   created_at: string | null;
-paid_at: string | null;
+  paid_at: string | null;
 };
 
 type WarrantyInvoiceItem = {
@@ -113,7 +114,7 @@ export default async function WarrantyInvoiceDetailPage({
   const { data: invoice, error: invoiceError } = await supabase
     .from("warranty_invoices")
     .select(
-      "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at, paid_at"
+      "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, bill_to_email, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at, paid_at"
     )
     .eq("id", params.id)
     .single();
@@ -130,29 +131,17 @@ export default async function WarrantyInvoiceDetailPage({
     .eq("invoice_id", params.id)
     .order("sort_order", { ascending: true });
 
-const { data: sendLogs } = await supabase
-  .from("warranty_invoice_send_logs")
-  .select(
-    `
-      id,
-      to_email,
-      subject,
-sent_at,
-send_type
-    `
-  )
-  .eq("invoice_id", params.id)
-  .order("sent_at", {
-    ascending: false,
-  });
+  const { data: sendLogs } = await supabase
+    .from("warranty_invoice_send_logs")
+    .select("id, to_email, subject, sent_at, send_type")
+    .eq("invoice_id", params.id)
+    .order("sent_at", {
+      ascending: false,
+    });
 
   const invoiceData = invoice as WarrantyInvoice;
-
-const itemRows =
-  (items || []) as WarrantyInvoiceItem[];
-
-const sendLogRows =
-  (sendLogs || []) as WarrantyInvoiceSendLog[];
+  const itemRows = (items || []) as WarrantyInvoiceItem[];
+  const sendLogRows = (sendLogs || []) as WarrantyInvoiceSendLog[];
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -179,8 +168,8 @@ const sendLogRows =
           >
             編集
           </Link>
-          <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
 
+          <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
 
           <form
             action="/api/generate-warranty-invoice-pdf"
@@ -234,19 +223,19 @@ const sendLogRows =
 
           <div className="rounded-xl border bg-gray-50 p-4">
             <p className="text-sm text-gray-500">請求額</p>
-            
             <p className="mt-1 font-semibold">
               {formatYen(invoiceData.total_amount)}
             </p>
           </div>
-        </div>
-<div className="rounded-xl border bg-gray-50 p-4">
-  <p className="text-sm text-gray-500">入金日</p>
 
-  <p className="mt-1 font-semibold">
-    {formatDate(invoiceData.paid_at)}
-  </p>
-</div>
+          <div className="rounded-xl border bg-gray-50 p-4">
+            <p className="text-sm text-gray-500">入金日</p>
+            <p className="mt-1 font-semibold">
+              {formatDate(invoiceData.paid_at)}
+            </p>
+          </div>
+        </div>
+
         <div className="mt-5">
           <p className="text-sm text-gray-500">件名</p>
           <p className="mt-1 text-lg font-semibold">
@@ -266,12 +255,14 @@ const sendLogRows =
           invoiceData.invoice_no || ""
         })`}
       />
-<WarrantyInvoiceReminderForm
-  invoiceId={invoiceData.id}
-  defaultSubject={`【株式会社スター・ワランティ】請求書ご確認のお願い (${
-    invoiceData.invoice_no || ""
-  })`}
-/>
+
+      <WarrantyInvoiceReminderForm
+        invoiceId={invoiceData.id}
+        defaultSubject={`【株式会社スター・ワランティ】請求書ご確認のお願い (${
+          invoiceData.invoice_no || ""
+        })`}
+      />
+
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold">宛先情報</h2>
@@ -288,6 +279,13 @@ const sendLogRows =
               <p className="text-gray-500">担当者名</p>
               <p className="mt-1 font-medium">
                 {invoiceData.bill_to_name || "-"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-gray-500">請求先メールアドレス</p>
+              <p className="mt-1 font-medium">
+                {invoiceData.bill_to_email || "-"}
               </p>
             </div>
           </div>
@@ -377,70 +375,56 @@ const sendLogRows =
           </div>
         )}
       </div>
-<div className="rounded-2xl border bg-white p-5 shadow-sm">
-  <h2 className="text-base font-semibold">
-    メール送信履歴
-  </h2>
 
-  {sendLogRows.length === 0 ? (
-    <p className="mt-3 text-sm text-gray-500">
-      送信履歴はありません。
-    </p>
-  ) : (
-    <div className="mt-4 overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead className="bg-gray-50 text-left">
-          <tr>
-            <th className="px-4 py-3 font-medium">
-              送信日時
-            </th>
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold">メール送信履歴</h2>
 
-            <th className="px-4 py-3 font-medium">
-              送信先
-            </th>
-<th className="px-4 py-3 font-medium">
-  種別
-</th>
-            <th className="px-4 py-3 font-medium">
-              件名
-            </th>
-          </tr>
-        </thead>
+        {sendLogRows.length === 0 ? (
+          <p className="mt-3 text-sm text-gray-500">送信履歴はありません。</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">送信日時</th>
+                  <th className="px-4 py-3 font-medium">送信先</th>
+                  <th className="px-4 py-3 font-medium">種別</th>
+                  <th className="px-4 py-3 font-medium">件名</th>
+                </tr>
+              </thead>
 
-        <tbody>
-          {sendLogRows.map((log) => (
-            <tr
-              key={log.id}
-              className="border-t"
-            >
-              <td className="whitespace-nowrap px-4 py-3">
-                {formatDate(log.sent_at)}
-              </td>
+              <tbody>
+                {sendLogRows.map((log) => (
+                  <tr key={log.id} className="border-t">
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {formatDate(log.sent_at)}
+                    </td>
 
-              <td className="whitespace-nowrap px-4 py-3">
-                {log.to_email || "-"}
-              </td>
-<td className="whitespace-nowrap px-4 py-3">
-  {log.send_type === "reminder" ? (
-    <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
-      督促
-    </span>
-  ) : (
-    <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
-      通常
-    </span>
-  )}
-</td>
-              <td className="px-4 py-3">
-                {log.subject || "-"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {log.to_email || "-"}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {log.send_type === "reminder" ? (
+                        <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+                          督促
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">
+                          通常
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3">{log.subject || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold">備考</h2>
         <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-700">
