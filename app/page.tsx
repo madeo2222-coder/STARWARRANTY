@@ -109,7 +109,69 @@ try {
     ["out_of_warranty", "cancelled"].includes(row.status)
   );
   const unassignedRows = activeRows.filter((row) => !row.assigned_to);
+const unpaidInvoices = invoiceRows.filter((invoice) =>
+  ["issued", "unpaid", "draft", null, undefined].includes(invoice.status)
+);
 
+const overdueInvoices = unpaidInvoices.filter((invoice) => {
+  if (!invoice.payment_due_date) return false;
+
+  return (
+    new Date(invoice.payment_due_date).getTime() <
+    new Date().getTime()
+  );
+});
+
+const currentMonth = `${new Date().getFullYear()}-${String(
+  new Date().getMonth() + 1
+).padStart(2, "0")}`;
+
+const currentMonthInvoiceTotal = invoiceRows
+  .filter((invoice) =>
+    (invoice.invoice_date || "").startsWith(currentMonth)
+  )
+  .reduce(
+    (sum, invoice) =>
+      sum + Number(invoice.total_amount || 0),
+    0
+  );
+
+const unpaidInvoiceTotal = unpaidInvoices.reduce(
+  (sum, invoice) =>
+    sum + Number(invoice.total_amount || 0),
+  0
+);
+
+function formatYen(value: number) {
+  return `¥${value.toLocaleString("ja-JP")}`;
+}
+
+const monthlyInvoiceMap = new Map<string, number>();
+
+invoiceRows.forEach((invoice) => {
+  if (!invoice.invoice_date) return;
+
+  const month = invoice.invoice_date.slice(0, 7);
+
+  const current =
+    monthlyInvoiceMap.get(month) || 0;
+
+  monthlyInvoiceMap.set(
+    month,
+    current + Number(invoice.total_amount || 0)
+  );
+});
+
+const monthlyInvoices = Array.from(
+  monthlyInvoiceMap.entries()
+)
+  .sort(([a], [b]) => a.localeCompare(b))
+  .slice(-6);
+
+const maxInvoiceAmount = Math.max(
+  ...monthlyInvoices.map(([, amount]) => amount),
+  1
+);
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -175,7 +237,117 @@ try {
           </div>
         </div>
       </div>
+<div className="rounded-2xl border bg-white p-6 shadow-sm">
+  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h2 className="text-base font-semibold">
+        請求書サマリー
+      </h2>
 
+      <p className="mt-1 text-sm text-gray-500">
+        請求・未入金・期限超過状況を確認できます。
+      </p>
+    </div>
+
+    <Link
+      href="/warranty-invoices"
+      className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+    >
+      請求書管理へ
+    </Link>
+  </div>
+
+  {invoiceErrorMessage ? (
+    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      請求書集計取得に失敗しました: {invoiceErrorMessage}
+    </div>
+  ) : null}
+
+  <div className="mt-5 grid gap-4 md:grid-cols-4">
+    <div className="rounded-2xl border bg-gray-50 p-5">
+      <div className="text-sm text-gray-500">
+        未入金件数
+      </div>
+
+      <div className="mt-2 text-3xl font-bold">
+        {unpaidInvoices.length}
+      </div>
+    </div>
+
+    <div className="rounded-2xl border bg-gray-50 p-5">
+      <div className="text-sm text-gray-500">
+        未入金合計
+      </div>
+
+      <div className="mt-2 text-2xl font-bold text-red-600">
+        {formatYen(unpaidInvoiceTotal)}
+      </div>
+    </div>
+
+    <div className="rounded-2xl border bg-gray-50 p-5">
+      <div className="text-sm text-gray-500">
+        期限超過
+      </div>
+
+      <div className="mt-2 text-3xl font-bold text-red-600">
+        {overdueInvoices.length}
+      </div>
+    </div>
+
+    <div className="rounded-2xl border bg-gray-50 p-5">
+      <div className="text-sm text-gray-500">
+        今月請求額
+      </div>
+
+      <div className="mt-2 text-2xl font-bold">
+        {formatYen(currentMonthInvoiceTotal)}
+      </div>
+    </div>
+  </div>
+
+  <div className="mt-8">
+    <div className="mb-4 flex items-center justify-between">
+      <h3 className="text-sm font-semibold">
+        月別請求推移
+      </h3>
+
+      <div className="text-xs text-gray-500">
+        直近6ヶ月
+      </div>
+    </div>
+
+    <div className="flex items-end gap-3 overflow-x-auto pb-2">
+      {monthlyInvoices.map(([month, amount]) => {
+        const height = Math.max(
+          24,
+          (amount / maxInvoiceAmount) * 220
+        );
+
+        return (
+          <div
+            key={month}
+            className="flex min-w-[80px] flex-col items-center"
+          >
+            <div className="mb-2 text-xs text-gray-500">
+              {formatYen(amount)}
+            </div>
+
+            <div
+              className="w-full rounded-t-xl bg-black transition-all"
+              style={{
+                height: `${height}px`,
+              }}
+            />
+
+            <div className="mt-2 text-xs font-medium">
+              {month}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</div>
       <div className="grid gap-4 md:grid-cols-2">
         {mainCards.map((card) => (
           <Link
