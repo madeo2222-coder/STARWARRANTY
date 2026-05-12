@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import WarrantyInvoicesTable from "./WarrantyInvoicesTable";
 
 export const dynamic = "force-dynamic";
 
@@ -35,44 +36,6 @@ function formatYen(value: number | null | undefined) {
   return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return "-";
-  return value;
-}
-
-function statusLabel(status: string | null | undefined) {
-  switch (status) {
-    case "draft":
-      return "下書き";
-    case "issued":
-      return "発行済み";
-    case "unpaid":
-      return "未入金";
-    case "paid":
-      return "入金済み";
-    case "cancelled":
-      return "取消";
-    default:
-      return status || "未設定";
-  }
-}
-
-function statusBadgeClass(status: string | null | undefined) {
-  switch (status) {
-    case "paid":
-      return "border-green-200 bg-green-50 text-green-700";
-    case "unpaid":
-    case "issued":
-      return "border-yellow-200 bg-yellow-50 text-yellow-700";
-    case "cancelled":
-      return "border-red-200 bg-red-50 text-red-700";
-    case "draft":
-      return "border-gray-200 bg-gray-50 text-gray-700";
-    default:
-      return "border-gray-200 bg-gray-50 text-gray-700";
-  }
-}
-
 export default async function WarrantyInvoicesPage() {
   let invoices: WarrantyInvoiceRow[] = [];
   let errorMessage = "";
@@ -100,9 +63,11 @@ export default async function WarrantyInvoicesPage() {
   const unpaidInvoices = invoices.filter((invoice) =>
     ["issued", "unpaid", "draft", null, undefined].includes(invoice.status)
   );
+
   const paidInvoices = invoices.filter((invoice) => invoice.status === "paid");
 
   const now = new Date();
+
   const currentMonth = `${now.getFullYear()}-${String(
     now.getMonth() + 1
   ).padStart(2, "0")}`;
@@ -110,18 +75,20 @@ export default async function WarrantyInvoicesPage() {
   const currentMonthTotal = invoices
     .filter((invoice) => (invoice.invoice_date || "").startsWith(currentMonth))
     .reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
-const unpaidTotal = unpaidInvoices.reduce(
-  (sum, invoice) => sum + Number(invoice.total_amount || 0),
-  0
-);
 
-const overdueInvoices = unpaidInvoices.filter((invoice) => {
-  if (!invoice.payment_due_date) return false;
+  const unpaidTotal = unpaidInvoices.reduce(
+    (sum, invoice) => sum + Number(invoice.total_amount || 0),
+    0
+  );
 
-  const dueDate = new Date(invoice.payment_due_date);
+  const overdueInvoices = unpaidInvoices.filter((invoice) => {
+    if (!invoice.payment_due_date) return false;
 
-  return dueDate.getTime() < now.getTime();
-});
+    const dueDate = new Date(invoice.payment_due_date);
+
+    return dueDate.getTime() < now.getTime();
+  });
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -147,12 +114,14 @@ const overdueInvoices = unpaidInvoices.filter((invoice) => {
           >
             ホームへ
           </Link>
-<Link
-  href="/api/warranty-invoices-csv"
-  className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
->
-  CSV出力
-</Link>
+
+          <Link
+            href="/api/warranty-invoices-csv"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            CSV出力
+          </Link>
+
           <Link
             href="/warranty-invoices/new"
             className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
@@ -186,115 +155,27 @@ const overdueInvoices = unpaidInvoices.filter((invoice) => {
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="text-sm text-gray-500">今月請求額</div>
-          <div className="mt-2 text-3xl font-bold">
+          <div className="mt-2 text-2xl font-bold">
             {formatYen(currentMonthTotal)}
           </div>
         </div>
-      </div>
-<div className="rounded-2xl border bg-white p-5 shadow-sm">
-  <div className="text-sm text-gray-500">未入金合計</div>
 
-  <div className="mt-2 text-2xl font-bold text-red-600">
-    {formatYen(unpaidTotal)}
-  </div>
-</div>
-
-<div className="rounded-2xl border bg-white p-5 shadow-sm">
-  <div className="text-sm text-gray-500">期限超過</div>
-
-  <div className="mt-2 text-3xl font-bold text-red-600">
-    {overdueInvoices.length}
-  </div>
-</div>
-      <div className="rounded-2xl border bg-white shadow-sm">
-        <div className="border-b px-5 py-4">
-          <h2 className="text-base font-semibold">請求書一覧</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            作成済みの請求書を一覧で確認できます。
-          </p>
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="text-sm text-gray-500">未入金合計</div>
+          <div className="mt-2 text-2xl font-bold text-red-600">
+            {formatYen(unpaidTotal)}
+          </div>
         </div>
 
-        {invoices.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">
-            まだ請求書データはありません。右上の新規作成から請求書を作成できます。
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="text-sm text-gray-500">期限超過</div>
+          <div className="mt-2 text-3xl font-bold text-red-600">
+            {overdueInvoices.length}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-left">
-                <tr>
-                  <th className="px-4 py-3 font-medium">請求書番号</th>
-                  <th className="px-4 py-3 font-medium">請求日</th>
-                  <th className="px-4 py-3 font-medium">宛先</th>
-                  <th className="px-4 py-3 font-medium">件名</th>
-                  <th className="px-4 py-3 font-medium">請求額</th>
-                  <th className="px-4 py-3 font-medium">支払期限</th>
-                  <th className="px-4 py-3 font-medium">状態</th>
-                  <th className="px-4 py-3 font-medium">操作</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {invoices.map((invoice) => {
-                  const billTo =
-                    invoice.bill_to_company_name ||
-                    invoice.bill_to_name ||
-                    "未設定";
-
-                  return (
-                    <tr key={invoice.id} className="border-t hover:bg-gray-50">
-                      <td className="whitespace-nowrap px-4 py-3 font-medium">
-                        {invoice.invoice_no || "-"}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {formatDate(invoice.invoice_date)}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-3">{billTo}</td>
-
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {invoice.subject || "-"}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                        {formatYen(invoice.total_amount)}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {formatDate(invoice.payment_due_date)}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            invoice.status
-                          )}`}
-                        >
-                          {statusLabel(invoice.status)}
-                        </span>
-                      </td>
-{overdueInvoices.some((item) => item.id === invoice.id) ? (
-  <span className="ml-2 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">
-    期限超過
-  </span>
-) : null}
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <Link
-                          href={`/warranty-invoices/${invoice.id}`}
-                          className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
-                        >
-                          詳細を見る
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
       </div>
+
+      <WarrantyInvoicesTable invoices={invoices} />
 
       <div className="rounded-2xl border bg-white shadow-sm">
         <div className="border-b px-5 py-4">
@@ -306,16 +187,16 @@ const overdueInvoices = unpaidInvoices.filter((invoice) => {
 
         <div className="grid gap-4 p-5 md:grid-cols-2">
           <div className="rounded-xl border p-4">
-            <h3 className="font-semibold">PDF発行</h3>
+            <h3 className="font-semibold">ダッシュボード連携</h3>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              登録済み請求書をPDFとして出力できるようにします。
+              未入金・期限超過・今月請求額をホーム画面にも表示できるようにします。
             </p>
           </div>
 
           <div className="rounded-xl border p-4">
-            <h3 className="font-semibold">入金ステータス変更</h3>
+            <h3 className="font-semibold">自動リマインド</h3>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              未入金・入金済み・取消などの状態を管理できるようにします。
+              支払期限超過の請求書に対して、案内メール送信を行えるようにします。
             </p>
           </div>
         </div>
