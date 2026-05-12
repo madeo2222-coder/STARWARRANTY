@@ -390,6 +390,22 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     lineHeight: 1.6,
   },
+  bankBox: {
+  borderWidth: 1,
+  borderColor: "#D1D5DB",
+  padding: 10,
+},
+
+bankTitle: {
+  fontSize: 11,
+  fontWeight: 700,
+  marginBottom: 6,
+},
+
+bankText: {
+  fontSize: 9.5,
+  lineHeight: 1.8,
+},
 });
 
 function WarrantyInvoicePdf({
@@ -572,7 +588,61 @@ function WarrantyInvoicePdf({
           )
         )
       ),
+React.createElement(
+  View,
+  { style: styles.bankBox },
 
+  React.createElement(
+    Text,
+    { style: styles.bankTitle },
+    "お振込先"
+  ),
+
+  React.createElement(
+    Text,
+    { style: styles.bankText },
+    invoice.bank_account_info ||
+      "振込先情報が登録されていません。"
+  ),
+
+  headquarters?.note
+    ? React.createElement(
+        Text,
+        {
+          style: [
+            styles.bankText,
+            {
+              marginTop: 8,
+            },
+          ],
+        },
+        headquarters.note
+      )
+    : null
+),
+
+headquarters?.company_name
+  ? React.createElement(
+      View,
+      {
+        style: {
+          marginBottom: 14,
+        },
+      },
+
+      React.createElement(
+        Text,
+        {
+          style: styles.bankText,
+        },
+        `適格請求書発行事業者番号：${safeText(
+          (invoice as unknown as {
+            issuer_invoice_number?: string | null;
+          }).issuer_invoice_number
+        )}`
+      )
+    )
+  : null,
       React.createElement(Text, { style: styles.sectionTitle }, "備考"),
       React.createElement(
         View,

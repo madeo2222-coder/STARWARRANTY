@@ -159,7 +159,7 @@ export async function POST(request: Request) {
 
     const { data: certificate, error: certificateError } = await supabase
       .from("warranty_certificates")
-      .select("id, certificate_no")
+      .select("id, certificate_no, agency_name, seller_name")
       .eq("repair_form_token", body.token)
       .single();
 
@@ -209,6 +209,7 @@ export async function POST(request: Request) {
         is_usable:
           typeof body.is_usable === "boolean" ? body.is_usable : null,
         status: "received",
+       agency_name: certificate.seller_name || null,
       })
       .select("id, request_no")
       .single();
@@ -250,7 +251,47 @@ try {
 } catch (e) {
   console.error("admin notify mail error", e);
 }
+// 🔥 顧客受付完了メール
+try {
+  const resendKey = process.env.RESEND_API_KEY;
 
+  if (resendKey && resendKey !== "dummy" && body.email) {
+    const resend = new (await import("resend")).Resend(resendKey);
+
+    const repairStatusUrl =
+      `https://starwarranty.vercel.app/repair-status?request_no=${encodeURIComponent(requestNo)}`;
+
+    await resend.emails.send({
+      from: "STAR WARRANTY <onboarding@resend.dev>",
+      to: body.email,
+      subject: `【修理受付完了】${requestNo}`,
+      text: `
+この度は修理受付ありがとうございます。
+
+以下内容にて受付完了いたしました。
+
+受付番号：
+${requestNo}
+
+お客様名：
+${body.customer_name}
+
+対象機器：
+${body.product_name}
+
+修理状況確認ページ：
+${repairStatusUrl}
+
+今後、確認・手配が進み次第、
+ステータス更新を行います。
+
+STAR WARRANTY
+      `,
+    });
+  }
+} catch (e) {
+  console.error("customer notify mail error", e);
+}
     return NextResponse.json({
       success: true,
       request: inserted,
