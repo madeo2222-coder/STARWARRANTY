@@ -63,6 +63,7 @@ function isActiveStatus(status: string) {
 
 export default async function HomePage() {
   let repairRows: RepairRequestRow[] = [];
+let repairErrorMessage = "";
   let invoiceRows: WarrantyInvoiceRow[] = [];
 let invoiceErrorMessage = "";
 
