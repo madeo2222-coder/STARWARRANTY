@@ -8,7 +8,13 @@ type RepairRequestRow = {
   status: string;
   assigned_to: string | null;
 };
-
+type WarrantyInvoiceRow = {
+  id: string;
+  total_amount: number | null;
+  invoice_date: string | null;
+  payment_due_date: string | null;
+  status: string | null;
+};
 const mainCards = [
   {
     title: "保証書管理",
@@ -57,7 +63,8 @@ function isActiveStatus(status: string) {
 
 export default async function HomePage() {
   let repairRows: RepairRequestRow[] = [];
-  let repairErrorMessage = "";
+  let invoiceRows: WarrantyInvoiceRow[] = [];
+let invoiceErrorMessage = "";
 
   try {
     const supabase = getAdminClient();
@@ -75,7 +82,26 @@ export default async function HomePage() {
     repairErrorMessage =
       error instanceof Error ? error.message : "修理受付の集計取得に失敗しました";
   }
+try {
+  const supabase = getAdminClient();
 
+  const { data, error } = await supabase
+    .from("warranty_invoices")
+    .select(
+      "id, total_amount, invoice_date, payment_due_date, status"
+    );
+
+  if (error) {
+    invoiceErrorMessage = error.message;
+  } else {
+    invoiceRows = (data || []) as WarrantyInvoiceRow[];
+  }
+} catch (error) {
+  invoiceErrorMessage =
+    error instanceof Error
+      ? error.message
+      : "請求書集計取得に失敗しました";
+}
   const activeRows = repairRows.filter((row) => isActiveStatus(row.status));
   const completedRows = repairRows.filter((row) => row.status === "completed");
   const closedRows = repairRows.filter((row) =>
