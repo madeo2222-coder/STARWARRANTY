@@ -18,6 +18,13 @@ type InvoiceRow = {
   status: string | null;
 };
 
+type SendLogRow = {
+  id: string;
+  invoice_id: string | null;
+  send_type: string | null;
+  sent_at: string | null;
+};
+
 type RunResult = {
   invoice_id: string;
   invoice_no: string | null;
@@ -101,6 +108,18 @@ function getOverdueDays(paymentDueDate: string | null) {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
+function isSameDay(left: string | null, right: Date) {
+  if (!left) return false;
+
+  const date = new Date(left);
+
+  return (
+    date.getFullYear() === right.getFullYear() &&
+    date.getMonth() === right.getMonth() &&
+    date.getDate() === right.getDate()
+  );
+}
+
 async function runAutoReminders(req: Request) {
   try {
     const supabase = getAdminClient();
@@ -131,10 +150,28 @@ async function runAutoReminders(req: Request) {
       );
     }
 
+    const { data: sendLogs, error: sendLogsError } = await supabase
+      .from("warranty_invoice_send_logs")
+      .select("id, invoice_id, send_type, sent_at")
+      .eq("send_type", "auto_reminder");
+
+    if (sendLogsError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: sendLogsError.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    const today = new Date();
+    const autoReminderLogs = (sendLogs || []) as SendLogRow[];
+
     const overdueInvoices = ((data || []) as InvoiceRow[]).filter((invoice) => {
       if (!invoice.payment_due_date) return false;
 
-      return new Date(invoice.payment_due_date).getTime() < new Date().getTime();
+      return new Date(invoice.payment_due_date).getTime() < today.getTime();
     });
 
     const origin =
@@ -153,6 +190,20 @@ async function runAutoReminders(req: Request) {
           invoice_no: invoice.invoice_no,
           status: "skipped",
           reason: "3日未満の期限超過のためスキップ",
+        });
+        continue;
+      }
+
+      const alreadySentToday = autoReminderLogs.some(
+        (log) => log.invoice_id === invoice.id && isSameDay(log.sent_at, today)
+      );
+
+      if (alreadySentToday) {
+        results.push({
+          invoice_id: invoice.id,
+          invoice_no: invoice.invoice_no,
+          status: "skipped",
+          reason: "本日すでに自動督促済みのためスキップ",
         });
         continue;
       }
