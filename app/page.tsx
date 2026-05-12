@@ -172,6 +172,34 @@ const maxInvoiceAmount = Math.max(
   ...monthlyInvoices.map(([, amount]) => amount),
   1
 );
+const monthlyPaidMap = new Map<string, number>();
+
+invoiceRows.forEach((invoice) => {
+  if (invoice.status !== "paid") return;
+
+  if (!invoice.invoice_date) return;
+
+  const month = invoice.invoice_date.slice(0, 7);
+
+  const current =
+    monthlyPaidMap.get(month) || 0;
+
+  monthlyPaidMap.set(
+    month,
+    current + Number(invoice.total_amount || 0)
+  );
+});
+
+const monthlyPaidInvoices = Array.from(
+  monthlyPaidMap.entries()
+)
+  .sort(([a], [b]) => a.localeCompare(b))
+  .slice(-6);
+
+const maxPaidAmount = Math.max(
+  ...monthlyPaidInvoices.map(([, amount]) => amount),
+  1
+);
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -338,7 +366,48 @@ const maxInvoiceAmount = Math.max(
                 height: `${height}px`,
               }}
             />
+<div className="mt-10">
+  <div className="mb-4 flex items-center justify-between">
+    <h3 className="text-sm font-semibold">
+      月別入金推移
+    </h3>
 
+    <div className="text-xs text-gray-500">
+      入金済みのみ
+    </div>
+  </div>
+
+  <div className="flex items-end gap-3 overflow-x-auto pb-2">
+    {monthlyPaidInvoices.map(([month, amount]) => {
+      const height = Math.max(
+        24,
+        (amount / maxPaidAmount) * 220
+      );
+
+      return (
+        <div
+          key={month}
+          className="flex min-w-[80px] flex-col items-center"
+        >
+          <div className="mb-2 text-xs text-gray-500">
+            {formatYen(amount)}
+          </div>
+
+          <div
+            className="w-full rounded-t-xl bg-green-600 transition-all"
+            style={{
+              height: `${height}px`,
+            }}
+          />
+
+          <div className="mt-2 text-xs font-medium">
+            {month}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</div>
             <div className="mt-2 text-xs font-medium">
               {month}
             </div>
