@@ -108,18 +108,6 @@ function getOverdueDays(paymentDueDate: string | null) {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-function isSameDay(left: string | null, right: Date) {
-  if (!left) return false;
-
-  const date = new Date(left);
-
-  return (
-    date.getFullYear() === right.getFullYear() &&
-    date.getMonth() === right.getMonth() &&
-    date.getDate() === right.getDate()
-  );
-}
-
 async function runAutoReminders(req: Request) {
   try {
     const supabase = getAdminClient();
@@ -132,6 +120,7 @@ async function runAutoReminders(req: Request) {
           invoice_no,
           bill_to_company_name,
           bill_to_name,
+          bill_to_email,
           total_amount,
           payment_due_date,
           status
@@ -194,16 +183,16 @@ async function runAutoReminders(req: Request) {
         continue;
       }
 
-      const alreadySentToday = autoReminderLogs.some(
-        (log) => log.invoice_id === invoice.id && isSameDay(log.sent_at, today)
+      const alreadySent = autoReminderLogs.some(
+        (log) => log.invoice_id === invoice.id
       );
 
-      if (alreadySentToday) {
+      if (alreadySent) {
         results.push({
           invoice_id: invoice.id,
           invoice_no: invoice.invoice_no,
           status: "skipped",
-          reason: "本日すでに自動督促済みのためスキップ",
+          reason: "既に自動督促送信済みのためスキップ",
         });
         continue;
       }
