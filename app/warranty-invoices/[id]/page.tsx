@@ -107,8 +107,9 @@ function statusBadgeClass(status: string | null | undefined) {
 export default async function WarrantyInvoiceDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const supabase = getAdminClient();
 
   const { data: invoice, error: invoiceError } = await supabase
@@ -116,7 +117,7 @@ export default async function WarrantyInvoiceDetailPage({
     .select(
       "id, invoice_no, invoice_date, payment_due_date, subject, bill_to_company_name, bill_to_name, bill_to_email, subtotal, tax_rate, tax_amount, total_amount, status, note, created_at, paid_at"
     )
-    .eq("id", params.id)
+    .eq("id", id)
     .single();
 
   if (invoiceError || !invoice) {
@@ -128,13 +129,13 @@ export default async function WarrantyInvoiceDetailPage({
     .select(
       "id, invoice_id, item_name, description, quantity, unit_price, amount, sort_order, created_at"
     )
-    .eq("invoice_id", params.id)
+    .eq("invoice_id", id)
     .order("sort_order", { ascending: true });
 
   const { data: sendLogs } = await supabase
     .from("warranty_invoice_send_logs")
     .select("id, to_email, subject, sent_at, send_type")
-    .eq("invoice_id", params.id)
+    .eq("invoice_id", id)
     .order("sent_at", {
       ascending: false,
     });
