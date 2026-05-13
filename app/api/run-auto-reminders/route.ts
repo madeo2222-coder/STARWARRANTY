@@ -25,13 +25,49 @@ type SendLogRow = {
   sent_at: string | null;
 };
 
+type ReminderStage = {
+  sendType: "auto_reminder_1" | "auto_reminder_2" | "auto_reminder_3";
+  minOverdueDays: number;
+  label: string;
+  subjectPrefix: string;
+  toneText: string;
+};
+
 type RunResult = {
   invoice_id: string;
   invoice_no: string | null;
   status: "skipped" | "sent" | "failed";
   reason?: string;
   to_email?: string;
+  send_type?: string;
 };
+
+const reminderStages: ReminderStage[] = [
+  {
+    sendType: "auto_reminder_3",
+    minOverdueDays: 14,
+    label: "最終督促",
+    subjectPrefix: "【重要】請求書ご確認のお願い",
+    toneText:
+      "度々のご案内となり恐れ入りますが、現時点で入金確認が取れておりません。至急ご確認をお願いいたします。",
+  },
+  {
+    sendType: "auto_reminder_2",
+    minOverdueDays: 7,
+    label: "再督促",
+    subjectPrefix: "【再送】請求書ご確認のお願い",
+    toneText:
+      "先日ご案内いたしました請求書につきまして、現時点で入金確認が取れておりません。お手数ですが、ご確認をお願いいたします。",
+  },
+  {
+    sendType: "auto_reminder_1",
+    minOverdueDays: 3,
+    label: "初回督促",
+    subjectPrefix: "請求書ご確認のお願い",
+    toneText:
+      "請求書につきまして、支払期限を過ぎております。念のためご案内いたしますので、ご確認をお願いいたします。",
+  },
+];
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -48,16 +84,23 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+function formatYen(value: number | null | undefined) {
+  return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
+}
+
 function buildReminderEmailHtml(params: {
   invoiceNo: string;
   paymentDueDate: string;
+  totalAmount: number | null;
+  stageLabel: string;
+  toneText: string;
 }) {
   return `
 <!doctype html>
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
-    <title>請求書ご確認のお願い</title>
+    <title>${params.stageLabel}</title>
   </head>
   <body style="margin:0; padding:0; background:#f3f4f6; font-family:Arial, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif; color:#111827;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f4f6; margin:0; padding:24px 0;">
@@ -67,7 +110,7 @@ function buildReminderEmailHtml(params: {
             <tr>
               <td style="padding:24px; background:#991b1b;">
                 <div style="font-size:22px; line-height:1.4; font-weight:700; color:#ffffff;">
-                  請求書ご確認のお願い
+                  ${params.stageLabel}
                 </div>
               </td>
             </tr>
@@ -76,8 +119,10 @@ function buildReminderEmailHtml(params: {
               <td style="padding:24px;">
                 <div style="font-size:14px; line-height:1.9; color:#374151;">
                   いつもお世話になっております。<br />
-                  請求書番号 ${params.invoiceNo} につきまして、支払期限 ${params.paymentDueDate} を過ぎております。<br />
-                  現時点で入金確認が取れていないため、念のためご案内いたします。<br />
+                  ${params.toneText}<br /><br />
+                  <strong>請求書番号：</strong>${params.invoiceNo}<br />
+                  <strong>請求金額：</strong>${formatYen(params.totalAmount)}<br />
+                  <strong>支払期限：</strong>${params.paymentDueDate}<br /><br />
                   請求書PDFを添付しておりますので、ご確認をお願いいたします。
                 </div>
 
@@ -106,6 +151,30 @@ function getOverdueDays(paymentDueDate: string | null) {
   const diff = now.getTime() - due.getTime();
 
   return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+function getNextReminderStage(
+  overdueDays: number,
+  invoiceId: string,
+  logs: SendLogRow[]
+) {
+  const invoiceLogs = logs.filter((log) => log.invoice_id === invoiceId);
+
+  for (const stage of reminderStages) {
+    if (overdueDays < stage.minOverdueDays) {
+      continue;
+    }
+
+    const alreadySentThisStage = invoiceLogs.some(
+      (log) => log.send_type === stage.sendType
+    );
+
+    if (!alreadySentThisStage) {
+      return stage;
+    }
+  }
+
+  return null;
 }
 
 async function runAutoReminders(req: Request) {
@@ -142,7 +211,11 @@ async function runAutoReminders(req: Request) {
     const { data: sendLogs, error: sendLogsError } = await supabase
       .from("warranty_invoice_send_logs")
       .select("id, invoice_id, send_type, sent_at")
-      .eq("send_type", "auto_reminder");
+      .in("send_type", [
+        "auto_reminder_1",
+        "auto_reminder_2",
+        "auto_reminder_3",
+      ]);
 
     if (sendLogsError) {
       return NextResponse.json(
@@ -173,26 +246,21 @@ async function runAutoReminders(req: Request) {
     for (const invoice of overdueInvoices) {
       const overdueDays = getOverdueDays(invoice.payment_due_date);
 
-      if (overdueDays < 3) {
-        results.push({
-          invoice_id: invoice.id,
-          invoice_no: invoice.invoice_no,
-          status: "skipped",
-          reason: "3日未満の期限超過のためスキップ",
-        });
-        continue;
-      }
-
-      const alreadySent = autoReminderLogs.some(
-        (log) => log.invoice_id === invoice.id
+      const nextStage = getNextReminderStage(
+        overdueDays,
+        invoice.id,
+        autoReminderLogs
       );
 
-      if (alreadySent) {
+      if (!nextStage) {
         results.push({
           invoice_id: invoice.id,
           invoice_no: invoice.invoice_no,
           status: "skipped",
-          reason: "既に自動督促送信済みのためスキップ",
+          reason:
+            overdueDays < 3
+              ? "3日未満の期限超過のためスキップ"
+              : "送信可能な自動督促はすべて送信済みのためスキップ",
         });
         continue;
       }
@@ -205,6 +273,7 @@ async function runAutoReminders(req: Request) {
           invoice_no: invoice.invoice_no,
           status: "skipped",
           reason: "送信先メールが未登録のためスキップ",
+          send_type: nextStage.sendType,
         });
         continue;
       }
@@ -232,6 +301,7 @@ async function runAutoReminders(req: Request) {
             status: "failed",
             reason: "PDF生成に失敗しました",
             to_email: toEmail,
+            send_type: nextStage.sendType,
           });
           continue;
         }
@@ -239,13 +309,16 @@ async function runAutoReminders(req: Request) {
         const pdfArrayBuffer = await pdfRes.arrayBuffer();
         const pdfBase64 = Buffer.from(pdfArrayBuffer).toString("base64");
 
-        const subject = `【株式会社スター・ワランティ】請求書ご確認のお願い (${
-          invoice.invoice_no || ""
-        })`;
+        const subject = `【株式会社スター・ワランティ】${
+          nextStage.subjectPrefix
+        } (${invoice.invoice_no || ""})`;
 
         const html = buildReminderEmailHtml({
           invoiceNo: invoice.invoice_no || "-",
           paymentDueDate: invoice.payment_due_date || "-",
+          totalAmount: invoice.total_amount,
+          stageLabel: nextStage.label,
+          toneText: nextStage.toneText,
         });
 
         const { error: sendError } = await resend.emails.send({
@@ -255,7 +328,7 @@ async function runAutoReminders(req: Request) {
           html,
           attachments: [
             {
-              filename: `warranty-invoice-auto-reminder-${invoice.id}.pdf`,
+              filename: `warranty-invoice-${nextStage.sendType}-${invoice.id}.pdf`,
               content: pdfBase64,
             },
           ],
@@ -268,6 +341,7 @@ async function runAutoReminders(req: Request) {
             status: "failed",
             reason: "メール送信に失敗しました",
             to_email: toEmail,
+            send_type: nextStage.sendType,
           });
           continue;
         }
@@ -278,7 +352,7 @@ async function runAutoReminders(req: Request) {
             invoice_id: invoice.id,
             to_email: toEmail,
             subject,
-            send_type: "auto_reminder",
+            send_type: nextStage.sendType,
             sent_at: new Date().toISOString(),
           });
 
@@ -291,6 +365,7 @@ async function runAutoReminders(req: Request) {
           invoice_no: invoice.invoice_no,
           status: "sent",
           to_email: toEmail,
+          send_type: nextStage.sendType,
         });
       } catch (error) {
         results.push({
@@ -302,6 +377,7 @@ async function runAutoReminders(req: Request) {
               ? error.message
               : "自動督促送信中に不明なエラーが発生しました",
           to_email: toEmail,
+          send_type: nextStage.sendType,
         });
       }
     }
