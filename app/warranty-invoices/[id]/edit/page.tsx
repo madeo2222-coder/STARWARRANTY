@@ -56,9 +56,9 @@ export default function EditWarrantyInvoicePage() {
   const [invoiceDate, setInvoiceDate] = useState("");
   const [paymentDueDate, setPaymentDueDate] = useState("");
   const [subject, setSubject] = useState("");
-  const [billToCompanyName, setBillToCompanyName] =
-    useState("");
+  const [billToCompanyName, setBillToCompanyName] = useState("");
   const [billToName, setBillToName] = useState("");
+  const [billToEmail, setBillToEmail] = useState("");
   const [note, setNote] = useState("");
   const [status, setStatus] = useState("draft");
 
@@ -66,9 +66,7 @@ export default function EditWarrantyInvoicePage() {
 
   const subtotal = items.reduce(
     (sum, item) =>
-      sum +
-      Number(item.quantity || 0) *
-        Number(item.unit_price || 0),
+      sum + Number(item.quantity || 0) * Number(item.unit_price || 0),
     0
   );
 
@@ -93,6 +91,7 @@ export default function EditWarrantyInvoicePage() {
               subject,
               bill_to_company_name,
               bill_to_name,
+              bill_to_email,
               note,
               status
             `
@@ -101,26 +100,23 @@ export default function EditWarrantyInvoicePage() {
           .single();
 
         if (error || !data) {
-          throw new Error(
-            error?.message || "請求書データが見つかりません"
-          );
+          throw new Error(error?.message || "請求書データが見つかりません");
         }
 
-        const { data: itemData, error: itemError } =
-          await supabase
-            .from("warranty_invoice_items")
-            .select(
-              `
+        const { data: itemData, error: itemError } = await supabase
+          .from("warranty_invoice_items")
+          .select(
+            `
                 item_name,
                 description,
                 quantity,
                 unit_price
               `
-            )
-            .eq("invoice_id", invoiceId)
-            .order("sort_order", {
-              ascending: true,
-            });
+          )
+          .eq("invoice_id", invoiceId)
+          .order("sort_order", {
+            ascending: true,
+          });
 
         if (itemError) {
           throw new Error(itemError.message);
@@ -130,10 +126,9 @@ export default function EditWarrantyInvoicePage() {
         setInvoiceDate(data.invoice_date || "");
         setPaymentDueDate(data.payment_due_date || "");
         setSubject(data.subject || "");
-        setBillToCompanyName(
-          data.bill_to_company_name || ""
-        );
+        setBillToCompanyName(data.bill_to_company_name || "");
         setBillToName(data.bill_to_name || "");
+        setBillToEmail(data.bill_to_email || "");
         setNote(data.note || "");
         setStatus(data.status || "draft");
 
@@ -147,9 +142,7 @@ export default function EditWarrantyInvoicePage() {
         );
       } catch (error) {
         setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "請求書取得に失敗しました"
+          error instanceof Error ? error.message : "請求書取得に失敗しました"
         );
       } finally {
         setLoading(false);
@@ -172,8 +165,7 @@ export default function EditWarrantyInvoicePage() {
           ? {
               ...item,
               [field]:
-                field === "quantity" ||
-                field === "unit_price"
+                field === "quantity" || field === "unit_price"
                   ? Number(value || 0)
                   : value,
             }
@@ -195,62 +187,47 @@ export default function EditWarrantyInvoicePage() {
   }
 
   function removeItem(index: number) {
-    setItems((current) =>
-      current.filter(
-        (_, itemIndex) => itemIndex !== index
-      )
-    );
+    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  async function handleSubmit(
-    e: React.FormEvent<HTMLFormElement>
-  ) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     try {
       setSaving(true);
       setErrorMessage("");
 
-      const response = await fetch(
-        "/api/warranty-invoice-update",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            invoice_id: invoiceId,
-            invoice_date: invoiceDate,
-            payment_due_date: paymentDueDate,
-            subject,
-            bill_to_company_name:
-              billToCompanyName,
-            bill_to_name: billToName,
-            note,
-            status,
-            items,
-          }),
-        }
-      );
+      const response = await fetch("/api/warranty-invoice-update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          invoice_id: invoiceId,
+          invoice_date: invoiceDate,
+          payment_due_date: paymentDueDate,
+          subject,
+          bill_to_company_name: billToCompanyName,
+          bill_to_name: billToName,
+          bill_to_email: billToEmail,
+          note,
+          status,
+          items,
+        }),
+      });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(
-          result.error || "更新に失敗しました"
-        );
+        throw new Error(result.error || "更新に失敗しました");
       }
 
-      router.push(
-        `/warranty-invoices/${invoiceId}`
-      );
+      router.push(`/warranty-invoices/${invoiceId}`);
 
       router.refresh();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "更新中にエラーが発生しました"
+        error instanceof Error ? error.message : "更新中にエラーが発生しました"
       );
     } finally {
       setSaving(false);
@@ -258,24 +235,16 @@ export default function EditWarrantyInvoicePage() {
   }
 
   if (loading) {
-    return (
-      <div className="p-6 text-sm text-gray-500">
-        読み込み中...
-      </div>
-    );
+    return <div className="p-6 text-sm text-gray-500">読み込み中...</div>;
   }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-sm text-gray-500">
-            STAR WARRANTY
-          </p>
+          <p className="text-sm text-gray-500">STAR WARRANTY</p>
 
-          <h1 className="text-2xl font-bold">
-            請求書編集
-          </h1>
+          <h1 className="text-2xl font-bold">請求書編集</h1>
 
           <p className="mt-1 text-sm text-gray-500">
             請求書情報を編集できます。
@@ -305,20 +274,13 @@ export default function EditWarrantyInvoicePage() {
         </div>
       ) : null}
 
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-6"
-      >
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold">
-            請求書情報
-          </h2>
+          <h2 className="text-base font-semibold">請求書情報</h2>
 
           <div className="mt-5 grid gap-5 md:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                請求書番号
-              </label>
+              <label className="text-sm font-medium">請求書番号</label>
 
               <input
                 type="text"
@@ -329,22 +291,15 @@ export default function EditWarrantyInvoicePage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                ステータス
-              </label>
+              <label className="text-sm font-medium">ステータス</label>
 
               <select
                 value={status}
-                onChange={(e) =>
-                  setStatus(e.target.value)
-                }
+                onChange={(e) => setStatus(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               >
                 {STATUS_OPTIONS.map((option) => (
-                  <option
-                    key={option.value}
-                    value={option.value}
-                  >
+                  <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
@@ -352,46 +307,34 @@ export default function EditWarrantyInvoicePage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                請求日
-              </label>
+              <label className="text-sm font-medium">請求日</label>
 
               <input
                 type="date"
                 value={invoiceDate}
-                onChange={(e) =>
-                  setInvoiceDate(e.target.value)
-                }
+                onChange={(e) => setInvoiceDate(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                支払期限
-              </label>
+              <label className="text-sm font-medium">支払期限</label>
 
               <input
                 type="date"
                 value={paymentDueDate}
-                onChange={(e) =>
-                  setPaymentDueDate(e.target.value)
-                }
+                onChange={(e) => setPaymentDueDate(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               />
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium">
-                件名
-              </label>
+              <label className="text-sm font-medium">件名</label>
 
               <input
                 type="text"
                 value={subject}
-                onChange={(e) =>
-                  setSubject(e.target.value)
-                }
+                onChange={(e) => setSubject(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               />
             </div>
@@ -399,41 +342,47 @@ export default function EditWarrantyInvoicePage() {
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold">
-            宛先情報
-          </h2>
+          <h2 className="text-base font-semibold">宛先情報</h2>
 
           <div className="mt-5 grid gap-5 md:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                宛先会社名
-              </label>
+              <label className="text-sm font-medium">宛先会社名</label>
 
               <input
                 type="text"
                 value={billToCompanyName}
-                onChange={(e) =>
-                  setBillToCompanyName(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setBillToCompanyName(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                宛先担当者名
-              </label>
+              <label className="text-sm font-medium">宛先担当者名</label>
 
               <input
                 type="text"
                 value={billToName}
-                onChange={(e) =>
-                  setBillToName(e.target.value)
-                }
+                onChange={(e) => setBillToName(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 outline-none"
               />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">
+                請求先メールアドレス
+              </label>
+
+              <input
+                type="email"
+                value={billToEmail}
+                onChange={(e) => setBillToEmail(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+                placeholder="example@example.com"
+              />
+
+              <p className="text-xs text-gray-500">
+                請求書送信・自動督促メール送信に使用します。
+              </p>
             </div>
           </div>
         </div>
@@ -441,9 +390,7 @@ export default function EditWarrantyInvoicePage() {
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold">
-                請求明細
-              </h2>
+              <h2 className="text-base font-semibold">請求明細</h2>
 
               <p className="mt-1 text-sm text-gray-500">
                 明細を編集できます。
@@ -462,97 +409,67 @@ export default function EditWarrantyInvoicePage() {
           <div className="mt-5 space-y-4">
             {items.map((item, index) => {
               const amount =
-                Number(item.quantity || 0) *
-                Number(item.unit_price || 0);
+                Number(item.quantity || 0) * Number(item.unit_price || 0);
 
               return (
-                <div
-                  key={index}
-                  className="rounded-xl border p-4"
-                >
+                <div key={index} className="rounded-xl border p-4">
                   <div className="grid gap-4 md:grid-cols-[1.5fr_1fr_100px_140px_140px_auto]">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        明細名
-                      </label>
+                      <label className="text-sm font-medium">明細名</label>
 
                       <input
                         type="text"
                         value={item.item_name}
                         onChange={(e) =>
-                          updateItem(
-                            index,
-                            "item_name",
-                            e.target.value
-                          )
+                          updateItem(index, "item_name", e.target.value)
                         }
                         className="w-full rounded-lg border px-3 py-2 outline-none"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        説明
-                      </label>
+                      <label className="text-sm font-medium">説明</label>
 
                       <input
                         type="text"
                         value={item.description}
                         onChange={(e) =>
-                          updateItem(
-                            index,
-                            "description",
-                            e.target.value
-                          )
+                          updateItem(index, "description", e.target.value)
                         }
                         className="w-full rounded-lg border px-3 py-2 outline-none"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        数量
-                      </label>
+                      <label className="text-sm font-medium">数量</label>
 
                       <input
                         type="number"
                         min="0"
                         value={item.quantity}
                         onChange={(e) =>
-                          updateItem(
-                            index,
-                            "quantity",
-                            e.target.value
-                          )
+                          updateItem(index, "quantity", e.target.value)
                         }
                         className="w-full rounded-lg border px-3 py-2 outline-none"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        単価
-                      </label>
+                      <label className="text-sm font-medium">単価</label>
 
                       <input
                         type="number"
                         min="0"
                         value={item.unit_price}
                         onChange={(e) =>
-                          updateItem(
-                            index,
-                            "unit_price",
-                            e.target.value
-                          )
+                          updateItem(index, "unit_price", e.target.value)
                         }
                         className="w-full rounded-lg border px-3 py-2 outline-none"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        金額
-                      </label>
+                      <label className="text-sm font-medium">金額</label>
 
                       <div className="rounded-lg border bg-gray-50 px-3 py-2 font-semibold">
                         {formatYen(amount)}
@@ -562,12 +479,8 @@ export default function EditWarrantyInvoicePage() {
                     <div className="flex items-end">
                       <button
                         type="button"
-                        onClick={() =>
-                          removeItem(index)
-                        }
-                        disabled={
-                          items.length === 1
-                        }
+                        onClick={() => removeItem(index)}
+                        disabled={items.length === 1}
                         className="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40"
                       >
                         削除
@@ -583,38 +496,28 @@ export default function EditWarrantyInvoicePage() {
             <div className="w-full max-w-sm space-y-2 rounded-xl border bg-gray-50 p-4">
               <div className="flex justify-between text-sm">
                 <span>小計</span>
-                <span>
-                  {formatYen(subtotal)}
-                </span>
+                <span>{formatYen(subtotal)}</span>
               </div>
 
               <div className="flex justify-between text-sm">
                 <span>消費税 10%</span>
-                <span>
-                  {formatYen(taxAmount)}
-                </span>
+                <span>{formatYen(taxAmount)}</span>
               </div>
 
               <div className="flex justify-between border-t pt-2 text-lg font-bold">
                 <span>合計</span>
-                <span>
-                  {formatYen(totalAmount)}
-                </span>
+                <span>{formatYen(totalAmount)}</span>
               </div>
             </div>
           </div>
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold">
-            備考
-          </h2>
+          <h2 className="text-base font-semibold">備考</h2>
 
           <textarea
             value={note}
-            onChange={(e) =>
-              setNote(e.target.value)
-            }
+            onChange={(e) => setNote(e.target.value)}
             className="mt-4 min-h-[120px] w-full rounded-lg border px-3 py-2 outline-none"
           />
         </div>
