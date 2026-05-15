@@ -13,8 +13,10 @@ export default function WarrantyInvoiceDeleteButton({ invoiceId }: Props) {
   const [message, setMessage] = useState("");
 
   async function handleDelete() {
+    console.log("削除ボタン押された");
+
     const confirmed = window.confirm(
-      "この請求書を削除します。明細も削除されます。本当に削除しますか？"
+      "この請求書を削除します。明細・送信履歴も削除されます。本当に削除しますか？"
     );
 
     if (!confirmed) return;
@@ -33,7 +35,11 @@ export default function WarrantyInvoiceDeleteButton({ invoiceId }: Props) {
         }),
       });
 
+      console.log("削除APIレスポンス", response);
+
       const result = await response.json();
+
+      console.log("削除API結果", result);
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || "請求書の削除に失敗しました");
@@ -42,6 +48,8 @@ export default function WarrantyInvoiceDeleteButton({ invoiceId }: Props) {
       router.push("/warranty-invoices");
       router.refresh();
     } catch (error) {
+      console.error("削除エラー", error);
+
       setMessage(
         error instanceof Error ? error.message : "請求書の削除に失敗しました"
       );
