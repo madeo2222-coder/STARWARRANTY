@@ -5,6 +5,7 @@ import WarrantyInvoiceSendForm from "./WarrantyInvoiceSendForm";
 import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
 import WarrantyInvoiceCopyButton from "./WarrantyInvoiceCopyButton";
 import WarrantyInvoiceReminderForm from "./WarrantyInvoiceReminderForm";
+import WarrantyInvoiceDeleteButton from "./WarrantyInvoiceDeleteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -171,6 +172,8 @@ export default async function WarrantyInvoiceDetailPage({
           </Link>
 
           <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
+
+          <WarrantyInvoiceDeleteButton invoiceId={invoiceData.id} />
 
           <form
             action="/api/generate-warranty-invoice-pdf"
