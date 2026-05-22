@@ -164,12 +164,14 @@ export default async function WarrantyInvoiceDetailPage({
             請求書一覧へ戻る
           </Link>
 
-          <Link
-            href={`/warranty-invoices/${invoiceData.id}/edit`}
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
-          >
-            編集
-          </Link>
+          {invoiceData.status === "draft" && (
+  <Link
+    href={`/warranty-invoices/${invoiceData.id}/edit`}
+    className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+  >
+    編集
+  </Link>
+)}
 
           <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
 
