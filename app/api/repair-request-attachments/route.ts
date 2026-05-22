@@ -97,11 +97,6 @@ export async function POST(request: Request) {
       uploadedUrls.push(publicUrlData.publicUrl);
     }
 
-    if (nextPath) {
-  const redirectUrl = new URL(nextPath, request.url);
-  redirectUrl.searchParams.set("photo_added", "1");
-  return NextResponse.redirect(redirectUrl, 303);
-}
 
     return NextResponse.json({
       success: true,
