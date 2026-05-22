@@ -18,6 +18,13 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+function getSafeStorageFileName(originalName: string) {
+  const ext = originalName.split(".").pop()?.toLowerCase() || "jpg";
+  const random = crypto.randomUUID();
+
+  return `${random}.${ext}`;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = getAdminClient();
@@ -50,18 +57,15 @@ export async function POST(request: Request) {
     const uploadedUrls: string[] = [];
 
     for (const file of files) {
-      const fileExt = file.name.split(".").pop() || "jpg";
-      const safeFileName =
-        file.name.replace(/[^\w.\-ぁ-んァ-ヶ一-龠]/g, "_") ||
-        `photo.${fileExt}`;
-      const fileName = `${requestId}/${Date.now()}-${safeFileName}`;
+      const storageFileName = getSafeStorageFileName(file.name);
+      const filePath = `${requestId}/${Date.now()}-${storageFileName}`;
 
       const arrayBuffer = await file.arrayBuffer();
       const buffer = new Uint8Array(arrayBuffer);
 
       const { error: uploadError } = await supabase.storage
         .from(BUCKET_NAME)
-        .upload(fileName, buffer, {
+        .upload(filePath, buffer, {
           contentType: file.type || "image/jpeg",
           upsert: false,
         });
@@ -75,18 +79,18 @@ export async function POST(request: Request) {
 
       const { data: publicUrlData } = supabase.storage
         .from(BUCKET_NAME)
-        .getPublicUrl(fileName);
+        .getPublicUrl(filePath);
 
-    const { error: insertError } = await supabase
-  .from("repair_request_attachments")
-  .insert({
-    repair_request_id: requestId,
-    file_path: fileName,
-    file_name: safeFileName,
-  });
-  
+      const { error: insertError } = await supabase
+        .from("repair_request_attachments")
+        .insert({
+          repair_request_id: requestId,
+          file_path: filePath,
+          file_name: file.name || storageFileName,
+        });
+
       if (insertError) {
-        await supabase.storage.from(BUCKET_NAME).remove([fileName]);
+        await supabase.storage.from(BUCKET_NAME).remove([filePath]);
 
         return NextResponse.json(
           { success: false, error: insertError.message },
@@ -97,17 +101,16 @@ export async function POST(request: Request) {
       uploadedUrls.push(publicUrlData.publicUrl);
     }
 
-if (nextPath) {
-  const redirectUrl = new URL(nextPath, request.url);
-  redirectUrl.searchParams.set("photo_added", "1");
-  return NextResponse.redirect(redirectUrl, 303);
-}
+    if (nextPath) {
+      const redirectUrl = new URL(nextPath, request.url);
+      redirectUrl.searchParams.set("photo_added", "1");
+      return NextResponse.redirect(redirectUrl, 303);
+    }
 
-return NextResponse.json({
-  success: true,
-  urls: uploadedUrls,
-});
-
+    return NextResponse.json({
+      success: true,
+      urls: uploadedUrls,
+    });
   } catch (error) {
     return NextResponse.json(
       {
