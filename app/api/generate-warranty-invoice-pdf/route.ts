@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   amountValue: {
-    fontSize: 28,
+    fontSize: 34,
     fontWeight: 700,
     color: "#1D4ED8",
   },
@@ -390,10 +390,11 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     lineHeight: 1.6,
   },
-  bankBox: {
-  borderWidth: 1,
-  borderColor: "#D1D5DB",
-  padding: 10,
+ bankBox: {
+  borderWidth: 2,
+  borderColor: "#2563EB",
+  padding: 12,
+  backgroundColor: "#EFF6FF",
 },
 
 bankTitle: {
@@ -493,10 +494,18 @@ function WarrantyInvoicePdf({
           `請求日：${formatDate(invoice.invoice_date)}`
         ),
         React.createElement(
-          Text,
-          { style: styles.metaText },
-          `支払期限：${formatDate(invoice.payment_due_date)}`
-        )
+  Text,
+  {
+    style: [
+      styles.metaText,
+      {
+        color: "#DC2626",
+        fontWeight: 700,
+      },
+    ],
+  },
+  `支払期限：${formatDate(invoice.payment_due_date)}`
+)
       ),
 
       React.createElement(
