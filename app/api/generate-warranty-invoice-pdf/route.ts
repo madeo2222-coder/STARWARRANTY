@@ -33,6 +33,7 @@ type WarrantyInvoice = {
   bank_account_info: string | null;
   note: string | null;
   status: string | null;
+  issuer_invoice_number?: string | null;
 };
 
 type WarrantyInvoiceItem = {
@@ -117,13 +118,8 @@ function formatPostalCode(value: string | null | undefined) {
   if (!value) return "";
   const raw = String(value).trim();
 
-  if (/^\d{7}$/.test(raw)) {
-    return `〒${raw.slice(0, 3)}-${raw.slice(3)}`;
-  }
-
-  if (/^\d{3}-\d{4}$/.test(raw)) {
-    return `〒${raw}`;
-  }
+  if (/^\d{7}$/.test(raw)) return `〒${raw.slice(0, 3)}-${raw.slice(3)}`;
+  if (/^\d{3}-\d{4}$/.test(raw)) return `〒${raw}`;
 
   return raw.startsWith("〒") ? raw : `〒${raw}`;
 }
@@ -152,123 +148,153 @@ async function getInvoiceId(req: Request) {
 const styles = StyleSheet.create({
   page: {
     fontFamily: "NotoSansJP",
-    fontSize: 10,
+    fontSize: 9,
     color: "#111827",
-    backgroundColor: "#ffffff",
-    paddingTop: 34,
-    paddingBottom: 40,
-    paddingHorizontal: 36,
+    backgroundColor: "#FFFFFF",
+    paddingTop: 26,
+    paddingBottom: 24,
+    paddingHorizontal: 30,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    borderBottomWidth: 2,
+    borderBottomColor: "#111827",
+    paddingBottom: 10,
+    marginBottom: 14,
+  },
+  brand: {
+    fontSize: 10,
+    color: "#2563EB",
+    fontWeight: 700,
+    marginBottom: 4,
   },
   title: {
-    textAlign: "center",
-    fontSize: 24,
+    fontSize: 25,
     fontWeight: 700,
-    marginBottom: 24,
-    letterSpacing: 2,
+    letterSpacing: 4,
+  },
+  metaRight: {
+    width: 190,
+    gap: 3,
+  },
+  metaLine: {
+    fontSize: 9,
+    lineHeight: 1.45,
+  },
+  metaDue: {
+    fontSize: 10,
+    lineHeight: 1.45,
+    color: "#DC2626",
+    fontWeight: 700,
   },
   topRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 20,
-    marginBottom: 22,
+    gap: 14,
+    marginBottom: 12,
   },
   billToBox: {
-    width: "48%",
-    borderBottomWidth: 1,
-    borderBottomColor: "#111827",
-    paddingBottom: 10,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 4,
+    padding: 10,
+    minHeight: 72,
   },
   issuerBox: {
-    width: "48%",
-    alignItems: "flex-start",
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 4,
+    padding: 10,
+    minHeight: 72,
   },
   logo: {
-    width: 120,
-    height: 44,
+    width: 110,
+    height: 34,
     objectFit: "contain",
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  sectionSmall: {
+    fontSize: 8,
+    color: "#6B7280",
+    marginBottom: 5,
   },
   billToName: {
-    fontSize: 17,
-    fontWeight: 700,
-    marginBottom: 8,
-  },
-  issuerName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 700,
     marginBottom: 7,
   },
+  issuerName: {
+    fontSize: 12,
+    fontWeight: 700,
+    marginBottom: 5,
+  },
   line: {
-    fontSize: 9.5,
-    lineHeight: 1.5,
-    marginBottom: 3,
-  },
-  metaBox: {
-    marginBottom: 18,
-    gap: 4,
-  },
-  metaText: {
-    fontSize: 10,
-    lineHeight: 1.5,
+    fontSize: 8.5,
+    lineHeight: 1.45,
   },
   subjectBox: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 12,
-    marginBottom: 18,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#F8FAFC",
+    padding: 9,
+    marginBottom: 10,
   },
   subjectLabel: {
-    fontSize: 9,
-    color: "#6B7280",
-    marginBottom: 4,
+    fontSize: 8,
+    color: "#64748B",
+    marginBottom: 3,
   },
   subjectText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 700,
   },
   amountBox: {
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
+    borderWidth: 2,
+    borderColor: "#2563EB",
     backgroundColor: "#EFF6FF",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 11,
   },
   amountLabel: {
-    fontSize: 11,
+    fontSize: 9,
     color: "#1D4ED8",
-    marginBottom: 6,
+    marginBottom: 5,
+    fontWeight: 700,
   },
   amountValue: {
-    fontSize: 34,
+    fontSize: 33,
     fontWeight: 700,
     color: "#1D4ED8",
   },
   table: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
-    marginBottom: 14,
+    marginBottom: 10,
   },
   row: {
     flexDirection: "row",
   },
   thName: {
-    width: "34%",
+    width: "33%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
+    backgroundColor: "#F3F4F6",
+    padding: 6,
     fontWeight: 700,
   },
   thDescription: {
-    width: "26%",
+    width: "27%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
+    backgroundColor: "#F3F4F6",
+    padding: 6,
     fontWeight: 700,
   },
   thQty: {
@@ -276,8 +302,8 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
+    backgroundColor: "#F3F4F6",
+    padding: 6,
     textAlign: "right",
     fontWeight: 700,
   },
@@ -286,8 +312,8 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
+    backgroundColor: "#F3F4F6",
+    padding: 6,
     textAlign: "right",
     fontWeight: 700,
   },
@@ -295,55 +321,62 @@ const styles = StyleSheet.create({
     width: "15%",
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
+    backgroundColor: "#F3F4F6",
+    padding: 6,
     textAlign: "right",
     fontWeight: 700,
   },
   tdName: {
-    width: "34%",
+    width: "33%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 8,
+    borderColor: "#E5E7EB",
+    padding: 6,
   },
   tdDescription: {
-    width: "26%",
+    width: "27%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 8,
+    borderColor: "#E5E7EB",
+    padding: 6,
   },
   tdQty: {
     width: "10%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 8,
+    borderColor: "#E5E7EB",
+    padding: 6,
     textAlign: "right",
   },
   tdUnit: {
     width: "15%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 8,
+    borderColor: "#E5E7EB",
+    padding: 6,
     textAlign: "right",
   },
   tdAmount: {
     width: "15%",
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 8,
+    borderColor: "#E5E7EB",
+    padding: 6,
     textAlign: "right",
   },
-  totalWrap: {
+  totalArea: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    marginBottom: 20,
+    gap: 12,
+    marginBottom: 10,
+  },
+  bankBox: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: "#2563EB",
+    backgroundColor: "#EFF6FF",
+    padding: 10,
   },
   totalBox: {
-    width: "42%",
+    width: 210,
     borderWidth: 1,
     borderColor: "#D1D5DB",
   },
@@ -354,59 +387,55 @@ const styles = StyleSheet.create({
   },
   totalRowLast: {
     flexDirection: "row",
+    backgroundColor: "#F9FAFB",
   },
   totalLabel: {
-    width: "45%",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
+    width: "42%",
+    padding: 7,
     borderRightWidth: 1,
     borderColor: "#D1D5DB",
+    fontWeight: 700,
   },
   totalValue: {
-    width: "55%",
-    padding: 8,
+    width: "58%",
+    padding: 7,
     textAlign: "right",
   },
   totalValueStrong: {
-    width: "55%",
-    padding: 8,
+    width: "58%",
+    padding: 7,
     textAlign: "right",
     fontSize: 13,
     fontWeight: 700,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: 700,
-    marginBottom: 7,
+    marginBottom: 5,
+  },
+  bankText: {
+    fontSize: 8.5,
+    lineHeight: 1.55,
   },
   noteBox: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
-    padding: 10,
-    minHeight: 52,
-    marginBottom: 12,
+    padding: 8,
+    minHeight: 38,
+    marginBottom: 8,
   },
   noteText: {
-    fontSize: 9.5,
-    lineHeight: 1.6,
+    fontSize: 8.5,
+    lineHeight: 1.5,
   },
- bankBox: {
-  borderWidth: 2,
-  borderColor: "#2563EB",
-  padding: 12,
-  backgroundColor: "#EFF6FF",
-},
-
-bankTitle: {
-  fontSize: 11,
-  fontWeight: 700,
-  marginBottom: 6,
-},
-
-bankText: {
-  fontSize: 9.5,
-  lineHeight: 1.8,
-},
+  footer: {
+    marginTop: 4,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    fontSize: 7.5,
+    color: "#6B7280",
+  },
 });
 
 function WarrantyInvoicePdf({
@@ -431,7 +460,35 @@ function WarrantyInvoicePdf({
     React.createElement(
       Page,
       { size: "A4", style: styles.page },
-      React.createElement(Text, { style: styles.title }, "請 求 書"),
+      React.createElement(
+        View,
+        { style: styles.header },
+        React.createElement(
+          View,
+          null,
+          React.createElement(Text, { style: styles.brand }, "STAR WARRANTY"),
+          React.createElement(Text, { style: styles.title }, "請 求 書")
+        ),
+        React.createElement(
+          View,
+          { style: styles.metaRight },
+          React.createElement(
+            Text,
+            { style: styles.metaLine },
+            `請求書番号：${safeText(invoice.invoice_no)}`
+          ),
+          React.createElement(
+            Text,
+            { style: styles.metaLine },
+            `請求日：${formatDate(invoice.invoice_date)}`
+          ),
+          React.createElement(
+            Text,
+            { style: styles.metaDue },
+            `支払期限：${formatDate(invoice.payment_due_date)}`
+          )
+        )
+      ),
 
       React.createElement(
         View,
@@ -439,7 +496,12 @@ function WarrantyInvoicePdf({
         React.createElement(
           View,
           { style: styles.billToBox },
-          React.createElement(Text, { style: styles.billToName }, `${billToName} 御中`),
+          React.createElement(Text, { style: styles.sectionSmall }, "ご請求先"),
+          React.createElement(
+            Text,
+            { style: styles.billToName },
+            `${billToName} 御中`
+          ),
           invoice.bill_to_name
             ? React.createElement(
                 Text,
@@ -448,7 +510,6 @@ function WarrantyInvoicePdf({
               )
             : null
         ),
-
         React.createElement(
           View,
           { style: styles.issuerBox },
@@ -482,37 +543,13 @@ function WarrantyInvoicePdf({
 
       React.createElement(
         View,
-        { style: styles.metaBox },
-        React.createElement(
-          Text,
-          { style: styles.metaText },
-          `請求書番号：${safeText(invoice.invoice_no)}`
-        ),
-        React.createElement(
-          Text,
-          { style: styles.metaText },
-          `請求日：${formatDate(invoice.invoice_date)}`
-        ),
-        React.createElement(
-  Text,
-  {
-    style: [
-      styles.metaText,
-      {
-        color: "#DC2626",
-        fontWeight: 700,
-      },
-    ],
-  },
-  `支払期限：${formatDate(invoice.payment_due_date)}`
-)
-      ),
-
-      React.createElement(
-        View,
         { style: styles.subjectBox },
         React.createElement(Text, { style: styles.subjectLabel }, "件名"),
-        React.createElement(Text, { style: styles.subjectText }, safeText(invoice.subject))
+        React.createElement(
+          Text,
+          { style: styles.subjectText },
+          safeText(invoice.subject)
+        )
       ),
 
       React.createElement(
@@ -542,7 +579,11 @@ function WarrantyInvoicePdf({
           React.createElement(
             View,
             { key: item.id, style: styles.row },
-            React.createElement(Text, { style: styles.tdName }, safeText(item.item_name)),
+            React.createElement(
+              Text,
+              { style: styles.tdName },
+              safeText(item.item_name)
+            ),
             React.createElement(
               Text,
               { style: styles.tdDescription },
@@ -553,15 +594,34 @@ function WarrantyInvoicePdf({
               { style: styles.tdQty },
               Number(item.quantity || 0).toLocaleString("ja-JP")
             ),
-            React.createElement(Text, { style: styles.tdUnit }, formatYen(item.unit_price)),
-            React.createElement(Text, { style: styles.tdAmount }, formatYen(item.amount))
+            React.createElement(
+              Text,
+              { style: styles.tdUnit },
+              formatYen(item.unit_price)
+            ),
+            React.createElement(
+              Text,
+              { style: styles.tdAmount },
+              formatYen(item.amount)
+            )
           )
         )
       ),
 
       React.createElement(
         View,
-        { style: styles.totalWrap },
+        { style: styles.totalArea },
+        React.createElement(
+          View,
+          { style: styles.bankBox },
+          React.createElement(Text, { style: styles.sectionTitle }, "お振込先"),
+          React.createElement(
+            Text,
+            { style: styles.bankText },
+            invoice.bank_account_info ||
+              "振込先情報が登録されていません。"
+          )
+        ),
         React.createElement(
           View,
           { style: styles.totalBox },
@@ -597,61 +657,7 @@ function WarrantyInvoicePdf({
           )
         )
       ),
-React.createElement(
-  View,
-  { style: styles.bankBox },
 
-  React.createElement(
-    Text,
-    { style: styles.bankTitle },
-    "お振込先"
-  ),
-
-  React.createElement(
-    Text,
-    { style: styles.bankText },
-    invoice.bank_account_info ||
-      "振込先情報が登録されていません。"
-  ),
-
-  headquarters?.note
-    ? React.createElement(
-        Text,
-        {
-          style: [
-            styles.bankText,
-            {
-              marginTop: 8,
-            },
-          ],
-        },
-        headquarters.note
-      )
-    : null
-),
-
-headquarters?.company_name
-  ? React.createElement(
-      View,
-      {
-        style: {
-          marginBottom: 14,
-        },
-      },
-
-      React.createElement(
-        Text,
-        {
-          style: styles.bankText,
-        },
-        `適格請求書発行事業者番号：${safeText(
-          (invoice as unknown as {
-            issuer_invoice_number?: string | null;
-          }).issuer_invoice_number
-        )}`
-      )
-    )
-  : null,
       React.createElement(Text, { style: styles.sectionTitle }, "備考"),
       React.createElement(
         View,
@@ -659,8 +665,18 @@ headquarters?.company_name
         React.createElement(
           Text,
           { style: styles.noteText },
-          invoice.note || headquarters?.note || "ご不明点がございましたら発行元までご連絡ください。"
+          invoice.note ||
+            headquarters?.note ||
+            "ご不明点がございましたら発行元までご連絡ください。"
         )
+      ),
+
+      React.createElement(
+        Text,
+        { style: styles.footer },
+        `適格請求書発行事業者番号：${safeText(
+          invoice.issuer_invoice_number
+        )}`
       )
     )
   );
