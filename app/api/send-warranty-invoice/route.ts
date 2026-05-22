@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     });
 
     const { data, error } = await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: "Star Warranty <onboarding@resend.dev>",
       to: [toEmail],
       subject,
       html,
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
   invoice_id: invoiceId,
   to_email: toEmail,
   subject,
-  send_type: "reminder",
+  send_type: "invoice",
   sent_at: new Date().toISOString(),
 });
 
