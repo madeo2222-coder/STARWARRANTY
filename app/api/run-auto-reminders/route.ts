@@ -322,7 +322,7 @@ async function runAutoReminders(req: Request) {
         });
 
         const { error: sendError } = await resend.emails.send({
-          from: "onboarding@resend.dev",
+          from: "Star Warranty <onboarding@resend.dev>",
           to: [toEmail],
           subject,
           html,
