@@ -173,7 +173,9 @@ export default async function WarrantyInvoiceDetailPage({
 
           <WarrantyInvoiceCopyButton invoiceId={invoiceData.id} />
 
-          <WarrantyInvoiceDeleteButton invoiceId={invoiceData.id} />
+          {invoiceData.status === "draft" && (
+  <WarrantyInvoiceDeleteButton invoiceId={invoiceData.id} />
+)}
 
           <form
             action="/api/generate-warranty-invoice-pdf"
