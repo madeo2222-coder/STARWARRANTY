@@ -64,6 +64,14 @@ type PdfProps = {
   headquarters: HeadquartersSettings | null;
 };
 
+const DEFAULT_COMPANY_NAME = "株式会社スター・ワランティ";
+const DEFAULT_PHONE = "0120-992-857";
+const DEFAULT_EMAIL = "fusumada@star-group2014.com";
+const DEFAULT_POSTAL_CODE = "101-0048";
+const DEFAULT_ADDRESS = "東京都千代田区神田司町2-14 大鷹ビル8F";
+const DEFAULT_BANK_INFO =
+  "住信SBIネット銀行（金融機関コード0038）\n法人第一支店（支店コード106）\n普通 2454033\nカ）スターワランティ";
+
 let fontRegistered = false;
 
 function ensureJapaneseFont() {
@@ -88,6 +96,11 @@ function ensureJapaneseFont() {
   });
 
   fontRegistered = true;
+}
+
+function getPublicImagePath(fileName: string) {
+  const filePath = path.join(process.cwd(), "public", fileName);
+  return fs.existsSync(filePath) ? filePath : "";
 }
 
 function getAdminClient() {
@@ -156,9 +169,10 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: "#111827",
     backgroundColor: "#ffffff",
-    paddingTop: 28,
-    paddingBottom: 26,
+    paddingTop: 26,
+    paddingBottom: 24,
     paddingHorizontal: 32,
+    position: "relative",
   },
   header: {
     flexDirection: "row",
@@ -166,19 +180,29 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     borderBottomWidth: 2,
     borderBottomColor: "#111827",
-    paddingBottom: 12,
-    marginBottom: 14,
+    paddingBottom: 10,
+    marginBottom: 13,
+  },
+  headerLeft: {
+    width: 230,
+  },
+  localLogo: {
+    width: 150,
+    height: 56,
+    objectFit: "contain",
+    marginBottom: 4,
   },
   brand: {
     fontSize: 11,
     color: "#111827",
     fontWeight: 700,
-    marginBottom: 5,
+    marginBottom: 4,
   },
   title: {
     fontSize: 27,
     fontWeight: 700,
     letterSpacing: 5,
+    textAlign: "center",
   },
   metaRight: {
     width: 210,
@@ -204,7 +228,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#111827",
     padding: 9,
-    minHeight: 68,
+    minHeight: 70,
   },
   issuerBox: {
     flex: 1,
@@ -212,7 +236,7 @@ const styles = StyleSheet.create({
     borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
     padding: 9,
-    minHeight: 68,
+    minHeight: 70,
   },
   logo: {
     width: 110,
@@ -378,6 +402,7 @@ const styles = StyleSheet.create({
     borderColor: "#111827",
     backgroundColor: "#ffffff",
     padding: 10,
+    minHeight: 76,
   },
   totalBox: {
     width: 220,
@@ -425,7 +450,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D1D5DB",
     padding: 8,
-    minHeight: 38,
+    minHeight: 44,
     marginBottom: 8,
   },
   noteText: {
@@ -440,6 +465,15 @@ const styles = StyleSheet.create({
     fontSize: 7.5,
     color: "#4B5563",
   },
+  seal: {
+    position: "absolute",
+    right: 42,
+    bottom: 58,
+    width: 82,
+    height: 82,
+    objectFit: "contain",
+    opacity: 0.78,
+  },
 });
 
 function WarrantyInvoicePdf({
@@ -450,13 +484,20 @@ function WarrantyInvoicePdf({
   const billToName =
     invoice.bill_to_company_name || invoice.bill_to_name || "宛先未設定";
 
-  const issuerName = headquarters?.company_name || "株式会社スター・ワランティ";
+  const issuerName = headquarters?.company_name || DEFAULT_COMPANY_NAME;
+  const issuerPhone = headquarters?.phone || DEFAULT_PHONE;
+  const issuerEmail = headquarters?.email || DEFAULT_EMAIL;
   const issuerAddress = [
-    formatPostalCode(headquarters?.postal_code),
-    headquarters?.address || "",
+    formatPostalCode(headquarters?.postal_code || DEFAULT_POSTAL_CODE),
+    headquarters?.address || DEFAULT_ADDRESS,
   ]
     .filter(Boolean)
     .join(" ");
+
+  const localLogoPath = getPublicImagePath("star-warranty-logo.jpg");
+  const localSealPath = getPublicImagePath("star-warranty-seal.jpg");
+
+  const bankInfo = invoice.bank_account_info || DEFAULT_BANK_INFO;
 
   return React.createElement(
     Document,
@@ -464,15 +505,28 @@ function WarrantyInvoicePdf({
     React.createElement(
       Page,
       { size: "A4", style: styles.page },
+      localSealPath
+        ? React.createElement(Image, {
+            style: styles.seal,
+            src: localSealPath,
+          })
+        : null,
+
       React.createElement(
         View,
         { style: styles.header },
         React.createElement(
           View,
-          null,
-          React.createElement(Text, { style: styles.brand }, issuerName),
-          React.createElement(Text, { style: styles.title }, "請 求 書")
+          { style: styles.headerLeft },
+          localLogoPath
+            ? React.createElement(Image, {
+                style: styles.localLogo,
+                src: localLogoPath,
+              })
+            : React.createElement(Text, { style: styles.brand }, issuerName),
+          React.createElement(Text, { style: styles.brand }, issuerName)
         ),
+        React.createElement(Text, { style: styles.title }, "請 求 書"),
         React.createElement(
           View,
           { style: styles.metaRight },
@@ -517,23 +571,18 @@ function WarrantyInvoicePdf({
         React.createElement(
           View,
           { style: styles.issuerBox },
-          headquarters?.logo_url
-            ? React.createElement(Image, {
-                style: styles.logo,
-                src: headquarters.logo_url,
-              })
-            : null,
+          React.createElement(Text, { style: styles.sectionSmall }, "発行元"),
           React.createElement(Text, { style: styles.issuerName }, issuerName),
           React.createElement(Text, { style: styles.line }, issuerAddress || "-"),
           React.createElement(
             Text,
             { style: styles.line },
-            `TEL：${safeText(headquarters?.phone)}`
+            `TEL：${safeText(issuerPhone)}`
           ),
           React.createElement(
             Text,
             { style: styles.line },
-            `Email：${safeText(headquarters?.email)}`
+            `Email：${safeText(issuerEmail)}`
           ),
           headquarters?.representative_name
             ? React.createElement(
@@ -619,11 +668,11 @@ function WarrantyInvoicePdf({
           View,
           { style: styles.bankBox },
           React.createElement(Text, { style: styles.sectionTitle }, "お振込先"),
+          React.createElement(Text, { style: styles.bankText }, bankInfo),
           React.createElement(
             Text,
             { style: styles.bankText },
-            invoice.bank_account_info ||
-              "振込先情報が登録されていません。"
+            "※恐れ入りますが、振込手数料は貴社負担にてお願いいたします。"
           )
         ),
         React.createElement(
@@ -671,7 +720,7 @@ function WarrantyInvoicePdf({
           { style: styles.noteText },
           invoice.note ||
             headquarters?.note ||
-            "ご不明点がございましたら発行元までご連絡ください。"
+            "※2026/4/1より株式会社バリュー・エージェントから業務譲渡し、株式会社スター・ワランティにて運営しております。\nご不明点がございましたら発行元までご連絡ください。"
         )
       ),
 
