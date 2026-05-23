@@ -176,47 +176,53 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "flex-start",
     borderBottomWidth: 2,
     borderBottomColor: "#111827",
     paddingBottom: 10,
     marginBottom: 13,
   },
-  headerLeft: {
-    width: 230,
+  headerLogoArea: {
+    width: 170,
+  },
+  headerTitleArea: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 8,
+  },
+  headerMetaArea: {
+    width: 190,
+    gap: 3,
+    paddingTop: 2,
   },
   localLogo: {
-    width: 150,
-    height: 56,
+    width: 145,
+    height: 58,
     objectFit: "contain",
-    marginBottom: 4,
   },
-  brand: {
+  fallbackBrand: {
     fontSize: 11,
     color: "#111827",
     fontWeight: 700,
-    marginBottom: 4,
+    marginTop: 12,
   },
   title: {
-    fontSize: 27,
+    fontSize: 28,
     fontWeight: 700,
     letterSpacing: 5,
     textAlign: "center",
   },
-  metaRight: {
-    width: 210,
-    gap: 3,
-  },
   metaLine: {
     fontSize: 9,
     lineHeight: 1.45,
+    textAlign: "right",
   },
   metaDue: {
     fontSize: 10,
     lineHeight: 1.45,
     color: "#B91C1C",
     fontWeight: 700,
+    textAlign: "right",
   },
   topRow: {
     flexDirection: "row",
@@ -237,12 +243,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
     padding: 9,
     minHeight: 70,
-  },
-  logo: {
-    width: 110,
-    height: 34,
-    objectFit: "contain",
-    marginBottom: 4,
   },
   sectionSmall: {
     fontSize: 8,
@@ -517,19 +517,22 @@ function WarrantyInvoicePdf({
         { style: styles.header },
         React.createElement(
           View,
-          { style: styles.headerLeft },
+          { style: styles.headerLogoArea },
           localLogoPath
             ? React.createElement(Image, {
                 style: styles.localLogo,
                 src: localLogoPath,
               })
-            : React.createElement(Text, { style: styles.brand }, issuerName),
-          React.createElement(Text, { style: styles.brand }, issuerName)
+            : React.createElement(Text, { style: styles.fallbackBrand }, "STAR WARRANTY")
         ),
-        React.createElement(Text, { style: styles.title }, "請 求 書"),
         React.createElement(
           View,
-          { style: styles.metaRight },
+          { style: styles.headerTitleArea },
+          React.createElement(Text, { style: styles.title }, "請 求 書")
+        ),
+        React.createElement(
+          View,
+          { style: styles.headerMetaArea },
           React.createElement(
             Text,
             { style: styles.metaLine },
