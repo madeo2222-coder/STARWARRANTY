@@ -36,12 +36,12 @@ function formatYen(value: number | null | undefined) {
   return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
 }
 
-function isBillable(status: string | null | undefined) {
+function isConfirmedInvoice(status: string | null | undefined) {
   return status === "issued" || status === "unpaid" || status === "paid";
 }
 
 function isUnpaid(status: string | null | undefined) {
-  return status === "issued" || status === "unpaid";
+  return status === "unpaid";
 }
 
 export default async function WarrantyInvoicesPage() {
@@ -68,8 +68,8 @@ export default async function WarrantyInvoicesPage() {
       error instanceof Error ? error.message : "請求書一覧の取得に失敗しました";
   }
 
-  const billableInvoices = invoices.filter((invoice) =>
-    isBillable(invoice.status)
+  const confirmedInvoices = invoices.filter((invoice) =>
+    isConfirmedInvoice(invoice.status)
   );
 
   const unpaidInvoices = invoices.filter((invoice) =>
@@ -84,7 +84,7 @@ export default async function WarrantyInvoicesPage() {
     now.getMonth() + 1
   ).padStart(2, "0")}`;
 
-  const currentMonthTotal = billableInvoices
+  const currentMonthTotal = confirmedInvoices
     .filter((invoice) => (invoice.invoice_date || "").startsWith(currentMonth))
     .reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
 
