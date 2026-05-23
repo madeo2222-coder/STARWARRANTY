@@ -119,11 +119,31 @@ export default function NewWarrantyInvoicePage() {
         throw new Error("宛先会社名または宛先名を入力してください");
       }
 
-      const validItems = items.filter((item) => item.item_name.trim());
-
-      if (validItems.length === 0) {
+      if (items.length === 0) {
         throw new Error("明細を1行以上入力してください");
       }
+
+      const hasBlankItemName = items.some((item) => !item.item_name.trim());
+
+      if (hasBlankItemName) {
+        throw new Error("明細名が未入力の行があります");
+      }
+
+      const itemRows = items.map((item, index) => ({
+        item_name: item.item_name.trim(),
+        description: item.description.trim() || null,
+        quantity: Number(item.quantity || 0),
+        unit_price: Number(item.unit_price || 0),
+        amount: Number(item.quantity || 0) * Number(item.unit_price || 0),
+        sort_order: index,
+      }));
+
+      const realSubtotal = itemRows.reduce(
+        (sum, item) => sum + Number(item.amount || 0),
+        0
+      );
+      const realTaxAmount = Math.floor(realSubtotal * taxRate);
+      const realTotalAmount = realSubtotal + realTaxAmount;
 
       const { data: invoice, error: invoiceError } = await supabase
         .from("warranty_invoices")
@@ -135,10 +155,10 @@ export default function NewWarrantyInvoicePage() {
           bill_to_company_name: billToCompanyName.trim() || null,
           bill_to_name: billToName.trim() || null,
           bill_to_email: billToEmail.trim() || null,
-          subtotal,
+          subtotal: realSubtotal,
           tax_rate: taxRate,
-          tax_amount: taxAmount,
-          total_amount: totalAmount,
+          tax_amount: realTaxAmount,
+          total_amount: realTotalAmount,
           status: "draft",
           note: note.trim() || null,
         })
@@ -149,19 +169,14 @@ export default function NewWarrantyInvoicePage() {
         throw new Error(invoiceError?.message || "請求書の作成に失敗しました");
       }
 
-      const itemRows = validItems.map((item, index) => ({
+      const insertItemRows = itemRows.map((item) => ({
+        ...item,
         invoice_id: invoice.id,
-        item_name: item.item_name.trim(),
-        description: item.description.trim() || null,
-        quantity: Number(item.quantity || 0),
-        unit_price: Number(item.unit_price || 0),
-        amount: Number(item.quantity || 0) * Number(item.unit_price || 0),
-        sort_order: index,
       }));
 
       const { error: itemsError } = await supabase
         .from("warranty_invoice_items")
-        .insert(itemRows);
+        .insert(insertItemRows);
 
       if (itemsError) {
         throw new Error(itemsError.message);
@@ -341,7 +356,9 @@ export default function NewWarrantyInvoicePage() {
                 <div key={index} className="rounded-xl border p-4">
                   <div className="grid gap-4 md:grid-cols-[1.5fr_1fr_100px_140px_140px_auto]">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">明細名</label>
+                      <label className="text-sm font-medium">
+                        明細名 <span className="text-red-600">*</span>
+                      </label>
                       <input
                         type="text"
                         value={item.item_name}
