@@ -172,7 +172,6 @@ const styles = StyleSheet.create({
     paddingTop: 26,
     paddingBottom: 24,
     paddingHorizontal: 32,
-    position: "relative",
   },
   header: {
     flexDirection: "row",
@@ -183,21 +182,21 @@ const styles = StyleSheet.create({
     marginBottom: 13,
   },
   headerLogoArea: {
-    width: 170,
+    width: 155,
   },
   headerTitleArea: {
     flex: 1,
     alignItems: "center",
-    paddingTop: 8,
+    paddingTop: 10,
+    paddingRight: 18,
   },
   headerMetaArea: {
-    width: 190,
-    gap: 3,
+    width: 210,
     paddingTop: 2,
   },
   localLogo: {
-    width: 145,
-    height: 58,
+    width: 140,
+    height: 56,
     objectFit: "contain",
   },
   fallbackBrand: {
@@ -214,12 +213,12 @@ const styles = StyleSheet.create({
   },
   metaLine: {
     fontSize: 9,
-    lineHeight: 1.45,
+    lineHeight: 1.55,
     textAlign: "right",
   },
   metaDue: {
     fontSize: 10,
-    lineHeight: 1.45,
+    lineHeight: 1.55,
     color: "#B91C1C",
     fontWeight: 700,
     textAlign: "right",
@@ -234,7 +233,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#111827",
     padding: 9,
-    minHeight: 70,
+    minHeight: 74,
   },
   issuerBox: {
     flex: 1,
@@ -242,7 +241,7 @@ const styles = StyleSheet.create({
     borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
     padding: 9,
-    minHeight: 70,
+    minHeight: 74,
   },
   sectionSmall: {
     fontSize: 8,
@@ -254,10 +253,22 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     marginBottom: 7,
   },
+  issuerNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
   issuerName: {
     fontSize: 12,
     fontWeight: 700,
-    marginBottom: 5,
+    flex: 1,
+    paddingRight: 8,
+  },
+  issuerSeal: {
+    width: 42,
+    height: 42,
+    objectFit: "contain",
   },
   line: {
     fontSize: 8.5,
@@ -465,15 +476,6 @@ const styles = StyleSheet.create({
     fontSize: 7.5,
     color: "#4B5563",
   },
-  seal: {
-    position: "absolute",
-    right: 42,
-    bottom: 58,
-    width: 82,
-    height: 82,
-    objectFit: "contain",
-    opacity: 0.78,
-  },
 });
 
 function WarrantyInvoicePdf({
@@ -505,13 +507,6 @@ function WarrantyInvoicePdf({
     React.createElement(
       Page,
       { size: "A4", style: styles.page },
-      localSealPath
-        ? React.createElement(Image, {
-            style: styles.seal,
-            src: localSealPath,
-          })
-        : null,
-
       React.createElement(
         View,
         { style: styles.header },
@@ -523,7 +518,11 @@ function WarrantyInvoicePdf({
                 style: styles.localLogo,
                 src: localLogoPath,
               })
-            : React.createElement(Text, { style: styles.fallbackBrand }, "STAR WARRANTY")
+            : React.createElement(
+                Text,
+                { style: styles.fallbackBrand },
+                "STAR WARRANTY"
+              )
         ),
         React.createElement(
           View,
@@ -575,7 +574,17 @@ function WarrantyInvoicePdf({
           View,
           { style: styles.issuerBox },
           React.createElement(Text, { style: styles.sectionSmall }, "発行元"),
-          React.createElement(Text, { style: styles.issuerName }, issuerName),
+          React.createElement(
+            View,
+            { style: styles.issuerNameRow },
+            React.createElement(Text, { style: styles.issuerName }, issuerName),
+            localSealPath
+              ? React.createElement(Image, {
+                  style: styles.issuerSeal,
+                  src: localSealPath,
+                })
+              : null
+          ),
           React.createElement(Text, { style: styles.line }, issuerAddress || "-"),
           React.createElement(
             Text,
