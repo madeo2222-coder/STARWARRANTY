@@ -36,6 +36,32 @@ export async function POST(req: Request) {
 
     const supabase = getAdminClient();
 
+    const { data: invoice, error: invoiceFetchError } = await supabase
+      .from("warranty_invoices")
+      .select("id, status")
+      .eq("id", invoiceId)
+      .single();
+
+    if (invoiceFetchError || !invoice) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: invoiceFetchError?.message || "請求書が見つかりません",
+        },
+        { status: 404 }
+      );
+    }
+
+    if (invoice.status !== "draft") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "下書き以外の請求書は削除できません",
+        },
+        { status: 400 }
+      );
+    }
+
     const { error: itemsError } = await supabase
       .from("warranty_invoice_items")
       .delete()
