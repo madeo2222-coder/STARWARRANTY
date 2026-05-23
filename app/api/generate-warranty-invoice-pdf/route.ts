@@ -118,8 +118,13 @@ function formatPostalCode(value: string | null | undefined) {
   if (!value) return "";
   const raw = String(value).trim();
 
-  if (/^\d{7}$/.test(raw)) return `〒${raw.slice(0, 3)}-${raw.slice(3)}`;
-  if (/^\d{3}-\d{4}$/.test(raw)) return `〒${raw}`;
+  if (/^\d{7}$/.test(raw)) {
+    return `〒${raw.slice(0, 3)}-${raw.slice(3)}`;
+  }
+
+  if (/^\d{3}-\d{4}$/.test(raw)) {
+    return `〒${raw}`;
+  }
 
   return raw.startsWith("〒") ? raw : `〒${raw}`;
 }
@@ -150,10 +155,10 @@ const styles = StyleSheet.create({
     fontFamily: "NotoSansJP",
     fontSize: 9,
     color: "#111827",
-    backgroundColor: "#FFFFFF",
-    paddingTop: 26,
-    paddingBottom: 24,
-    paddingHorizontal: 30,
+    backgroundColor: "#ffffff",
+    paddingTop: 28,
+    paddingBottom: 26,
+    paddingHorizontal: 32,
   },
   header: {
     flexDirection: "row",
@@ -161,22 +166,22 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     borderBottomWidth: 2,
     borderBottomColor: "#111827",
-    paddingBottom: 10,
+    paddingBottom: 12,
     marginBottom: 14,
   },
   brand: {
-    fontSize: 10,
-    color: "#2563EB",
+    fontSize: 11,
+    color: "#111827",
     fontWeight: 700,
-    marginBottom: 4,
+    marginBottom: 5,
   },
   title: {
-    fontSize: 25,
+    fontSize: 27,
     fontWeight: 700,
-    letterSpacing: 4,
+    letterSpacing: 5,
   },
   metaRight: {
-    width: 190,
+    width: 210,
     gap: 3,
   },
   metaLine: {
@@ -186,7 +191,7 @@ const styles = StyleSheet.create({
   metaDue: {
     fontSize: 10,
     lineHeight: 1.45,
-    color: "#DC2626",
+    color: "#B91C1C",
     fontWeight: 700,
   },
   topRow: {
@@ -196,20 +201,18 @@ const styles = StyleSheet.create({
   },
   billToBox: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 4,
-    padding: 10,
-    minHeight: 72,
+    borderBottomWidth: 1,
+    borderBottomColor: "#111827",
+    padding: 9,
+    minHeight: 68,
   },
   issuerBox: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
-    borderRadius: 4,
-    padding: 10,
-    minHeight: 72,
+    padding: 9,
+    minHeight: 68,
   },
   logo: {
     width: 110,
@@ -223,7 +226,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   billToName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: 700,
     marginBottom: 7,
   },
@@ -238,14 +241,14 @@ const styles = StyleSheet.create({
   },
   subjectBox: {
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#F8FAFC",
-    padding: 9,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#F9FAFB",
+    padding: 8,
     marginBottom: 10,
   },
   subjectLabel: {
     fontSize: 8,
-    color: "#64748B",
+    color: "#6B7280",
     marginBottom: 3,
   },
   subjectText: {
@@ -254,46 +257,47 @@ const styles = StyleSheet.create({
   },
   amountBox: {
     borderWidth: 2,
-    borderColor: "#2563EB",
-    backgroundColor: "#EFF6FF",
-    paddingVertical: 12,
+    borderColor: "#111827",
+    backgroundColor: "#F8FAFC",
+    paddingVertical: 13,
     paddingHorizontal: 14,
-    marginBottom: 11,
+    marginBottom: 12,
+    alignItems: "center",
   },
   amountLabel: {
-    fontSize: 9,
-    color: "#1D4ED8",
+    fontSize: 10,
+    color: "#111827",
     marginBottom: 5,
     fontWeight: 700,
   },
   amountValue: {
-    fontSize: 33,
+    fontSize: 34,
     fontWeight: 700,
-    color: "#1D4ED8",
+    color: "#111827",
   },
   table: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#111827",
     marginBottom: 10,
   },
   row: {
     flexDirection: "row",
   },
   thName: {
-    width: "33%",
+    width: "34%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F3F4F6",
+    borderColor: "#111827",
+    backgroundColor: "#E5E7EB",
     padding: 6,
     fontWeight: 700,
   },
   thDescription: {
-    width: "27%",
+    width: "26%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F3F4F6",
+    borderColor: "#111827",
+    backgroundColor: "#E5E7EB",
     padding: 6,
     fontWeight: 700,
   },
@@ -301,8 +305,8 @@ const styles = StyleSheet.create({
     width: "10%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F3F4F6",
+    borderColor: "#111827",
+    backgroundColor: "#E5E7EB",
     padding: 6,
     textAlign: "right",
     fontWeight: 700,
@@ -311,8 +315,8 @@ const styles = StyleSheet.create({
     width: "15%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F3F4F6",
+    borderColor: "#111827",
+    backgroundColor: "#E5E7EB",
     padding: 6,
     textAlign: "right",
     fontWeight: 700,
@@ -320,31 +324,31 @@ const styles = StyleSheet.create({
   thAmount: {
     width: "15%",
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F3F4F6",
+    borderColor: "#111827",
+    backgroundColor: "#E5E7EB",
     padding: 6,
     textAlign: "right",
     fontWeight: 700,
   },
   tdName: {
-    width: "33%",
+    width: "34%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#D1D5DB",
     padding: 6,
   },
   tdDescription: {
-    width: "27%",
+    width: "26%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#D1D5DB",
     padding: 6,
   },
   tdQty: {
     width: "10%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#D1D5DB",
     padding: 6,
     textAlign: "right",
   },
@@ -352,14 +356,14 @@ const styles = StyleSheet.create({
     width: "15%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#D1D5DB",
     padding: 6,
     textAlign: "right",
   },
   tdAmount: {
     width: "15%",
     borderBottomWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#D1D5DB",
     padding: 6,
     textAlign: "right",
   },
@@ -370,30 +374,30 @@ const styles = StyleSheet.create({
   },
   bankBox: {
     flex: 1,
-    borderWidth: 2,
-    borderColor: "#2563EB",
-    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#111827",
+    backgroundColor: "#ffffff",
     padding: 10,
   },
   totalBox: {
-    width: 210,
+    width: 220,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#111827",
   },
   totalRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#111827",
   },
   totalRowLast: {
     flexDirection: "row",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F3F4F6",
   },
   totalLabel: {
     width: "42%",
     padding: 7,
     borderRightWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#111827",
     fontWeight: 700,
   },
   totalValue: {
@@ -432,9 +436,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: "#D1D5DB",
     fontSize: 7.5,
-    color: "#6B7280",
+    color: "#4B5563",
   },
 });
 
@@ -466,7 +470,7 @@ function WarrantyInvoicePdf({
         React.createElement(
           View,
           null,
-          React.createElement(Text, { style: styles.brand }, "STAR WARRANTY"),
+          React.createElement(Text, { style: styles.brand }, issuerName),
           React.createElement(Text, { style: styles.title }, "請 求 書")
         ),
         React.createElement(
@@ -569,11 +573,11 @@ function WarrantyInvoicePdf({
         React.createElement(
           View,
           { style: styles.row },
-          React.createElement(Text, { style: styles.thName }, "明細名"),
+          React.createElement(Text, { style: styles.thName }, "摘要"),
           React.createElement(Text, { style: styles.thDescription }, "説明"),
           React.createElement(Text, { style: styles.thQty }, "数量"),
           React.createElement(Text, { style: styles.thUnit }, "単価"),
-          React.createElement(Text, { style: styles.thAmount }, "金額")
+          React.createElement(Text, { style: styles.thAmount }, "明細金額")
         ),
         ...items.map((item) =>
           React.createElement(
