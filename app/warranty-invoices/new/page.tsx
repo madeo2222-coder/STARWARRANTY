@@ -119,6 +119,10 @@ export default function NewWarrantyInvoicePage() {
         throw new Error("宛先会社名または宛先名を入力してください");
       }
 
+      if (!billToEmail.trim()) {
+        throw new Error("請求先メールアドレスは必須です");
+      }
+
       if (items.length === 0) {
         throw new Error("明細を1行以上入力してください");
       }
@@ -154,7 +158,7 @@ export default function NewWarrantyInvoicePage() {
           subject: subject.trim() || null,
           bill_to_company_name: billToCompanyName.trim() || null,
           bill_to_name: billToName.trim() || null,
-          bill_to_email: billToEmail.trim() || null,
+          bill_to_email: billToEmail.trim(),
           subtotal: realSubtotal,
           tax_rate: taxRate,
           tax_amount: realTaxAmount,
@@ -292,16 +296,19 @@ export default function NewWarrantyInvoicePage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">請求先メールアドレス</label>
+              <label className="text-sm font-medium">
+                請求先メールアドレス <span className="text-red-600">*</span>
+              </label>
               <input
                 type="email"
                 value={billToEmail}
                 onChange={(e) => setBillToEmail(e.target.value)}
+                required
                 className="w-full rounded-lg border px-3 py-2 outline-none"
                 placeholder="example@example.com"
               />
               <p className="text-xs text-gray-500">
-                請求書送信・督促メール送信に使用します。
+                請求書送信・督促メール送信・自動督促に使用します。
               </p>
             </div>
 
