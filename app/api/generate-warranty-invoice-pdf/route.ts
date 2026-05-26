@@ -173,36 +173,35 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     paddingHorizontal: 32,
   },
- header: {
-  position: "relative",
-  borderBottomWidth: 2,
-  borderBottomColor: "#111827",
-  paddingBottom: 10,
-  marginBottom: 13,
-  minHeight: 70,
-},
-
-headerLogoArea: {
-  position: "absolute",
-  left: 0,
-  top: 0,
-  width: 160,
-},
-
-headerTitleArea: {
-  position: "absolute",
-  left: 0,
-  right: 0,
-  top: 18,
-  alignItems: "center",
-},
-
-headerMetaArea: {
-  position: "absolute",
-  right: 0,
-  top: 0,
-  width: 200,
-},
+  header: {
+    position: "relative",
+    borderBottomWidth: 2,
+    borderBottomColor: "#111827",
+    paddingBottom: 12,
+    marginBottom: 16,
+    minHeight: 96,
+  },
+  headerLogoArea: {
+    position: "absolute",
+    left: 0,
+    top: 4,
+    width: 160,
+  },
+  headerTitleArea: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 84,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerMetaArea: {
+    position: "absolute",
+    right: 0,
+    top: 14,
+    width: 205,
+  },
   localLogo: {
     width: 140,
     height: 56,
@@ -222,12 +221,12 @@ headerMetaArea: {
   },
   metaLine: {
     fontSize: 9,
-    lineHeight: 1.55,
+    lineHeight: 1.7,
     textAlign: "right",
   },
   metaDue: {
     fontSize: 10,
-    lineHeight: 1.55,
+    lineHeight: 1.7,
     color: "#B91C1C",
     fontWeight: 700,
     textAlign: "right",

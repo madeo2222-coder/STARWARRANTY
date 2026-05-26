@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     });
 
     const { data, error } = await resend.emails.send({
-      from: "Star Warranty <onboarding@resend.dev>",
+      from: "onboarding@resend.dev",
       to: [toEmail],
       subject,
       html,
