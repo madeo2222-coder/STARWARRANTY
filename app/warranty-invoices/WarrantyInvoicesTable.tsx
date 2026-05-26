@@ -152,7 +152,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
     try {
       setSendingInvoiceId(invoice.id);
 
-      const res = await fetch("/api/send-warranty-invoice-email", {
+      const res = await fetch("/api/send-warranty-invoice", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
