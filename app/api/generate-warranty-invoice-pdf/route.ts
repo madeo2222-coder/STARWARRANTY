@@ -173,27 +173,36 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     paddingHorizontal: 32,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    borderBottomWidth: 2,
-    borderBottomColor: "#111827",
-    paddingBottom: 10,
-    marginBottom: 13,
-  },
-  headerLogoArea: {
-    width: 155,
-  },
-  headerTitleArea: {
-    flex: 1,
-    alignItems: "center",
-    paddingTop: 10,
-    paddingRight: 18,
-  },
-  headerMetaArea: {
-    width: 210,
-    paddingTop: 2,
-  },
+ header: {
+  position: "relative",
+  borderBottomWidth: 2,
+  borderBottomColor: "#111827",
+  paddingBottom: 10,
+  marginBottom: 13,
+  minHeight: 70,
+},
+
+headerLogoArea: {
+  position: "absolute",
+  left: 0,
+  top: 0,
+  width: 160,
+},
+
+headerTitleArea: {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  top: 18,
+  alignItems: "center",
+},
+
+headerMetaArea: {
+  position: "absolute",
+  right: 0,
+  top: 0,
+  width: 200,
+},
   localLogo: {
     width: 140,
     height: 56,
