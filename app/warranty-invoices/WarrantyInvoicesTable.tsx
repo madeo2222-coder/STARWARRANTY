@@ -80,6 +80,10 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
+  const [remindingInvoiceId, setRemindingInvoiceId] = useState<string | null>(
+    null
+  );
 
   const filteredInvoices = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -106,6 +110,125 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
       return matchesKeyword && matchesStatus && matchesOverdue;
     });
   }, [invoices, keyword, statusFilter, overdueOnly]);
+
+  const handleOpenPdf = async (invoiceId: string) => {
+    try {
+      const res = await fetch("/api/generate-warranty-invoice-pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ invoice_id: invoiceId }),
+      });
+
+      if (!res.ok) {
+        alert("PDF生成に失敗しました");
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      window.open(url, "_blank");
+    } catch (error) {
+      console.error(error);
+      alert("PDF表示エラー");
+    }
+  };
+
+  const handleSendInvoice = async (invoice: WarrantyInvoiceRow) => {
+    const toEmail = window.prompt(
+      "請求書を送信するメールアドレスを入力してください"
+    );
+
+    if (!toEmail || !toEmail.trim()) return;
+
+    const ok = window.confirm(
+      `${toEmail.trim()} に請求書PDFを送信します。よろしいですか？`
+    );
+
+    if (!ok) return;
+
+    try {
+      setSendingInvoiceId(invoice.id);
+
+      const res = await fetch("/api/send-warranty-invoice-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          invoice_id: invoice.id,
+          to_email: toEmail.trim(),
+          subject: "【株式会社スター・ワランティ】請求書送付のご案内",
+        }),
+      });
+
+      const result = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || !result.success) {
+        alert(result.error || "請求書メール送信に失敗しました");
+        return;
+      }
+
+      alert("請求書メールを送信しました");
+    } catch (error) {
+      console.error(error);
+      alert("請求書メール送信中にエラーが発生しました");
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  };
+
+  const handleSendReminder = async (invoice: WarrantyInvoiceRow) => {
+    const toEmail = window.prompt(
+      "督促メールを送信するメールアドレスを入力してください"
+    );
+
+    if (!toEmail || !toEmail.trim()) return;
+
+    const ok = window.confirm(
+      `${toEmail.trim()} に督促メールを送信します。よろしいですか？`
+    );
+
+    if (!ok) return;
+
+    try {
+      setRemindingInvoiceId(invoice.id);
+
+      const res = await fetch("/api/send-warranty-invoice-reminder", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          invoice_id: invoice.id,
+          to_email: toEmail.trim(),
+          subject: "【株式会社スター・ワランティ】請求書ご確認のお願い",
+        }),
+      });
+
+      const result = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!res.ok || !result.success) {
+        alert(result.error || "督促メール送信に失敗しました");
+        return;
+      }
+
+      alert("督促メールを送信しました");
+    } catch (error) {
+      console.error(error);
+      alert("督促メール送信中にエラーが発生しました");
+    } finally {
+      setRemindingInvoiceId(null);
+    }
+  };
 
   return (
     <div className="rounded-2xl border bg-white shadow-sm">
@@ -180,6 +303,8 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                   "未設定";
 
                 const overdue = isOverdue(invoice);
+                const isSending = sendingInvoiceId === invoice.id;
+                const isReminding = remindingInvoiceId === invoice.id;
 
                 return (
                   <tr key={invoice.id} className="border-t hover:bg-gray-50">
@@ -222,12 +347,40 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                     </td>
 
                     <td className="whitespace-nowrap px-4 py-3">
-                      <Link
-                        href={`/warranty-invoices/${invoice.id}`}
-                        className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
-                      >
-                        詳細を見る
-                      </Link>
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/warranty-invoices/${invoice.id}`}
+                          className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
+                        >
+                          詳細
+                        </Link>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPdf(invoice.id)}
+                          className="rounded-lg border bg-black px-3 py-2 text-xs text-white hover:bg-gray-800"
+                        >
+                          PDF
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendInvoice(invoice)}
+                          disabled={isSending || isReminding}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isSending ? "送信中" : "送信"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendReminder(invoice)}
+                          disabled={isSending || isReminding}
+                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isReminding ? "送信中" : "督促"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
