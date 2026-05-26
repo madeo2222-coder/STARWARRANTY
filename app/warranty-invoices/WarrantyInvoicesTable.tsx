@@ -14,6 +14,8 @@ type WarrantyInvoiceRow = {
   payment_due_date: string | null;
   status: string | null;
   created_at: string | null;
+  last_invoice_sent_at: string | null;
+  last_reminder_sent_at: string | null;
 };
 
 type Props = {
@@ -27,6 +29,20 @@ function formatYen(value: number | null | undefined) {
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
   return value;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function statusLabel(status: string | null | undefined) {
@@ -70,10 +86,7 @@ function isOverdue(invoice: WarrantyInvoiceRow) {
   if (!isUnpaid(invoice.status)) return false;
   if (!invoice.payment_due_date) return false;
 
-  const now = new Date();
-  const dueDate = new Date(invoice.payment_due_date);
-
-  return dueDate.getTime() < now.getTime();
+  return new Date(invoice.payment_due_date).getTime() < new Date().getTime();
 }
 
 export default function WarrantyInvoicesTable({ invoices }: Props) {
@@ -81,9 +94,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
-  const [remindingInvoiceId, setRemindingInvoiceId] = useState<string | null>(
-    null
-  );
+  const [remindingInvoiceId, setRemindingInvoiceId] = useState<string | null>(null);
 
   const filteredInvoices = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -99,15 +110,11 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
         .join(" ")
         .toLowerCase();
 
-      const matchesKeyword =
-        !normalizedKeyword || searchableText.includes(normalizedKeyword);
-
-      const matchesStatus =
-        statusFilter === "all" || invoice.status === statusFilter;
-
-      const matchesOverdue = !overdueOnly || isOverdue(invoice);
-
-      return matchesKeyword && matchesStatus && matchesOverdue;
+      return (
+        (!normalizedKeyword || searchableText.includes(normalizedKeyword)) &&
+        (statusFilter === "all" || invoice.status === statusFilter) &&
+        (!overdueOnly || isOverdue(invoice))
+      );
     });
   }, [invoices, keyword, statusFilter, overdueOnly]);
 
@@ -115,9 +122,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
     try {
       const res = await fetch("/api/generate-warranty-invoice-pdf", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invoice_id: invoiceId }),
       });
 
@@ -128,7 +133,6 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
 
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-
       window.open(url, "_blank");
     } catch (error) {
       console.error(error);
@@ -137,26 +141,17 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
   };
 
   const handleSendInvoice = async (invoice: WarrantyInvoiceRow) => {
-    const toEmail = window.prompt(
-      "請求書を送信するメールアドレスを入力してください"
-    );
-
+    const toEmail = window.prompt("請求書を送信するメールアドレスを入力してください");
     if (!toEmail || !toEmail.trim()) return;
 
-    const ok = window.confirm(
-      `${toEmail.trim()} に請求書PDFを送信します。よろしいですか？`
-    );
-
-    if (!ok) return;
+    if (!window.confirm(`${toEmail.trim()} に請求書PDFを送信します。よろしいですか？`)) return;
 
     try {
       setSendingInvoiceId(invoice.id);
 
       const res = await fetch("/api/send-warranty-invoice", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invoice_id: invoice.id,
           to_email: toEmail.trim(),
@@ -164,17 +159,14 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
         }),
       });
 
-      const result = (await res.json()) as {
-        success?: boolean;
-        error?: string;
-      };
+      const result = (await res.json()) as { success?: boolean; error?: string };
 
       if (!res.ok || !result.success) {
         alert(result.error || "請求書メール送信に失敗しました");
         return;
       }
 
-      alert("請求書メールを送信しました");
+      alert("請求書メールを送信しました。画面を再読み込みすると送信履歴が反映されます。");
     } catch (error) {
       console.error(error);
       alert("請求書メール送信中にエラーが発生しました");
@@ -184,26 +176,17 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
   };
 
   const handleSendReminder = async (invoice: WarrantyInvoiceRow) => {
-    const toEmail = window.prompt(
-      "督促メールを送信するメールアドレスを入力してください"
-    );
-
+    const toEmail = window.prompt("督促メールを送信するメールアドレスを入力してください");
     if (!toEmail || !toEmail.trim()) return;
 
-    const ok = window.confirm(
-      `${toEmail.trim()} に督促メールを送信します。よろしいですか？`
-    );
-
-    if (!ok) return;
+    if (!window.confirm(`${toEmail.trim()} に督促メールを送信します。よろしいですか？`)) return;
 
     try {
       setRemindingInvoiceId(invoice.id);
 
       const res = await fetch("/api/send-warranty-invoice-reminder", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invoice_id: invoice.id,
           to_email: toEmail.trim(),
@@ -211,17 +194,14 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
         }),
       });
 
-      const result = (await res.json()) as {
-        success?: boolean;
-        error?: string;
-      };
+      const result = (await res.json()) as { success?: boolean; error?: string };
 
       if (!res.ok || !result.success) {
         alert(result.error || "督促メール送信に失敗しました");
         return;
       }
 
-      alert("督促メールを送信しました");
+      alert("督促メールを送信しました。画面を再読み込みすると送信履歴が反映されます。");
     } catch (error) {
       console.error(error);
       alert("督促メール送信中にエラーが発生しました");
@@ -276,9 +256,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
       </div>
 
       {filteredInvoices.length === 0 ? (
-        <div className="p-6 text-sm text-gray-500">
-          条件に一致する請求書はありません。
-        </div>
+        <div className="p-6 text-sm text-gray-500">条件に一致する請求書はありません。</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -291,6 +269,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                 <th className="px-4 py-3 font-medium">請求額</th>
                 <th className="px-4 py-3 font-medium">支払期限</th>
                 <th className="px-4 py-3 font-medium">状態</th>
+                <th className="px-4 py-3 font-medium">送信履歴</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
@@ -298,9 +277,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
             <tbody>
               {filteredInvoices.map((invoice) => {
                 const billTo =
-                  invoice.bill_to_company_name ||
-                  invoice.bill_to_name ||
-                  "未設定";
+                  invoice.bill_to_company_name || invoice.bill_to_name || "未設定";
 
                 const overdue = isOverdue(invoice);
                 const isSending = sendingInvoiceId === invoice.id;
@@ -311,34 +288,18 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
                       {invoice.invoice_no || "-"}
                     </td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {formatDate(invoice.invoice_date)}
-                    </td>
-
+                    <td className="whitespace-nowrap px-4 py-3">{formatDate(invoice.invoice_date)}</td>
                     <td className="whitespace-nowrap px-4 py-3">{billTo}</td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {invoice.subject || "-"}
-                    </td>
-
+                    <td className="whitespace-nowrap px-4 py-3">{invoice.subject || "-"}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-semibold">
                       {formatYen(invoice.total_amount)}
                     </td>
+                    <td className="whitespace-nowrap px-4 py-3">{formatDate(invoice.payment_due_date)}</td>
 
                     <td className="whitespace-nowrap px-4 py-3">
-                      {formatDate(invoice.payment_due_date)}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          invoice.status
-                        )}`}
-                      >
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(invoice.status)}`}>
                         {statusLabel(invoice.status)}
                       </span>
-
                       {overdue ? (
                         <span className="ml-2 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">
                           期限超過
@@ -346,20 +307,26 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                       ) : null}
                     </td>
 
+                    <td className="min-w-[180px] whitespace-nowrap px-4 py-3 text-xs">
+                      <div className="space-y-1">
+                        <div>
+                          <span className="font-medium text-blue-700">請求送信：</span>
+                          {formatDateTime(invoice.last_invoice_sent_at)}
+                        </div>
+                        <div>
+                          <span className="font-medium text-red-700">督促：</span>
+                          {formatDateTime(invoice.last_reminder_sent_at)}
+                        </div>
+                      </div>
+                    </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <Link
-                          href={`/warranty-invoices/${invoice.id}`}
-                          className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
-                        >
+                        <Link href={`/warranty-invoices/${invoice.id}`} className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50">
                           詳細
                         </Link>
 
-                        <button
-                          type="button"
-                          onClick={() => handleOpenPdf(invoice.id)}
-                          className="rounded-lg border bg-black px-3 py-2 text-xs text-white hover:bg-gray-800"
-                        >
+                        <button type="button" onClick={() => handleOpenPdf(invoice.id)} className="rounded-lg border bg-black px-3 py-2 text-xs text-white hover:bg-gray-800">
                           PDF
                         </button>
 
@@ -369,7 +336,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                           disabled={isSending || isReminding}
                           className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {isSending ? "送信中" : "送信"}
+                          {isSending ? "送信中" : invoice.last_invoice_sent_at ? "再送信" : "送信"}
                         </button>
 
                         <button
@@ -378,7 +345,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                           disabled={isSending || isReminding}
                           className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {isReminding ? "送信中" : "督促"}
+                          {isReminding ? "送信中" : invoice.last_reminder_sent_at ? "再督促" : "督促"}
                         </button>
                       </div>
                     </td>
