@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -10,6 +10,17 @@ type InvoiceItem = {
   description: string;
   quantity: number;
   unit_price: number;
+};
+
+type WarrantyCustomer = {
+  id: string;
+  company_name: string | null;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  postal_code: string | null;
+  address: string | null;
+  created_at: string | null;
 };
 
 function buildInvoiceNo() {
@@ -43,6 +54,9 @@ export default function NewWarrantyInvoicePage() {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
+  const [customers, setCustomers] = useState<WarrantyCustomer[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+
   const [invoiceNo] = useState(buildInvoiceNo());
   const [invoiceDate, setInvoiceDate] = useState(today());
   const [paymentDueDate, setPaymentDueDate] = useState("");
@@ -63,6 +77,24 @@ export default function NewWarrantyInvoicePage() {
     },
   ]);
 
+  useEffect(() => {
+    async function fetchCustomers() {
+      const { data, error } = await supabase
+        .from("warranty_customers")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("warranty_customers fetch error:", error);
+        return;
+      }
+
+      setCustomers((data || []) as WarrantyCustomer[]);
+    }
+
+    fetchCustomers();
+  }, [supabase]);
+
   const subtotal = items.reduce(
     (sum, item) =>
       sum + Number(item.quantity || 0) * Number(item.unit_price || 0),
@@ -71,6 +103,20 @@ export default function NewWarrantyInvoicePage() {
   const taxRate = 0.1;
   const taxAmount = Math.floor(subtotal * taxRate);
   const totalAmount = subtotal + taxAmount;
+
+  function handleSelectCustomer(customerId: string) {
+    setSelectedCustomerId(customerId);
+
+    const customer = customers.find((item) => item.id === customerId);
+
+    if (!customer) return;
+
+    setBillToCompanyName(customer.company_name || "");
+    setBillToName(customer.contact_name || "");
+    setBillToEmail(customer.email || "");
+    setBillToPostalCode(customer.postal_code || "");
+    setBillToAddress(customer.address || "");
+  }
 
   function updateItem(
     index: number,
@@ -273,6 +319,28 @@ export default function NewWarrantyInvoicePage() {
           <h2 className="text-base font-semibold">宛先情報</h2>
 
           <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">顧客選択</label>
+              <select
+                value={selectedCustomerId}
+                onChange={(e) => handleSelectCustomer(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+              >
+                <option value="">手入力する / 顧客を選択しない</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.company_name ||
+                      customer.contact_name ||
+                      customer.email ||
+                      "名称未設定"}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">
+                顧客を選択すると、会社名・担当者名・メール・住所が自動入力されます。
+              </p>
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium">宛先会社名</label>
               <input
