@@ -513,5 +513,6 @@ const paidInvoiceTotal = paidInvoices.reduce(
         </div>
       </div>
     </div>
+    </div>
   );
 }
