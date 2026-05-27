@@ -360,6 +360,15 @@ async function runAutoReminders(req: Request) {
           console.error("auto reminder log insert error:", logError);
         }
 
+        const { error: statusUpdateError } = await supabase
+          .from("warranty_invoices")
+          .update({ status: "unpaid" })
+          .eq("id", invoice.id);
+
+        if (statusUpdateError) {
+          console.error("auto reminder status update error:", statusUpdateError);
+        }
+
         results.push({
           invoice_id: invoice.id,
           invoice_no: invoice.invoice_no,

@@ -157,15 +157,21 @@ export async function POST(req: Request) {
 
     const supabase = getAdminClient();
 
+    // 🔥 ここ追加（ステータス更新）
+    await supabase
+      .from("warranty_invoices")
+      .update({ status: "issued" })
+      .eq("id", invoiceId);
+
     const { error: logError } = await supabase
       .from("warranty_invoice_send_logs")
       .insert({
-  invoice_id: invoiceId,
-  to_email: toEmail,
-  subject,
-  send_type: "invoice",
-  sent_at: new Date().toISOString(),
-});
+        invoice_id: invoiceId,
+        to_email: toEmail,
+        subject,
+        send_type: "invoice",
+        sent_at: new Date().toISOString(),
+      });
 
     if (logError) {
       console.error("warranty_invoice_send_logs insert error:", logError);
