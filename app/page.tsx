@@ -352,7 +352,6 @@ const paidInvoiceTotal = paidInvoices.reduce(
               {formatYen(currentMonthInvoiceTotal)}
             </div>
           </div>
-        </div>
 <div className="rounded-2xl border bg-gray-50 p-5">
   <div className="text-sm text-gray-500">入金済件数</div>
   <div className="mt-2 text-3xl font-bold text-green-700">
@@ -420,7 +419,7 @@ const paidInvoiceTotal = paidInvoices.reduce(
                     </div>
 
                     <div
-                      className="w-full rounded-t-xl bg-black transition-all"
+                      className="w-full rounded-t-xl bg-blue-600 transition-all"
                       style={{ height: `${height}px` }}
                     />
 
