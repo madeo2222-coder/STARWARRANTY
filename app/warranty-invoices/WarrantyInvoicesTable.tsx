@@ -53,6 +53,8 @@ function statusLabel(status: string | null | undefined) {
       return "発行済み";
     case "unpaid":
       return "未入金";
+      case "overdue":
+  return "期限超過";
     case "paid":
       return "入金済み";
     case "cancelled":
@@ -79,7 +81,7 @@ function statusBadgeClass(status: string | null | undefined) {
 }
 
 function isUnpaid(status: string | null | undefined) {
-  return ["issued", "unpaid", "draft", null, undefined].includes(status);
+  return ["issued", "unpaid","overdue", "draft", null, undefined].includes(status);
 }
 
 function isOverdue(invoice: WarrantyInvoiceRow) {
@@ -276,6 +278,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
             <option value="draft">下書き</option>
             <option value="issued">発行済み</option>
             <option value="unpaid">未入金</option>
+            <option value="overdue">期限超過</option>
             <option value="paid">入金済み</option>
             <option value="cancelled">取消</option>
           </select>

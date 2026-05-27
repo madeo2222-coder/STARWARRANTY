@@ -362,7 +362,7 @@ async function runAutoReminders(req: Request) {
 
         const { error: statusUpdateError } = await supabase
           .from("warranty_invoices")
-          .update({ status: "unpaid" })
+          .update({ status: "overdue" })
           .eq("id", invoice.id);
 
         if (statusUpdateError) {
