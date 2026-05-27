@@ -178,16 +178,21 @@ export default async function HomePage() {
     (sum, invoice) => sum + Number(invoice.total_amount || 0),
     0
   );
+const paidInvoices = invoiceRows.filter((invoice) => invoice.status === "paid");
 
+const paidInvoiceTotal = paidInvoices.reduce(
+  (sum, invoice) => sum + Number(invoice.total_amount || 0),
+  0
+);
   const todayReminderSendCount = sendLogRows.filter(
     (log) =>
       isToday(log.sent_at) &&
       ["reminder", "auto_reminder"].includes(log.send_type || "")
   ).length;
 
-  const autoReminderSendCount = sendLogRows.filter(
-    (log) => log.send_type === "auto_reminder"
-  ).length;
+  const autoReminderSendCount = sendLogRows.filter((log) =>
+  (log.send_type || "").startsWith("auto_reminder")
+).length;
 
   const monthlyInvoiceMap = new Map<string, number>();
 
@@ -321,7 +326,7 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-4">
+        <div className="mt-5 grid gap-4 md:grid-cols-6">
           <div className="rounded-2xl border bg-gray-50 p-5">
             <div className="text-sm text-gray-500">未入金件数</div>
             <div className="mt-2 text-3xl font-bold">{unpaidInvoices.length}</div>
@@ -348,7 +353,19 @@ export default async function HomePage() {
             </div>
           </div>
         </div>
+<div className="rounded-2xl border bg-gray-50 p-5">
+  <div className="text-sm text-gray-500">入金済件数</div>
+  <div className="mt-2 text-3xl font-bold text-green-700">
+    {paidInvoices.length}
+  </div>
+</div>
 
+<div className="rounded-2xl border bg-gray-50 p-5">
+  <div className="text-sm text-gray-500">入金済合計</div>
+  <div className="mt-2 text-2xl font-bold text-green-700">
+    {formatYen(paidInvoiceTotal)}
+  </div>
+</div>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           <Link
             href="/reminder-targets"
