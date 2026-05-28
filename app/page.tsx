@@ -25,6 +25,12 @@ type WarrantyInvoiceSendLogRow = {
 
 const mainCards = [
   {
+  title: "顧客管理",
+  description: "顧客登録、編集、保証・修理・請求履歴を確認します",
+  href: "/warranty-customers",
+  icon: "👥",
+},
+  {
     title: "保証書管理",
     description: "保証書の一覧確認、新規作成、今後のPDF発行へ進みます",
     href: "/warranty-certificates",
@@ -263,7 +269,16 @@ const overdueRate =
           StarWarranty 用の業務導線に切り替えています。
         </p>
       </div>
-
+<div className="mt-4">
+  <form action="/auth/signout" method="post">
+    <button
+      type="submit"
+      className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 hover:bg-red-100"
+    >
+      ログアウト
+    </button>
+  </form>
+</div>
       {repairErrorMessage ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           修理受付の集計取得に失敗しました: {repairErrorMessage}
