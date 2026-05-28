@@ -20,6 +20,7 @@ type WarrantyCustomer = {
   phone: string | null;
   postal_code: string | null;
   address: string | null;
+  note: string | null;
   created_at: string | null;
 };
 
@@ -64,6 +65,7 @@ export default function NewWarrantyInvoicePage() {
   const [billToCompanyName, setBillToCompanyName] = useState("");
   const [billToName, setBillToName] = useState("");
   const [billToEmail, setBillToEmail] = useState("");
+  const [billToPhone, setBillToPhone] = useState("");
   const [billToPostalCode, setBillToPostalCode] = useState("");
   const [billToAddress, setBillToAddress] = useState("");
   const [note, setNote] = useState("");
@@ -114,8 +116,10 @@ export default function NewWarrantyInvoicePage() {
     setBillToCompanyName(customer.company_name || "");
     setBillToName(customer.contact_name || "");
     setBillToEmail(customer.email || "");
+    setBillToPhone(customer.phone || "");
     setBillToPostalCode(customer.postal_code || "");
     setBillToAddress(customer.address || "");
+    setNote(customer.note || "");
   }
 
   function updateItem(
@@ -337,7 +341,7 @@ export default function NewWarrantyInvoicePage() {
                 ))}
               </select>
               <p className="text-xs text-gray-500">
-                顧客を選択すると、会社名・担当者名・メール・住所が自動入力されます。
+                顧客を選択すると、会社名・担当者名・メール・電話番号・住所・メモが自動入力されます。
               </p>
             </div>
 
@@ -377,6 +381,20 @@ export default function NewWarrantyInvoicePage() {
               />
               <p className="text-xs text-gray-500">
                 請求書送信・督促メール送信・自動督促に使用します。
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">電話番号</label>
+              <input
+                type="text"
+                value={billToPhone}
+                onChange={(e) => setBillToPhone(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 outline-none"
+                placeholder="092-000-0000"
+              />
+              <p className="text-xs text-gray-500">
+                顧客確認用です。請求書データには保存しません。
               </p>
             </div>
 

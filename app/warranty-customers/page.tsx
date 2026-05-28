@@ -1,0 +1,317 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+
+type WarrantyCustomer = {
+  id: string;
+  company_name: string | null;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  postal_code: string | null;
+  address: string | null;
+  note: string | null;
+  created_at: string | null;
+};
+
+const supabase = createClient();
+
+export default function WarrantyCustomersPage() {
+  const [customers, setCustomers] = useState<WarrantyCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const [keyword, setKeyword] = useState("");
+
+  const [companyName, setCompanyName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [address, setAddress] = useState("");
+  const [note, setNote] = useState("");
+
+  async function fetchCustomers() {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("warranty_customers")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      setCustomers((data || []) as WarrantyCustomer[]);
+    } catch (error) {
+      console.error(error);
+      alert("顧客一覧取得エラー");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchCustomers();
+  }, []);
+
+  async function handleCreateCustomer() {
+    if (!companyName.trim()) {
+      alert("会社名を入力してください");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { error } = await supabase
+        .from("warranty_customers")
+        .insert({
+          company_name: companyName.trim(),
+          contact_name: contactName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          postal_code: postalCode.trim(),
+          address: address.trim(),
+          note: note.trim(),
+        });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      alert("顧客を登録しました");
+
+      setCompanyName("");
+      setContactName("");
+      setEmail("");
+      setPhone("");
+      setPostalCode("");
+      setAddress("");
+      setNote("");
+
+      fetchCustomers();
+    } catch (error) {
+      console.error(error);
+      alert("顧客登録エラー");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const filteredCustomers = useMemo(() => {
+    const normalized = keyword.trim().toLowerCase();
+
+    if (!normalized) return customers;
+
+    return customers.filter((customer) => {
+      const text = [
+        customer.company_name,
+        customer.contact_name,
+        customer.email,
+        customer.phone,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(normalized);
+    });
+  }, [customers, keyword]);
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm text-gray-500">STAR WARRANTY</p>
+          <h1 className="text-2xl font-bold">顧客管理</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            顧客情報の登録・検索・確認を行います。
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <Link
+            href="/"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            ホームへ
+          </Link>
+
+          <Link
+            href="/warranty-invoices"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            請求管理へ
+          </Link>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold">新規顧客登録</h2>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <input
+            type="text"
+            placeholder="会社名"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+
+          <input
+            type="text"
+            placeholder="担当者名"
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+
+          <input
+            type="email"
+            placeholder="メールアドレス"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+
+          <input
+            type="text"
+            placeholder="電話番号"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+
+          <input
+            type="text"
+            placeholder="郵便番号"
+            value={postalCode}
+            onChange={(e) => setPostalCode(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+
+          <input
+            type="text"
+            placeholder="住所"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+        </div>
+
+        <textarea
+          placeholder="メモ"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="mt-4 min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm outline-none"
+        />
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleCreateCustomer}
+            disabled={saving}
+            className="rounded-lg bg-black px-5 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {saving ? "登録中..." : "顧客登録"}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white shadow-sm">
+        <div className="border-b px-5 py-4">
+          <h2 className="text-lg font-semibold">顧客一覧</h2>
+
+          <input
+            type="text"
+            placeholder="会社名・担当者・メール・電話番号で検索"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="mt-4 w-full rounded-lg border px-3 py-2 text-sm outline-none"
+          />
+
+          <p className="mt-3 text-sm text-gray-500">
+            表示件数：{filteredCustomers.length}件
+          </p>
+        </div>
+
+        {loading ? (
+          <div className="p-6 text-sm text-gray-500">読み込み中...</div>
+        ) : filteredCustomers.length === 0 ? (
+          <div className="p-6 text-sm text-gray-500">
+            顧客データがありません。
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">会社名</th>
+                  <th className="px-4 py-3 font-medium">担当者</th>
+                  <th className="px-4 py-3 font-medium">メール</th>
+                  <th className="px-4 py-3 font-medium">電話番号</th>
+                  <th className="px-4 py-3 font-medium">郵便番号</th>
+                  <th className="px-4 py-3 font-medium">住所</th>
+                  <th className="px-4 py-3 font-medium">メモ</th>
+                  <th className="px-4 py-3 font-medium">登録日</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredCustomers.map((customer) => (
+                  <tr
+                    key={customer.id}
+                    className="border-t hover:bg-gray-50"
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 font-medium">
+                      {customer.company_name || "-"}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {customer.contact_name || "-"}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {customer.email || "-"}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {customer.phone || "-"}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {customer.postal_code || "-"}
+                    </td>
+
+                    <td className="min-w-[240px] px-4 py-3">
+                      {customer.address || "-"}
+                    </td>
+
+                    <td className="min-w-[220px] px-4 py-3">
+                      {customer.note || "-"}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {customer.created_at
+                        ? new Date(customer.created_at).toLocaleDateString(
+                            "ja-JP"
+                          )
+                        : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
