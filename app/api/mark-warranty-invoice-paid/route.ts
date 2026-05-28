@@ -26,15 +26,11 @@ type Body = {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
-
     const invoiceId = body.invoice_id?.trim();
 
     if (!invoiceId) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "invoice_id がありません",
-        },
+        { success: false, error: "invoice_id がありません" },
         { status: 400 }
       );
     }
@@ -45,22 +41,18 @@ export async function POST(req: Request) {
       .from("warranty_invoices")
       .update({
         status: "paid",
+        paid_at: new Date().toISOString(),
       })
       .eq("id", invoiceId);
 
     if (error) {
       return NextResponse.json(
-        {
-          success: false,
-          error: error.message,
-        },
+        { success: false, error: error.message },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-    });
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);
 
@@ -68,9 +60,7 @@ export async function POST(req: Request) {
       {
         success: false,
         error:
-          error instanceof Error
-            ? error.message
-            : "入金処理に失敗しました",
+          error instanceof Error ? error.message : "入金処理に失敗しました",
       },
       { status: 500 }
     );
