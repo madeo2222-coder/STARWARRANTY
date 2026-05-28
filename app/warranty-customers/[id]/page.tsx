@@ -400,6 +400,7 @@ if (currentCustomer.phone) {
             <th className="px-4 py-3 font-medium">症状</th>
             <th className="px-4 py-3 font-medium">状態</th>
             <th className="px-4 py-3 font-medium">受付日</th>
+            <th className="px-4 py-3 font-medium">操作</th>
           </tr>
         </thead>
 
@@ -436,6 +437,14 @@ if (currentCustomer.phone) {
               <td className="whitespace-nowrap px-4 py-3">
                 {formatDate(repair.created_at)}
               </td>
+              <td className="whitespace-nowrap px-4 py-3">
+  <Link
+    href={`/repair-requests/${repair.id}`}
+    className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
+  >
+    詳細
+  </Link>
+</td>
             </tr>
           ))}
         </tbody>
