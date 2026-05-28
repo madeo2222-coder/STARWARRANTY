@@ -32,7 +32,7 @@ export default function WarrantyCustomersPage() {
   const [postalCode, setPostalCode] = useState("");
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
-
+const [editingId, setEditingId] = useState<string | null>(null);
   async function fetchCustomers() {
     try {
       setLoading(true);
@@ -65,7 +65,57 @@ export default function WarrantyCustomersPage() {
       alert("会社名を入力してください");
       return;
     }
+async function handleUpdateCustomer() {
+  if (!editingId) {
+    return;
+  }
 
+  if (!companyName.trim()) {
+    alert("会社名を入力してください");
+    return;
+  }
+
+  try {
+    setSaving(true);
+
+    const { error } = await supabase
+      .from("warranty_customers")
+      .update({
+        company_name: companyName.trim(),
+        contact_name: contactName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        postal_code: postalCode.trim(),
+        address: address.trim(),
+        note: note.trim(),
+      })
+      .eq("id", editingId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    alert("顧客情報を更新しました");
+
+    setEditingId(null);
+
+    setCompanyName("");
+    setContactName("");
+    setEmail("");
+    setPhone("");
+    setPostalCode("");
+    setAddress("");
+    setNote("");
+
+    fetchCustomers();
+  } catch (error) {
+    console.error(error);
+    alert("顧客更新エラー");
+  } finally {
+    setSaving(false);
+  }
+}
     try {
       setSaving(true);
 
