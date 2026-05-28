@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
 type WarrantyCustomer = {
   id: string;
@@ -16,7 +15,11 @@ type WarrantyCustomer = {
   created_at: string | null;
 };
 
-const supabase = createClient();
+type ApiResponse = {
+  success?: boolean;
+  error?: string;
+  customers?: WarrantyCustomer[];
+};
 
 export default function WarrantyCustomersPage() {
   const [customers, setCustomers] = useState<WarrantyCustomer[]>([]);
@@ -25,7 +28,6 @@ export default function WarrantyCustomersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [keyword, setKeyword] = useState("");
-
   const [companyName, setCompanyName] = useState("");
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
@@ -38,17 +40,19 @@ export default function WarrantyCustomersPage() {
     try {
       setLoading(true);
 
-      const { data, error } = await supabase
-        .from("warranty_customers")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const response = await fetch("/api/warranty-customers", {
+        method: "GET",
+        cache: "no-store",
+      });
 
-      if (error) {
-        alert(error.message);
+      const result = (await response.json()) as ApiResponse;
+
+      if (!response.ok || !result.success) {
+        alert(result.error || "顧客一覧取得エラー");
         return;
       }
 
-      setCustomers((data || []) as WarrantyCustomer[]);
+      setCustomers(result.customers || []);
     } catch (error) {
       console.error(error);
       alert("顧客一覧取得エラー");
@@ -72,7 +76,7 @@ export default function WarrantyCustomersPage() {
     setNote("");
   }
 
-  async function handleCreateCustomer() {
+  async function saveCustomer() {
     if (!companyName.trim()) {
       alert("会社名を入力してください");
       return;
@@ -81,67 +85,36 @@ export default function WarrantyCustomersPage() {
     try {
       setSaving(true);
 
-      const { error } = await supabase.from("warranty_customers").insert({
-        company_name: companyName.trim(),
-        contact_name: contactName.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        postal_code: postalCode.trim(),
-        address: address.trim(),
-        note: note.trim(),
+      const response = await fetch("/api/warranty-customers", {
+        method: editingId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: editingId || undefined,
+          company_name: companyName,
+          contact_name: contactName,
+          email,
+          phone,
+          postal_code: postalCode,
+          address,
+          note,
+        }),
       });
 
-      if (error) {
-        alert(error.message);
+      const result = (await response.json()) as ApiResponse;
+
+      if (!response.ok || !result.success) {
+        alert(result.error || "保存に失敗しました");
         return;
       }
 
-      alert("顧客を登録しました");
+      alert(editingId ? "顧客情報を更新しました" : "顧客を登録しました");
       resetForm();
       fetchCustomers();
     } catch (error) {
       console.error(error);
-      alert("顧客登録エラー");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleUpdateCustomer() {
-    if (!editingId) return;
-
-    if (!companyName.trim()) {
-      alert("会社名を入力してください");
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const { error } = await supabase
-        .from("warranty_customers")
-        .update({
-          company_name: companyName.trim(),
-          contact_name: contactName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          postal_code: postalCode.trim(),
-          address: address.trim(),
-          note: note.trim(),
-        })
-        .eq("id", editingId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
-
-      alert("顧客情報を更新しました");
-      resetForm();
-      fetchCustomers();
-    } catch (error) {
-      console.error(error);
-      alert("顧客更新エラー");
+      alert("保存エラー");
     } finally {
       setSaving(false);
     }
@@ -170,13 +143,20 @@ export default function WarrantyCustomersPage() {
     if (!ok) return;
 
     try {
-      const { error } = await supabase
-        .from("warranty_customers")
-        .delete()
-        .eq("id", customer.id);
+      const response = await fetch("/api/warranty-customers", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: customer.id,
+        }),
+      });
 
-      if (error) {
-        alert(error.message);
+      const result = (await response.json()) as ApiResponse;
+
+      if (!response.ok || !result.success) {
+        alert(result.error || "削除に失敗しました");
         return;
       }
 
@@ -189,7 +169,7 @@ export default function WarrantyCustomersPage() {
       fetchCustomers();
     } catch (error) {
       console.error(error);
-      alert("顧客削除エラー");
+      alert("削除エラー");
     }
   }
 
@@ -229,7 +209,10 @@ export default function WarrantyCustomersPage() {
             ホームへ
           </Link>
 
-          <Link href="/warranty-invoices" className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">
+          <Link
+            href="/warranty-invoices"
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
             請求管理へ
           </Link>
         </div>
@@ -300,7 +283,7 @@ export default function WarrantyCustomersPage() {
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={editingId ? handleUpdateCustomer : handleCreateCustomer}
+            onClick={saveCustomer}
             disabled={saving}
             className="rounded-lg bg-black px-5 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
           >
@@ -340,7 +323,9 @@ export default function WarrantyCustomersPage() {
         {loading ? (
           <div className="p-6 text-sm text-gray-500">読み込み中...</div>
         ) : filteredCustomers.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">顧客データがありません。</div>
+          <div className="p-6 text-sm text-gray-500">
+            顧客データがありません。
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
