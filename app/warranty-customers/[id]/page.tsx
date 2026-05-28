@@ -362,6 +362,7 @@ if (currentCustomer.phone || currentCustomer.email) {
                   <th className="px-4 py-3 font-medium">入金日</th>
                   <th className="px-4 py-3 font-medium">状態</th>
                   <th className="px-4 py-3 font-medium">操作</th>
+                  
                 </tr>
               </thead>
 
@@ -416,7 +417,8 @@ if (currentCustomer.phone || currentCustomer.email) {
             </table>
           </div>
         )}
-        <div className="rounded-2xl border bg-white shadow-sm">
+       
+<div className="rounded-2xl border bg-white shadow-sm">
   <div className="border-b px-5 py-4">
     <h2 className="text-lg font-semibold">保証書履歴</h2>
 
@@ -441,6 +443,7 @@ if (currentCustomer.phone || currentCustomer.email) {
             <th className="px-4 py-3 font-medium">保証開始</th>
             <th className="px-4 py-3 font-medium">保証終了</th>
             <th className="px-4 py-3 font-medium">状態</th>
+            <th className="px-4 py-3 font-medium">操作</th>
           </tr>
         </thead>
 
@@ -477,6 +480,15 @@ if (currentCustomer.phone || currentCustomer.email) {
               <td className="whitespace-nowrap px-4 py-3">
                 {certificate.status || "-"}
               </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                <Link
+                  href={`/warranty-certificates/${certificate.id}`}
+                  className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
+                >
+                  詳細
+                </Link>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -484,6 +496,7 @@ if (currentCustomer.phone || currentCustomer.email) {
     </div>
   )}
 </div>
+ 
         <div className="rounded-2xl border bg-white shadow-sm">
   <div className="border-b px-5 py-4">
     <h2 className="text-lg font-semibold">修理履歴</h2>
