@@ -189,7 +189,25 @@ const paidInvoiceTotal = paidInvoices.reduce(
       isToday(log.sent_at) &&
       ["reminder", "auto_reminder"].includes(log.send_type || "")
   ).length;
+const totalInvoiceAmount = invoiceRows.reduce(
+  (sum, invoice) => sum + Number(invoice.total_amount || 0),
+  0
+);
 
+const collectionRate =
+  totalInvoiceAmount === 0
+    ? 0
+    : (paidInvoiceTotal / totalInvoiceAmount) * 100;
+
+const unpaidRate =
+  totalInvoiceAmount === 0
+    ? 0
+    : (unpaidInvoiceTotal / totalInvoiceAmount) * 100;
+
+const overdueRate =
+  unpaidInvoices.length === 0
+    ? 0
+    : (overdueInvoices.length / unpaidInvoices.length) * 100;
   const autoReminderSendCount = sendLogRows.filter((log) =>
   (log.send_type || "").startsWith("auto_reminder")
 ).length;
@@ -367,7 +385,28 @@ const paidInvoiceTotal = paidInvoices.reduce(
 </div>
 
 </div>
+<div className="mt-8 grid gap-4 md:grid-cols-3">
+  <div className="rounded-2xl border bg-green-50 p-5">
+    <div className="text-sm text-green-700">回収率</div>
+    <div className="mt-2 text-3xl font-bold text-green-700">
+      {collectionRate.toFixed(1)}%
+    </div>
+  </div>
 
+  <div className="rounded-2xl border bg-yellow-50 p-5">
+    <div className="text-sm text-yellow-700">未回収率</div>
+    <div className="mt-2 text-3xl font-bold text-yellow-700">
+      {unpaidRate.toFixed(1)}%
+    </div>
+  </div>
+
+  <div className="rounded-2xl border bg-red-50 p-5">
+    <div className="text-sm text-red-700">期限超過率</div>
+    <div className="mt-2 text-3xl font-bold text-red-700">
+      {overdueRate.toFixed(1)}%
+    </div>
+  </div>
+</div>
 <div className="mt-8 grid gap-4 md:grid-cols-3">
           <Link
             href="/reminder-targets"
