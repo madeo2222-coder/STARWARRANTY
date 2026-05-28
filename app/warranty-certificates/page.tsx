@@ -140,6 +140,7 @@ export default async function WarrantyCertificatesPage() {
                   <th className="px-4 py-3 font-medium">販売店名</th>
                   <th className="px-4 py-3 font-medium">状態</th>
                   <th className="px-4 py-3 font-medium">登録日</th>
+                  <th className="px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>

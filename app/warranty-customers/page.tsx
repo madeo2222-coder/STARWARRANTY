@@ -261,6 +261,7 @@ export default function WarrantyCustomersPage() {
                   <th className="px-4 py-3 font-medium">住所</th>
                   <th className="px-4 py-3 font-medium">メモ</th>
                   <th className="px-4 py-3 font-medium">登録日</th>
+                  <th className="px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
 
@@ -305,6 +306,14 @@ export default function WarrantyCustomersPage() {
                           )
                         : "-"}
                     </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+  <Link
+    href={`/warranty-customers/${customer.id}`}
+    className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
+  >
+    詳細
+  </Link>
+</td>
                   </tr>
                 ))}
               </tbody>
