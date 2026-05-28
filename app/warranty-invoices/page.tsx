@@ -13,6 +13,7 @@ type WarrantyInvoiceRow = {
   bill_to_name: string | null;
   total_amount: number | null;
   payment_due_date: string | null;
+  paid_at: string | null;
   status: string | null;
   created_at: string | null;
   last_invoice_sent_at: string | null;
@@ -40,11 +41,11 @@ function formatYen(value: number | null | undefined) {
 }
 
 function isConfirmedInvoice(status: string | null | undefined) {
-  return status === "issued" || status === "unpaid" || status === "paid";
+  return status === "issued" || status === "unpaid" || status === "overdue" || status === "paid";
 }
 
 function isUnpaid(status: string | null | undefined) {
-  return status === "unpaid";
+  return status === "unpaid" || status === "overdue";
 }
 
 export default async function WarrantyInvoicesPage() {
@@ -57,7 +58,7 @@ export default async function WarrantyInvoicesPage() {
     const { data, error } = await supabase
       .from("warranty_invoices")
       .select(
-        "id, invoice_no, invoice_date, subject, bill_to_company_name, bill_to_name, total_amount, payment_due_date, status, created_at"
+        "id, invoice_no, invoice_date, subject, bill_to_company_name, bill_to_name, total_amount, payment_due_date, paid_at, status, created_at"
       )
       .order("created_at", { ascending: false });
 
@@ -128,6 +129,7 @@ export default async function WarrantyInvoicesPage() {
   );
 
   const overdueInvoices = unpaidInvoices.filter((invoice) => {
+    if (invoice.status === "overdue") return true;
     if (!invoice.payment_due_date) return false;
     return new Date(invoice.payment_due_date).getTime() < now.getTime();
   });

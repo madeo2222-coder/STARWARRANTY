@@ -12,6 +12,7 @@ type WarrantyInvoiceRow = {
   bill_to_name: string | null;
   total_amount: number | null;
   payment_due_date: string | null;
+  paid_at: string | null;
   status: string | null;
   created_at: string | null;
   last_invoice_sent_at: string | null;
@@ -53,8 +54,8 @@ function statusLabel(status: string | null | undefined) {
       return "発行済み";
     case "unpaid":
       return "未入金";
-      case "overdue":
-  return "期限超過";
+    case "overdue":
+      return "期限超過";
     case "paid":
       return "入金済み";
     case "cancelled":
@@ -68,6 +69,8 @@ function statusBadgeClass(status: string | null | undefined) {
   switch (status) {
     case "paid":
       return "border-green-200 bg-green-50 text-green-700";
+    case "overdue":
+      return "border-red-200 bg-red-50 text-red-700";
     case "unpaid":
     case "issued":
       return "border-yellow-200 bg-yellow-50 text-yellow-700";
@@ -81,11 +84,12 @@ function statusBadgeClass(status: string | null | undefined) {
 }
 
 function isUnpaid(status: string | null | undefined) {
-  return ["issued", "unpaid","overdue", "draft", null, undefined].includes(status);
+  return ["issued", "unpaid", "overdue", "draft", null, undefined].includes(status);
 }
 
 function isOverdue(invoice: WarrantyInvoiceRow) {
   if (!isUnpaid(invoice.status)) return false;
+  if (invoice.status === "overdue") return true;
   if (!invoice.payment_due_date) return false;
 
   return new Date(invoice.payment_due_date).getTime() < new Date().getTime();
@@ -313,6 +317,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                 <th className="px-4 py-3 font-medium">件名</th>
                 <th className="px-4 py-3 font-medium">請求額</th>
                 <th className="px-4 py-3 font-medium">支払期限</th>
+                <th className="px-4 py-3 font-medium">入金日</th>
                 <th className="px-4 py-3 font-medium">状態</th>
                 <th className="px-4 py-3 font-medium">送信履歴</th>
                 <th className="px-4 py-3 font-medium">操作</th>
@@ -355,6 +360,10 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                     </td>
 
                     <td className="whitespace-nowrap px-4 py-3">
+                      {formatDateTime(invoice.paid_at)}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
                       <span
                         className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
                           invoice.status
@@ -363,7 +372,7 @@ export default function WarrantyInvoicesTable({ invoices }: Props) {
                         {statusLabel(invoice.status)}
                       </span>
 
-                      {overdue ? (
+                      {overdue && invoice.status !== "overdue" ? (
                         <span className="ml-2 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">
                           期限超過
                         </span>

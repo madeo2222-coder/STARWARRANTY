@@ -365,7 +365,10 @@ const paidInvoiceTotal = paidInvoices.reduce(
     {formatYen(paidInvoiceTotal)}
   </div>
 </div>
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
+
+</div>
+
+<div className="mt-8 grid gap-4 md:grid-cols-3">
           <Link
             href="/reminder-targets"
             className="rounded-2xl border bg-red-50 p-5 transition hover:bg-red-100"
@@ -512,7 +515,6 @@ const paidInvoiceTotal = paidInvoices.reduce(
           </div>
         </div>
       </div>
-    </div>
     </div>
   );
 }
