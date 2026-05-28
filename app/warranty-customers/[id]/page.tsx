@@ -116,7 +116,61 @@ function statusClass(status: string | null | undefined) {
       return "border-gray-200 bg-gray-50 text-gray-700";
   }
 }
+function repairStatusLabel(status: string | null | undefined) {
+  switch (status) {
+    case "received":
+      return "受付完了";
 
+    case "checking":
+      return "確認中";
+
+    case "manufacturer_checking":
+      return "メーカー確認中";
+
+    case "repair_arranging":
+      return "修理手配中";
+
+    case "visit_scheduling":
+      return "訪問日程調整中";
+
+    case "completed":
+      return "修理完了";
+
+    case "cancelled":
+      return "キャンセル";
+
+    default:
+      return status || "-";
+  }
+}
+
+function repairStatusClass(status: string | null | undefined) {
+  switch (status) {
+    case "received":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+
+    case "checking":
+      return "border-yellow-200 bg-yellow-50 text-yellow-700";
+
+    case "manufacturer_checking":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+
+    case "repair_arranging":
+      return "border-purple-200 bg-purple-50 text-purple-700";
+
+    case "visit_scheduling":
+      return "border-cyan-200 bg-cyan-50 text-cyan-700";
+
+    case "completed":
+      return "border-green-200 bg-green-50 text-green-700";
+
+    case "cancelled":
+      return "border-red-200 bg-red-50 text-red-700";
+
+    default:
+      return "border-gray-200 bg-gray-50 text-gray-700";
+  }
+}
 export default async function WarrantyCustomerDetailPage({ params }: Props) {
   const supabase = getAdminClient();
 
@@ -552,9 +606,15 @@ if (currentCustomer.phone || currentCustomer.email) {
                 {repair.symptom_detail || "-"}
               </td>
 
-              <td className="whitespace-nowrap px-4 py-3">
-                {repair.status || "-"}
-              </td>
+             <td className="whitespace-nowrap px-4 py-3">
+  <span
+    className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${repairStatusClass(
+      repair.status
+    )}`}
+  >
+    {repairStatusLabel(repair.status)}
+  </span>
+</td>
 
               <td className="whitespace-nowrap px-4 py-3">
                 {formatDate(repair.created_at)}
