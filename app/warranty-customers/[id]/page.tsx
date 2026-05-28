@@ -34,7 +34,18 @@ type WarrantyInvoice = {
   total_amount: number | null;
   status: string | null;
 };
-
+type RepairRequest = {
+  id: string;
+  request_no: string | null;
+  customer_name: string | null;
+  phone: string | null;
+  product_name: string | null;
+  manufacturer: string | null;
+  model_no: string | null;
+  symptom_detail: string | null;
+  status: string | null;
+  created_at: string | null;
+};
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -123,7 +134,7 @@ export default async function WarrantyCustomerDetailPage({ params }: Props) {
   const currentCustomer = customer as WarrantyCustomer;
 
   let invoices: WarrantyInvoice[] = [];
-
+let repairRequests: RepairRequest[] = [];
   if (currentCustomer.email) {
     const { data } = await supabase
       .from("warranty_invoices")
@@ -135,7 +146,17 @@ export default async function WarrantyCustomerDetailPage({ params }: Props) {
 
     invoices = (data || []) as WarrantyInvoice[];
   }
+if (currentCustomer.phone) {
+  const { data } = await supabase
+    .from("repair_requests")
+    .select(
+      "id, request_no, customer_name, phone, product_name, manufacturer, model_no, symptom_detail, status, created_at"
+    )
+    .eq("phone", currentCustomer.phone)
+    .order("created_at", { ascending: false });
 
+  repairRequests = (data || []) as RepairRequest[];
+}
   const unpaidInvoices = invoices.filter((invoice) =>
     ["issued", "unpaid", "overdue", "draft", null, undefined].includes(
       invoice.status
@@ -354,6 +375,74 @@ export default async function WarrantyCustomerDetailPage({ params }: Props) {
             </table>
           </div>
         )}
+        <div className="rounded-2xl border bg-white shadow-sm">
+  <div className="border-b px-5 py-4">
+    <h2 className="text-lg font-semibold">修理履歴</h2>
+
+    <p className="mt-1 text-sm text-gray-500">
+      電話番号が一致する修理受付履歴を表示しています。
+    </p>
+  </div>
+
+  {repairRequests.length === 0 ? (
+    <div className="p-6 text-sm text-gray-500">
+      修理履歴はありません。
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-left">
+          <tr>
+            <th className="px-4 py-3 font-medium">受付番号</th>
+            <th className="px-4 py-3 font-medium">商品名</th>
+            <th className="px-4 py-3 font-medium">メーカー</th>
+            <th className="px-4 py-3 font-medium">型番</th>
+            <th className="px-4 py-3 font-medium">症状</th>
+            <th className="px-4 py-3 font-medium">状態</th>
+            <th className="px-4 py-3 font-medium">受付日</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {repairRequests.map((repair) => (
+            <tr
+              key={repair.id}
+              className="border-t hover:bg-gray-50"
+            >
+              <td className="whitespace-nowrap px-4 py-3 font-medium">
+                {repair.request_no || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {repair.product_name || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {repair.manufacturer || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {repair.model_no || "-"}
+              </td>
+
+              <td className="min-w-[240px] px-4 py-3">
+                {repair.symptom_detail || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {repair.status || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {formatDate(repair.created_at)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
       </div>
     </div>
   );
