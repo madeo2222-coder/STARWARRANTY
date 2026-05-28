@@ -22,6 +22,7 @@ export default function WarrantyCustomersPage() {
   const [customers, setCustomers] = useState<WarrantyCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [keyword, setKeyword] = useState("");
 
@@ -32,7 +33,7 @@ export default function WarrantyCustomersPage() {
   const [postalCode, setPostalCode] = useState("");
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
-const [editingId, setEditingId] = useState<string | null>(null);
+
   async function fetchCustomers() {
     try {
       setLoading(true);
@@ -60,46 +61,8 @@ const [editingId, setEditingId] = useState<string | null>(null);
     fetchCustomers();
   }, []);
 
-  async function handleCreateCustomer() {
-    if (!companyName.trim()) {
-      alert("会社名を入力してください");
-      return;
-    }
-async function handleUpdateCustomer() {
-  if (!editingId) {
-    return;
-  }
-
-  if (!companyName.trim()) {
-    alert("会社名を入力してください");
-    return;
-  }
-
-  try {
-    setSaving(true);
-
-    const { error } = await supabase
-      .from("warranty_customers")
-      .update({
-        company_name: companyName.trim(),
-        contact_name: contactName.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        postal_code: postalCode.trim(),
-        address: address.trim(),
-        note: note.trim(),
-      })
-      .eq("id", editingId);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    alert("顧客情報を更新しました");
-
+  function resetForm() {
     setEditingId(null);
-
     setCompanyName("");
     setContactName("");
     setEmail("");
@@ -107,29 +70,26 @@ async function handleUpdateCustomer() {
     setPostalCode("");
     setAddress("");
     setNote("");
-
-    fetchCustomers();
-  } catch (error) {
-    console.error(error);
-    alert("顧客更新エラー");
-  } finally {
-    setSaving(false);
   }
-}
+
+  async function handleCreateCustomer() {
+    if (!companyName.trim()) {
+      alert("会社名を入力してください");
+      return;
+    }
+
     try {
       setSaving(true);
 
-      const { error } = await supabase
-        .from("warranty_customers")
-        .insert({
-          company_name: companyName.trim(),
-          contact_name: contactName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          postal_code: postalCode.trim(),
-          address: address.trim(),
-          note: note.trim(),
-        });
+      const { error } = await supabase.from("warranty_customers").insert({
+        company_name: companyName.trim(),
+        contact_name: contactName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        postal_code: postalCode.trim(),
+        address: address.trim(),
+        note: note.trim(),
+      });
 
       if (error) {
         alert(error.message);
@@ -137,21 +97,99 @@ async function handleUpdateCustomer() {
       }
 
       alert("顧客を登録しました");
-
-      setCompanyName("");
-      setContactName("");
-      setEmail("");
-      setPhone("");
-      setPostalCode("");
-      setAddress("");
-      setNote("");
-
+      resetForm();
       fetchCustomers();
     } catch (error) {
       console.error(error);
       alert("顧客登録エラー");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleUpdateCustomer() {
+    if (!editingId) return;
+
+    if (!companyName.trim()) {
+      alert("会社名を入力してください");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { error } = await supabase
+        .from("warranty_customers")
+        .update({
+          company_name: companyName.trim(),
+          contact_name: contactName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          postal_code: postalCode.trim(),
+          address: address.trim(),
+          note: note.trim(),
+        })
+        .eq("id", editingId);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      alert("顧客情報を更新しました");
+      resetForm();
+      fetchCustomers();
+    } catch (error) {
+      console.error(error);
+      alert("顧客更新エラー");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleStartEdit(customer: WarrantyCustomer) {
+    setEditingId(customer.id);
+    setCompanyName(customer.company_name || "");
+    setContactName(customer.contact_name || "");
+    setEmail(customer.email || "");
+    setPhone(customer.phone || "");
+    setPostalCode(customer.postal_code || "");
+    setAddress(customer.address || "");
+    setNote(customer.note || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleDeleteCustomer(customer: WarrantyCustomer) {
+    const label =
+      customer.company_name || customer.contact_name || customer.email || "この顧客";
+
+    const ok = window.confirm(
+      `${label} を削除します。\nこの操作は取り消せません。本当に削除しますか？`
+    );
+
+    if (!ok) return;
+
+    try {
+      const { error } = await supabase
+        .from("warranty_customers")
+        .delete()
+        .eq("id", customer.id);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      alert("顧客を削除しました");
+
+      if (editingId === customer.id) {
+        resetForm();
+      }
+
+      fetchCustomers();
+    } catch (error) {
+      console.error(error);
+      alert("顧客削除エラー");
     }
   }
 
@@ -187,24 +225,20 @@ async function handleUpdateCustomer() {
         </div>
 
         <div className="flex gap-2">
-          <Link
-            href="/"
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
-          >
+          <Link href="/" className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">
             ホームへ
           </Link>
 
-          <Link
-            href="/warranty-invoices"
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
-          >
+          <Link href="/warranty-invoices" className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">
             請求管理へ
           </Link>
         </div>
       </div>
 
       <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold">新規顧客登録</h2>
+        <h2 className="text-lg font-semibold">
+          {editingId ? "顧客情報編集" : "新規顧客登録"}
+        </h2>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <input
@@ -263,15 +297,26 @@ async function handleUpdateCustomer() {
           className="mt-4 min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm outline-none"
         />
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={handleCreateCustomer}
+            onClick={editingId ? handleUpdateCustomer : handleCreateCustomer}
             disabled={saving}
             className="rounded-lg bg-black px-5 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
           >
-            {saving ? "登録中..." : "顧客登録"}
+            {saving ? "保存中..." : editingId ? "更新する" : "顧客登録"}
           </button>
+
+          {editingId ? (
+            <button
+              type="button"
+              onClick={resetForm}
+              disabled={saving}
+              className="rounded-lg border px-5 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              キャンセル
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -295,9 +340,7 @@ async function handleUpdateCustomer() {
         {loading ? (
           <div className="p-6 text-sm text-gray-500">読み込み中...</div>
         ) : filteredCustomers.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">
-            顧客データがありません。
-          </div>
+          <div className="p-6 text-sm text-gray-500">顧客データがありません。</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -317,10 +360,7 @@ async function handleUpdateCustomer() {
 
               <tbody>
                 {filteredCustomers.map((customer) => (
-                  <tr
-                    key={customer.id}
-                    className="border-t hover:bg-gray-50"
-                  >
+                  <tr key={customer.id} className="border-t hover:bg-gray-50">
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
                       {customer.company_name || "-"}
                     </td>
@@ -351,19 +391,36 @@ async function handleUpdateCustomer() {
 
                     <td className="whitespace-nowrap px-4 py-3">
                       {customer.created_at
-                        ? new Date(customer.created_at).toLocaleDateString(
-                            "ja-JP"
-                          )
+                        ? new Date(customer.created_at).toLocaleDateString("ja-JP")
                         : "-"}
                     </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
-  <Link
-    href={`/warranty-customers/${customer.id}`}
-    className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
-  >
-    詳細
-  </Link>
-</td>
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/warranty-customers/${customer.id}`}
+                          className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
+                        >
+                          詳細
+                        </Link>
+
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(customer)}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 hover:bg-blue-100"
+                        >
+                          編集
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomer(customer)}
+                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
