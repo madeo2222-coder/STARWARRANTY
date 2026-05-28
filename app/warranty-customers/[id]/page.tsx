@@ -46,6 +46,18 @@ type RepairRequest = {
   status: string | null;
   created_at: string | null;
 };
+type WarrantyCertificate = {
+  id: string;
+  certificate_no: string | null;
+  product_name: string | null;
+  manufacturer: string | null;
+  model_no: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string | null;
+  customer_phone: string | null;
+  customer_email: string | null;
+};
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -135,6 +147,7 @@ export default async function WarrantyCustomerDetailPage({ params }: Props) {
 
   let invoices: WarrantyInvoice[] = [];
 let repairRequests: RepairRequest[] = [];
+let certificates: WarrantyCertificate[] = [];
   if (currentCustomer.email) {
     const { data } = await supabase
       .from("warranty_invoices")
@@ -156,6 +169,34 @@ if (currentCustomer.phone) {
     .order("created_at", { ascending: false });
 
   repairRequests = (data || []) as RepairRequest[];
+}
+if (currentCustomer.phone || currentCustomer.email) {
+  const query = supabase
+    .from("warranty_certificates")
+    .select(
+      "id, certificate_no, product_name, manufacturer, model_no, start_date, end_date, status, customer_phone, customer_email"
+    )
+    .order("created_at", { ascending: false });
+
+  let data = null;
+
+  if (currentCustomer.phone) {
+    const result = await query.eq(
+      "customer_phone",
+      currentCustomer.phone
+    );
+
+    data = result.data;
+  } else if (currentCustomer.email) {
+    const result = await query.eq(
+      "customer_email",
+      currentCustomer.email
+    );
+
+    data = result.data;
+  }
+
+  certificates = (data || []) as WarrantyCertificate[];
 }
   const unpaidInvoices = invoices.filter((invoice) =>
     ["issued", "unpaid", "overdue", "draft", null, undefined].includes(
@@ -375,6 +416,74 @@ if (currentCustomer.phone) {
             </table>
           </div>
         )}
+        <div className="rounded-2xl border bg-white shadow-sm">
+  <div className="border-b px-5 py-4">
+    <h2 className="text-lg font-semibold">保証書履歴</h2>
+
+    <p className="mt-1 text-sm text-gray-500">
+      電話番号またはメールアドレスが一致する保証書を表示しています。
+    </p>
+  </div>
+
+  {certificates.length === 0 ? (
+    <div className="p-6 text-sm text-gray-500">
+      保証書履歴はありません。
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-left">
+          <tr>
+            <th className="px-4 py-3 font-medium">保証書番号</th>
+            <th className="px-4 py-3 font-medium">商品名</th>
+            <th className="px-4 py-3 font-medium">メーカー</th>
+            <th className="px-4 py-3 font-medium">型番</th>
+            <th className="px-4 py-3 font-medium">保証開始</th>
+            <th className="px-4 py-3 font-medium">保証終了</th>
+            <th className="px-4 py-3 font-medium">状態</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {certificates.map((certificate) => (
+            <tr
+              key={certificate.id}
+              className="border-t hover:bg-gray-50"
+            >
+              <td className="whitespace-nowrap px-4 py-3 font-medium">
+                {certificate.certificate_no || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {certificate.product_name || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {certificate.manufacturer || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {certificate.model_no || "-"}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {formatDate(certificate.start_date)}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {formatDate(certificate.end_date)}
+              </td>
+
+              <td className="whitespace-nowrap px-4 py-3">
+                {certificate.status || "-"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
         <div className="rounded-2xl border bg-white shadow-sm">
   <div className="border-b px-5 py-4">
     <h2 className="text-lg font-semibold">修理履歴</h2>
