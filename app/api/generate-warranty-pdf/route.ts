@@ -17,44 +17,43 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type GenerateWarrantyInvoicePdfBody = {
-  invoice_id?: string;
-  invoiceId?: string;
-};
-
-type WarrantyInvoice = {
+type WarrantyCertificate = {
   id: string;
-  invoice_no: string | null;
-  invoice_date: string | null;
-  payment_due_date: string | null;
-  subject: string | null;
-  bill_to_company_name: string | null;
-  bill_to_name: string | null;
-  bill_to_postal_code: string | null;
-  bill_to_address: string | null;
-  subtotal: number | null;
-  tax_rate: number | null;
-  tax_amount: number | null;
-  total_amount: number | null;
-  bank_account_info: string | null;
-  note: string | null;
+  certificate_no: string | null;
+  customer_name: string | null;
+  customer_name_kana: string | null;
+  postal_code: string | null;
+  address1: string | null;
+  address2: string | null;
+  address3: string | null;
+  property_name: string | null;
+  property_room: string | null;
+  product_name: string | null;
+  manufacturer: string | null;
+  model_no: string | null;
+  start_date: string | null;
+  end_date: string | null;
   status: string | null;
+  customer_phone: string | null;
+  customer_email: string | null;
+  introducer_name: string | null;
+  seller_name: string | null;
+  created_at: string | null;
 };
 
-type WarrantyInvoiceItem = {
+type CertificateItem = {
   id: string;
-  invoice_id: string;
-  item_name: string | null;
-  description: string | null;
-  quantity: number | null;
-  unit_price: number | null;
-  amount: number | null;
-  sort_order: number | null;
+  certificate_id: string | null;
+  product_name: string | null;
+  category: string | null;
+  warranty_years: number | null;
+  max_amount: number | null;
+  is_active: boolean | null;
 };
 
 type PdfProps = {
-  invoice: WarrantyInvoice;
-  items: WarrantyInvoiceItem[];
+  certificate: WarrantyCertificate;
+  items: CertificateItem[];
 };
 
 let fontRegistered = false;
@@ -98,8 +97,9 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
-function formatYen(value: number | null | undefined) {
-  return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
+function safeText(value: string | number | null | undefined) {
+  const text = String(value ?? "").trim();
+  return text || "-";
 }
 
 function formatDate(value: string | null | undefined) {
@@ -108,10 +108,9 @@ function formatDate(value: string | null | undefined) {
 }
 
 function formatPostalCode(value: string | null | undefined) {
-  if (!value) return "";
+  if (!value) return "-";
 
   const raw = String(value).trim();
-  if (!raw) return "";
 
   if (/^\d{7}$/.test(raw)) {
     return `〒${raw.slice(0, 3)}-${raw.slice(3)}`;
@@ -124,9 +123,22 @@ function formatPostalCode(value: string | null | undefined) {
   return raw.startsWith("〒") ? raw : `〒${raw}`;
 }
 
-function safeText(value: string | null | undefined) {
-  const text = String(value || "").trim();
-  return text || "-";
+function formatYen(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
+}
+
+function statusLabel(status: string | null | undefined) {
+  switch (status) {
+    case "active":
+      return "有効";
+    case "expired":
+      return "期限切れ";
+    case "cancelled":
+      return "取消";
+    default:
+      return status || "未設定";
+  }
 }
 
 const styles = StyleSheet.create({
@@ -143,92 +155,52 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 24,
     fontWeight: 700,
-    marginBottom: 24,
+    marginBottom: 22,
     letterSpacing: 2,
   },
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 20,
-    marginBottom: 22,
-  },
-  billToBox: {
-    width: "48%",
-    borderBottomWidth: 1,
-    borderBottomColor: "#111827",
-    paddingBottom: 10,
-  },
-  issuerBox: {
-    width: "48%",
-    alignItems: "flex-start",
-  },
-  billToName: {
-    fontSize: 17,
-    fontWeight: 700,
-    marginBottom: 8,
-  },
-  line: {
-    fontSize: 9.5,
-    lineHeight: 1.5,
-    marginBottom: 3,
-  },
-  issuerName: {
-    fontSize: 15,
-    fontWeight: 700,
-    marginBottom: 7,
-  },
-  metaBox: {
-    marginBottom: 18,
-    gap: 4,
-  },
-  metaText: {
-    fontSize: 10,
-    lineHeight: 1.5,
-  },
-  subjectBox: {
+  section: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 12,
-    marginBottom: 18,
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 14,
   },
-  subjectLabel: {
-    fontSize: 9,
-    color: "#6B7280",
-    marginBottom: 4,
-  },
-  subjectText: {
+  sectionTitle: {
     fontSize: 13,
     fontWeight: 700,
+    marginBottom: 10,
   },
-  amountBox: {
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
-    backgroundColor: "#EFF6FF",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 20,
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
-  amountLabel: {
-    fontSize: 11,
-    color: "#1D4ED8",
-    marginBottom: 6,
+  cell: {
+    width: "50%",
+    marginBottom: 9,
   },
-  amountValue: {
-    fontSize: 28,
+  label: {
+    fontSize: 8,
+    color: "#6B7280",
+    marginBottom: 3,
+  },
+  value: {
+    fontSize: 10.5,
     fontWeight: 700,
-    color: "#1D4ED8",
+    lineHeight: 1.5,
+  },
+  fullCell: {
+    width: "100%",
+    marginBottom: 9,
   },
   table: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
-    marginBottom: 14,
   },
   row: {
     flexDirection: "row",
   },
-  thName: {
-    width: "34%",
+  thProduct: {
+    width: "35%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
@@ -236,8 +208,8 @@ const styles = StyleSheet.create({
     padding: 8,
     fontWeight: 700,
   },
-  thDescription: {
-    width: "26%",
+  thCategory: {
+    width: "25%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
@@ -245,133 +217,73 @@ const styles = StyleSheet.create({
     padding: 8,
     fontWeight: 700,
   },
-  thQty: {
-    width: "10%",
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
-    textAlign: "right",
-    fontWeight: 700,
-  },
-  thUnit: {
+  thYears: {
     width: "15%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
     padding: 8,
-    textAlign: "right",
     fontWeight: 700,
   },
   thAmount: {
-    width: "15%",
+    width: "25%",
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
     backgroundColor: "#F9FAFB",
     padding: 8,
-    textAlign: "right",
     fontWeight: 700,
   },
-  tdName: {
-    width: "34%",
+  tdProduct: {
+    width: "35%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
     padding: 8,
   },
-  tdDescription: {
-    width: "26%",
+  tdCategory: {
+    width: "25%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
     padding: 8,
   },
-  tdQty: {
-    width: "10%",
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 8,
-    textAlign: "right",
-  },
-  tdUnit: {
+  tdYears: {
     width: "15%",
     borderRightWidth: 1,
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
     padding: 8,
-    textAlign: "right",
   },
   tdAmount: {
-    width: "15%",
+    width: "25%",
     borderBottomWidth: 1,
     borderColor: "#D1D5DB",
     padding: 8,
-    textAlign: "right",
   },
-  totalWrap: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginBottom: 20,
-  },
-  totalBox: {
-    width: "42%",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-  },
-  totalRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderColor: "#D1D5DB",
-  },
-  totalRowLast: {
-    flexDirection: "row",
-  },
-  totalLabel: {
-    width: "45%",
-    backgroundColor: "#F9FAFB",
-    padding: 8,
-    borderRightWidth: 1,
-    borderColor: "#D1D5DB",
-  },
-  totalValue: {
-    width: "55%",
-    padding: 8,
-    textAlign: "right",
-  },
-  totalValueStrong: {
-    width: "55%",
-    padding: 8,
-    textAlign: "right",
-    fontSize: 13,
-    fontWeight: 700,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: 700,
-    marginBottom: 7,
-  },
-  noteBox: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    padding: 10,
-    minHeight: 52,
-    marginBottom: 12,
-  },
-  noteText: {
-    fontSize: 9.5,
+  note: {
+    fontSize: 8.5,
+    color: "#6B7280",
     lineHeight: 1.6,
+    marginTop: 10,
   },
 });
 
-function WarrantyInvoicePdf(props: PdfProps): React.ReactElement {
-  const invoice = props.invoice;
+function WarrantyCertificatePdf(props: PdfProps): React.ReactElement {
+  const certificate = props.certificate;
   const items = props.items;
 
-  const billToName =
-    invoice.bill_to_company_name || invoice.bill_to_name || "宛先未設定";
+  const address = [
+    certificate.address1,
+    certificate.address2,
+    certificate.address3,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const property = [certificate.property_name, certificate.property_room]
+    .filter(Boolean)
+    .join(" ");
 
   return React.createElement(
     Document,
@@ -379,122 +291,243 @@ function WarrantyInvoicePdf(props: PdfProps): React.ReactElement {
     React.createElement(
       Page,
       { size: "A4", style: styles.page },
-      React.createElement(Text, { style: styles.title }, "請 求 書"),
+      React.createElement(Text, { style: styles.title }, "保 証 書"),
 
       React.createElement(
         View,
-        { style: styles.topRow },
+        { style: styles.section },
+        React.createElement(Text, { style: styles.sectionTitle }, "基本情報"),
         React.createElement(
           View,
-          { style: styles.billToBox },
-          React.createElement(Text, { style: styles.billToName }, `${billToName} 御中`),
-          invoice.bill_to_name
-            ? React.createElement(
-                Text,
-                { style: styles.line },
-                `ご担当者：${invoice.bill_to_name}`
-              )
-            : null,
-          invoice.bill_to_postal_code
-            ? React.createElement(
-                Text,
-                { style: styles.line },
-                formatPostalCode(invoice.bill_to_postal_code)
-              )
-            : null,
-          invoice.bill_to_address
-            ? React.createElement(
-                Text,
-                { style: styles.line },
-                invoice.bill_to_address
-              )
-            : null
-        ),
-
-        React.createElement(
-          View,
-          { style: styles.issuerBox },
-         React.createElement(
-  Text,
-  { style: styles.issuerName },
-  "STAR WARRANTY"
-)
+          { style: styles.grid },
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "保証書番号"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              safeText(certificate.certificate_no)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "状態"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              statusLabel(certificate.status)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "施主名"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              safeText(certificate.customer_name)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "施主名カナ"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              safeText(certificate.customer_name_kana)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "保証開始日"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              formatDate(certificate.start_date)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "保証終了日"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              formatDate(certificate.end_date)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.fullCell },
+            React.createElement(Text, { style: styles.label }, "住所"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              `${formatPostalCode(certificate.postal_code)} ${address || "-"}`
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.fullCell },
+            React.createElement(Text, { style: styles.label }, "物件名・部屋番号"),
+            React.createElement(Text, { style: styles.value }, property || "-")
+          )
         )
+      ),
+
+      React.createElement(
+        View,
+        { style: styles.section },
+        React.createElement(Text, { style: styles.sectionTitle }, "保証対象機器"),
+        items.length === 0
+          ? React.createElement(Text, { style: styles.value }, "保証対象機器は登録されていません。")
+          : React.createElement(
+              View,
+              { style: styles.table },
+              React.createElement(
+                View,
+                { style: styles.row },
+                React.createElement(Text, { style: styles.thProduct }, "商品名"),
+                React.createElement(Text, { style: styles.thCategory }, "カテゴリ"),
+                React.createElement(Text, { style: styles.thYears }, "年数"),
+                React.createElement(Text, { style: styles.thAmount }, "保証限度額")
+              ),
+              ...items.map((item) =>
+                React.createElement(
+                  View,
+                  { key: item.id, style: styles.row },
+                  React.createElement(
+                    Text,
+                    { style: styles.tdProduct },
+                    safeText(item.product_name)
+                  ),
+                  React.createElement(
+                    Text,
+                    { style: styles.tdCategory },
+                    safeText(item.category)
+                  ),
+                  React.createElement(
+                    Text,
+                    { style: styles.tdYears },
+                    item.warranty_years ? `${item.warranty_years}年` : "-"
+                  ),
+                  React.createElement(
+                    Text,
+                    { style: styles.tdAmount },
+                    formatYen(item.max_amount)
+                  )
+                )
+              )
+            )
+      ),
+
+      React.createElement(
+        View,
+        { style: styles.section },
+        React.createElement(Text, { style: styles.sectionTitle }, "販売・紹介情報"),
+        React.createElement(
+          View,
+          { style: styles.grid },
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "紹介者名"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              safeText(certificate.introducer_name)
+            )
+          ),
+          React.createElement(
+            View,
+            { style: styles.cell },
+            React.createElement(Text, { style: styles.label }, "販売店名"),
+            React.createElement(
+              Text,
+              { style: styles.value },
+              safeText(certificate.seller_name)
+            )
+          )
+        )
+      ),
+
+      React.createElement(
+        Text,
+        { style: styles.note },
+        "※本保証書は登録内容に基づきシステムから発行されています。修理受付は保証書詳細のQRコードまたは修理受付フォームから行ってください。"
       )
     )
   );
 }
 
-export async function POST(req: Request) {
+async function generatePdfById(certificateId: string) {
+  ensureJapaneseFont();
+
+  const supabase = getAdminClient();
+
+  const { data: certificate, error: certificateError } = await supabase
+    .from("warranty_certificates")
+    .select("*")
+    .eq("id", certificateId)
+    .single();
+
+  if (certificateError || !certificate) {
+    return NextResponse.json(
+      { success: false, error: "保証書データが見つかりません" },
+      { status: 404 }
+    );
+  }
+
+  const { data: items } = await supabase
+    .from("warranty_certificate_items")
+    .select("*")
+    .eq("certificate_id", certificateId);
+
+  const certificateData = certificate as WarrantyCertificate;
+  const itemRows = (items || []) as CertificateItem[];
+
+  const documentElement = React.createElement(
+    WarrantyCertificatePdf as React.ComponentType<PdfProps>,
+    {
+      certificate: certificateData,
+      items: itemRows,
+    }
+  ) as React.ReactElement<DocumentProps>;
+
+  const instance = pdf(documentElement);
+  const pdfBytes = (await instance.toBuffer()) as unknown as Buffer;
+
+  const filename = `warranty-${certificateData.certificate_no || certificateData.id}.pdf`;
+
+  return new NextResponse(pdfBytes as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export async function GET(req: Request) {
   try {
-    ensureJapaneseFont();
+    const url = new URL(req.url);
+    const certificateId = url.searchParams.get("id")?.trim();
 
-    const body = (await req.json()) as GenerateWarrantyInvoicePdfBody;
-    const invoiceId = body.invoice_id?.trim() || body.invoiceId?.trim();
-
-    if (!invoiceId) {
+    if (!certificateId) {
       return NextResponse.json(
-        { success: false, error: "invoice_id がありません" },
+        { success: false, error: "id がありません" },
         { status: 400 }
       );
     }
 
-    const supabase = getAdminClient();
-
-    const { data: invoice, error: invoiceError } = await supabase
-      .from("warranty_invoices")
-      .select("*")
-      .eq("id", invoiceId)
-      .single();
-
-    if (invoiceError || !invoice) {
-      return NextResponse.json(
-        { success: false, error: "請求書データが見つかりません" },
-        { status: 404 }
-      );
-    }
-
-    const { data: items, error: itemsError } = await supabase
-      .from("warranty_invoice_items")
-      .select("*")
-      .eq("invoice_id", invoiceId)
-      .order("sort_order", { ascending: true });
-
-    if (itemsError) {
-      return NextResponse.json(
-        { success: false, error: "請求明細の取得に失敗しました" },
-        { status: 500 }
-      );
-    }
-
-    const invoiceData = invoice as WarrantyInvoice;
-    const itemRows = (items || []) as WarrantyInvoiceItem[];
-
-    const documentElement = React.createElement(
-      WarrantyInvoicePdf as React.ComponentType<PdfProps>,
-      {
-        invoice: invoiceData,
-        items: itemRows,
-      }
-    ) as React.ReactElement<DocumentProps>;
-
-    const instance = pdf(documentElement);
-    const pdfBytes = (await instance.toBuffer()) as unknown as Buffer;
-
-    const filename = `warranty-invoice-${
-      invoiceData.invoice_no || invoiceData.id
-    }.pdf`;
-
-    return new NextResponse(pdfBytes as unknown as BodyInit, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    return await generatePdfById(certificateId);
   } catch (error) {
-    console.error("generate-warranty-invoice-pdf route error:", error);
+    console.error("generate-warranty-pdf GET route error:", error);
 
     return NextResponse.json(
       {
@@ -502,7 +535,36 @@ export async function POST(req: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "請求書PDF生成中に不明なエラーが発生しました",
+            : "保証書PDF生成中に不明なエラーが発生しました",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as { id?: string; certificate_id?: string };
+    const certificateId = body.id?.trim() || body.certificate_id?.trim();
+
+    if (!certificateId) {
+      return NextResponse.json(
+        { success: false, error: "id がありません" },
+        { status: 400 }
+      );
+    }
+
+    return await generatePdfById(certificateId);
+  } catch (error) {
+    console.error("generate-warranty-pdf POST route error:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "保証書PDF生成中に不明なエラーが発生しました",
       },
       { status: 500 }
     );
