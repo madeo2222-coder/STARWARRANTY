@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import path from "node:path";
 import fs from "node:fs";
 import React from "react";
+import QRCode from "qrcode";
 import {
   pdf,
   Document,
   Page,
   Text,
+  View,
   Image,
   StyleSheet,
   Font,
@@ -41,6 +43,8 @@ type CertificateItem = {
 type PdfProps = {
   certificate: WarrantyCertificate;
   items: CertificateItem[];
+  repairUrl: string;
+  qrDataUrl: string;
 };
 
 let fontRegistered = false;
@@ -134,7 +138,10 @@ function getWarrantyYears(items: CertificateItem[]) {
   return years.length > 0 ? Math.max(...years) : 10;
 }
 
-function getMainProduct(certificate: WarrantyCertificate, items: CertificateItem[]) {
+function getMainProduct(
+  certificate: WarrantyCertificate,
+  items: CertificateItem[]
+) {
   if (certificate.product_name) return certificate.product_name;
 
   const names = items
@@ -161,31 +168,47 @@ const styles = StyleSheet.create({
   },
   text: {
     position: "absolute",
-    fontSize: 9,
+    fontSize: 8,
     color: "#111827",
     fontWeight: 700,
   },
-  whitePatch: {
+  whiteBox: {
     position: "absolute",
     backgroundColor: "#ffffff",
   },
   productText: {
     position: "absolute",
-    fontSize: 9,
+    fontSize: 8,
     color: "#111827",
     fontWeight: 700,
     textAlign: "center",
   },
   yearsText: {
     position: "absolute",
-    fontSize: 25,
+    fontSize: 22,
     color: "#1F2A44",
     fontWeight: 700,
     textAlign: "center",
   },
+  qrImage: {
+    position: "absolute",
+    width: 66,
+    height: 66,
+  },
+  qrCaption: {
+    position: "absolute",
+    fontSize: 6,
+    color: "#111827",
+    textAlign: "center",
+  },
 });
 
-function WarrantyTemplatePdf({ certificate, items }: PdfProps) {
+function WarrantyTemplatePdf({
+  certificate,
+  items,
+  repairUrl,
+  qrDataUrl,
+}: PdfProps) {
   const address = [
     certificate.address1,
     certificate.address2,
@@ -209,29 +232,58 @@ function WarrantyTemplatePdf({ certificate, items }: PdfProps) {
         style: styles.bg,
       }),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 65, left: 65, width: 120, height: 16 }],
+      }),
       React.createElement(Text, {
-        style: [styles.text, { top: 72, left: 58, width: 135, fontSize: 10 }],
+        style: [styles.text, { top: 69, left: 67, width: 118, fontSize: 9 }],
       }, safeText(certificate.customer_name)),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 113, left: 55, width: 215, height: 18 }],
+      }),
       React.createElement(Text, {
-        style: [styles.text, { top: 119, left: 57, width: 205, fontSize: 8 }],
+        style: [styles.text, { top: 116, left: 57, width: 210, fontSize: 7 }],
       }, `${formatPostalCode(certificate.postal_code)} ${address}`),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 80, left: 468, width: 100, height: 13 }],
+      }),
       React.createElement(Text, {
-        style: [styles.text, { top: 85, left: 470, width: 100, fontSize: 8 }],
+        style: [styles.text, { top: 82, left: 470, width: 100, fontSize: 7 }],
       }, safeText(certificate.certificate_no)),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 105, left: 468, width: 100, height: 13 }],
+      }),
       React.createElement(Text, {
-        style: [styles.text, { top: 110, left: 470, width: 100, fontSize: 8 }],
+        style: [styles.text, { top: 107, left: 470, width: 100, fontSize: 7 }],
       }, formatDate(certificate.start_date)),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 283, left: 69, width: 118, height: 12 }],
+      }),
       React.createElement(Text, {
-        style: [styles.productText, { top: 281, left: 65, width: 125 }],
+        style: [styles.productText, { top: 283, left: 69, width: 118 }],
       }, product),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 274, left: 456, width: 45, height: 31 }],
+      }),
       React.createElement(Text, {
-        style: [styles.yearsText, { top: 268, left: 444, width: 70 }],
-      }, String(years))
+        style: [styles.yearsText, { top: 274, left: 455, width: 50 }],
+      }, String(years)),
+
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 540, left: 65, width: 78, height: 78 }],
+      }),
+      React.createElement(Image, {
+        src: qrDataUrl,
+        style: [styles.qrImage, { top: 546, left: 71 }],
+      }),
+      React.createElement(Text, {
+        style: [styles.qrCaption, { top: 615, left: 61, width: 88 }],
+      }, "修理受付はこちら")
     ),
 
     React.createElement(
@@ -251,14 +303,17 @@ function WarrantyTemplatePdf({ certificate, items }: PdfProps) {
         style: styles.bg,
       }),
 
+      React.createElement(View, {
+        style: [styles.whiteBox, { top: 150, left: 178, width: 190, height: 20 }],
+      }),
       React.createElement(Text, {
-        style: [styles.text, { top: 150, left: 178, width: 180, fontSize: 14 }],
+        style: [styles.text, { top: 153, left: 182, width: 180, fontSize: 12 }],
       }, safeText(certificate.certificate_no))
     )
   );
 }
 
-async function generatePdfById(certificateId: string) {
+async function generatePdfById(certificateId: string, requestUrl: string) {
   ensureJapaneseFont();
 
   const supabase = getAdminClient();
@@ -291,11 +346,25 @@ async function generatePdfById(certificateId: string) {
   const certificateData = certificate as WarrantyCertificate;
   const itemRows = (items || []) as CertificateItem[];
 
+  const origin = new URL(requestUrl).origin;
+
+  const repairUrl = certificateData.repair_form_token
+    ? `${origin}/repair-request-form?token=${certificateData.repair_form_token}`
+    : `${origin}/repair-request-form`;
+
+  const qrDataUrl = await QRCode.toDataURL(repairUrl, {
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width: 260,
+  });
+
   const documentElement = React.createElement(
     WarrantyTemplatePdf as React.ComponentType<PdfProps>,
     {
       certificate: certificateData,
       items: itemRows,
+      repairUrl,
+      qrDataUrl,
     }
   ) as React.ReactElement<DocumentProps>;
 
@@ -328,7 +397,7 @@ export async function GET(req: Request) {
       );
     }
 
-    return await generatePdfById(certificateId);
+    return await generatePdfById(certificateId, req.url);
   } catch (error) {
     console.error("generate-warranty-pdf GET route error:", error);
 
@@ -357,7 +426,7 @@ export async function POST(req: Request) {
       );
     }
 
-    return await generatePdfById(certificateId);
+    return await generatePdfById(certificateId, req.url);
   } catch (error) {
     console.error("generate-warranty-pdf POST route error:", error);
 
