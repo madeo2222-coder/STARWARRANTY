@@ -40,6 +40,17 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+function getMailFrom() {
+  return (
+    process.env.WARRANTY_MAIL_FROM ||
+    "STAR WARRANTY <onboarding@resend.dev>"
+  );
+}
+
+function getBaseUrl() {
+  return process.env.NEXT_PUBLIC_APP_URL || "https://starwarranty.vercel.app";
+}
+
 function buildRequestNo() {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -125,6 +136,179 @@ function getProductNameFromItem(item: AnyRow, productMap: Map<string, AnyRow>) {
   }
 
   return getProductNameFromProduct(productMap.get(productId));
+}
+
+function buildCustomerReceivedText({
+  requestNo,
+  customerName,
+  phone,
+  productName,
+  repairStatusUrl,
+}: {
+  requestNo: string;
+  customerName: string;
+  phone: string;
+  productName: string;
+  repairStatusUrl: string;
+}) {
+  return `
+${customerName} 様
+
+このたびは、STAR WARRANTY 修理受付フォームよりご連絡いただきありがとうございます。
+以下の内容で修理受付が完了いたしました。
+
+━━━━━━━━━━━━━━━━━━━━
+受付番号：${requestNo}
+お客様名：${customerName}
+電話番号：${phone}
+対象機器：${productName}
+━━━━━━━━━━━━━━━━━━━━
+
+今後、担当者が受付内容・保証情報・添付写真を確認し、
+必要に応じてお電話またはメールにてご連絡いたします。
+
+修理状況は以下のページからご確認いただけます。
+
+${repairStatusUrl}
+
+確認ページでは、以下の情報を入力してください。
+・受付番号：${requestNo}
+・電話番号：${phone}
+
+※本メールは自動送信です。
+※内容にお心当たりがない場合は、恐れ入りますが本メールを破棄してください。
+
+STAR WARRANTY
+`;
+}
+
+function buildCustomerReceivedHtml({
+  requestNo,
+  customerName,
+  phone,
+  productName,
+  repairStatusUrl,
+}: {
+  requestNo: string;
+  customerName: string;
+  phone: string;
+  productName: string;
+  repairStatusUrl: string;
+}) {
+  return `
+<!doctype html>
+<html lang="ja">
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:24px 24px 12px;">
+                <div style="font-size:12px;letter-spacing:0.16em;color:#6b7280;font-weight:700;">STAR WARRANTY</div>
+                <h1 style="margin:10px 0 0;font-size:22px;line-height:1.4;">修理受付が完了しました</h1>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px 20px;font-size:14px;line-height:1.8;color:#374151;">
+                ${customerName} 様<br />
+                このたびは、修理受付フォームよりご連絡いただきありがとうございます。<br />
+                以下の内容で修理受付が完了いたしました。
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px 20px;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;padding:6px 0;">受付番号</td>
+                    <td style="font-size:18px;font-weight:700;text-align:right;padding:6px 0;">${requestNo}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;padding:6px 0;">お客様名</td>
+                    <td style="font-size:14px;text-align:right;padding:6px 0;">${customerName}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;padding:6px 0;">電話番号</td>
+                    <td style="font-size:14px;text-align:right;padding:6px 0;">${phone}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;padding:6px 0;">対象機器</td>
+                    <td style="font-size:14px;text-align:right;padding:6px 0;">${productName}</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px 20px;font-size:14px;line-height:1.8;color:#374151;">
+                担当者が受付内容・保証情報・添付写真を確認し、必要に応じてお電話またはメールにてご連絡いたします。
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:0 24px 24px;">
+                <a href="${repairStatusUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;border-radius:10px;padding:13px 20px;font-size:14px;font-weight:700;">
+                  修理状況を確認する
+                </a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:18px 24px;background:#f9fafb;font-size:12px;line-height:1.7;color:#6b7280;">
+                確認ページでは、受付番号「${requestNo}」と電話番号「${phone}」を入力してください。<br />
+                ※本メールは自動送信です。
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+`;
+}
+
+function buildAdminNotifyText({
+  requestNo,
+  customerName,
+  phone,
+  email,
+  productName,
+  symptomCategory,
+  symptomDetail,
+  detailUrl,
+}: {
+  requestNo: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  productName: string;
+  symptomCategory: string;
+  symptomDetail: string;
+  detailUrl: string;
+}) {
+  return `
+新しい修理受付が登録されました。
+
+━━━━━━━━━━━━━━━━━━━━
+受付番号：${requestNo}
+お客様名：${customerName}
+電話番号：${phone}
+メール：${email || "-"}
+対象機器：${productName}
+症状区分：${symptomCategory || "-"}
+━━━━━━━━━━━━━━━━━━━━
+
+故障内容：
+${symptomDetail}
+
+管理画面：
+${detailUrl}
+
+STAR WARRANTY
+`;
 }
 
 export async function GET(request: Request) {
@@ -399,6 +583,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const baseUrl = getBaseUrl();
+    const repairStatusUrl = `${baseUrl}/repair-status?request_no=${encodeURIComponent(
+      requestNo
+    )}&phone=${encodeURIComponent(body.phone.trim())}`;
+
+    const detailUrl = `${baseUrl}/repair-requests/detail?request_no=${encodeURIComponent(
+      requestNo
+    )}`;
+
     try {
       const resendKey = process.env.RESEND_API_KEY;
       const notifyEmail = process.env.WARRANTY_NOTIFY_EMAIL;
@@ -407,19 +600,19 @@ export async function POST(request: Request) {
         const resend = new (await import("resend")).Resend(resendKey);
 
         await resend.emails.send({
-          from: "STAR WARRANTY <onboarding@resend.dev>",
+          from: getMailFrom(),
           to: notifyEmail,
-          subject: `【新規修理受付】${requestNo}`,
-          text: `
-新しい修理受付が登録されました。
-
-受付番号：${requestNo}
-お客様名：${body.customer_name}
-電話番号：${body.phone}
-対象機器：${body.product_name}
-
-管理画面で確認してください。
-`,
+          subject: `【STAR WARRANTY】新規修理受付 ${requestNo}`,
+          text: buildAdminNotifyText({
+            requestNo,
+            customerName: body.customer_name.trim(),
+            phone: body.phone.trim(),
+            email: body.email?.trim() || "",
+            productName: body.product_name.trim(),
+            symptomCategory: body.symptom_category?.trim() || "",
+            symptomDetail: body.symptom_detail.trim(),
+            detailUrl,
+          }),
         });
       }
     } catch (e) {
@@ -432,36 +625,24 @@ export async function POST(request: Request) {
       if (resendKey && resendKey !== "dummy" && body.email) {
         const resend = new (await import("resend")).Resend(resendKey);
 
-        const repairStatusUrl = `https://starwarranty.vercel.app/repair-status?request_no=${encodeURIComponent(
-          requestNo
-        )}`;
-
         await resend.emails.send({
-          from: "STAR WARRANTY <onboarding@resend.dev>",
+          from: getMailFrom(),
           to: body.email,
-          subject: `【修理受付完了】${requestNo}`,
-          text: `
-この度は修理受付ありがとうございます。
-
-以下内容にて受付完了いたしました。
-
-受付番号：
-${requestNo}
-
-お客様名：
-${body.customer_name}
-
-対象機器：
-${body.product_name}
-
-修理状況確認ページ：
-${repairStatusUrl}
-
-今後、確認・手配が進み次第、
-ステータス更新を行います。
-
-STAR WARRANTY
-`,
+          subject: `【STAR WARRANTY】修理受付完了のお知らせ（${requestNo}）`,
+          text: buildCustomerReceivedText({
+            requestNo,
+            customerName: body.customer_name.trim(),
+            phone: body.phone.trim(),
+            productName: body.product_name.trim(),
+            repairStatusUrl,
+          }),
+          html: buildCustomerReceivedHtml({
+            requestNo,
+            customerName: body.customer_name.trim(),
+            phone: body.phone.trim(),
+            productName: body.product_name.trim(),
+            repairStatusUrl,
+          }),
         });
       }
     } catch (e) {

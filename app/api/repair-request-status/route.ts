@@ -13,6 +13,17 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 type AnyBody = Record<string, any>;
 
+function getMailFrom() {
+  return (
+    process.env.WARRANTY_MAIL_FROM ||
+    "STAR WARRANTY <onboarding@resend.dev>"
+  );
+}
+
+function getBaseUrl() {
+  return process.env.NEXT_PUBLIC_APP_URL || "https://starwarranty.vercel.app";
+}
+
 function getStatusLabel(status: string) {
   switch (status) {
     case "received":
@@ -33,6 +44,29 @@ function getStatusLabel(status: string) {
       return "キャンセル";
     default:
       return status;
+  }
+}
+
+function getStatusMessage(status: string) {
+  switch (status) {
+    case "received":
+      return "修理受付が完了しています。担当者が内容確認を進めています。";
+    case "checking":
+      return "受付内容・保証情報・添付写真を確認しています。";
+    case "manufacturer_checking":
+      return "メーカーへ確認中です。回答があり次第、次の対応へ進みます。";
+    case "repair_arranging":
+      return "修理手配を進めています。";
+    case "visit_scheduling":
+      return "訪問日程の調整段階です。担当者からの案内をお待ちください。";
+    case "completed":
+      return "修理対応が完了しました。";
+    case "out_of_warranty":
+      return "確認の結果、保証対象外となっています。";
+    case "cancelled":
+      return "この修理受付はキャンセルされています。";
+    default:
+      return "現在の受付状況を確認しています。";
   }
 }
 
@@ -102,6 +136,118 @@ async function readBody(request: Request) {
   };
 }
 
+function buildStatusMailText({
+  requestNo,
+  status,
+  phone,
+  statusUrl,
+}: {
+  requestNo: string;
+  status: string;
+  phone: string;
+  statusUrl: string;
+}) {
+  return `
+修理状況が更新されました。
+
+━━━━━━━━━━━━━━━━━━━━
+受付番号：${requestNo}
+現在のステータス：${getStatusLabel(status)}
+━━━━━━━━━━━━━━━━━━━━
+
+${getStatusMessage(status)}
+
+修理状況は以下のページからご確認いただけます。
+
+${statusUrl}
+
+確認ページでは、以下の情報を入力してください。
+・受付番号：${requestNo}
+・電話番号：${phone || "-"}
+
+※本メールは自動送信です。
+※行き違いでご連絡済みの場合はご容赦ください。
+
+STAR WARRANTY
+`;
+}
+
+function buildStatusMailHtml({
+  requestNo,
+  status,
+  phone,
+  statusUrl,
+}: {
+  requestNo: string;
+  status: string;
+  phone: string;
+  statusUrl: string;
+}) {
+  return `
+<!doctype html>
+<html lang="ja">
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:24px 24px 12px;">
+                <div style="font-size:12px;letter-spacing:0.16em;color:#6b7280;font-weight:700;">STAR WARRANTY</div>
+                <h1 style="margin:10px 0 0;font-size:22px;line-height:1.4;">修理状況が更新されました</h1>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px 20px;font-size:14px;line-height:1.8;color:#374151;">
+                修理受付の進行状況に更新がありました。
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px 20px;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;padding:6px 0;">受付番号</td>
+                    <td style="font-size:18px;font-weight:700;text-align:right;padding:6px 0;">${requestNo}</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:12px;color:#6b7280;padding:6px 0;">現在のステータス</td>
+                    <td style="font-size:16px;font-weight:700;text-align:right;padding:6px 0;">${getStatusLabel(status)}</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 24px 20px;font-size:14px;line-height:1.8;color:#374151;">
+                ${getStatusMessage(status)}
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:0 24px 24px;">
+                <a href="${statusUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;border-radius:10px;padding:13px 20px;font-size:14px;font-weight:700;">
+                  修理状況を確認する
+                </a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:18px 24px;background:#f9fafb;font-size:12px;line-height:1.7;color:#6b7280;">
+                確認ページでは、受付番号「${requestNo}」と電話番号「${phone || "-"}」を入力してください。<br />
+                ※本メールは自動送信です。
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+`;
+}
+
 async function sendStatusMail({
   requestNo,
   status,
@@ -116,71 +262,26 @@ async function sendStatusMail({
   if (!email) return;
 
   try {
-    const statusUrl = `https://starwarranty.vercel.app/repair-status?request_no=${encodeURIComponent(
+    const statusUrl = `${getBaseUrl()}/repair-status?request_no=${encodeURIComponent(
       requestNo
     )}&phone=${encodeURIComponent(phone || "")}`;
 
     await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: getMailFrom(),
       to: email,
-      subject: "【STAR WARRANTY】修理状況更新",
-      html: `
-<!doctype html>
-<html lang="ja">
-  <body style="margin:0;padding:0;background:#f3f4f6;font-family:sans-serif;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px 0;">
-      <tr>
-        <td align="center">
-          <table width="100%" style="max-width:500px;background:#ffffff;border-radius:12px;padding:24px;">
-            <tr>
-              <td style="font-size:24px;font-weight:bold;">STAR WARRANTY</td>
-            </tr>
-            <tr>
-              <td style="font-size:16px;padding-top:16px;">修理状況が更新されました</td>
-            </tr>
-            <tr>
-              <td style="padding-top:20px;color:#666;">受付番号</td>
-            </tr>
-            <tr>
-              <td style="font-size:28px;font-weight:bold;padding-top:6px;">${requestNo}</td>
-            </tr>
-            <tr>
-              <td style="padding-top:16px;">
-                <div style="padding:16px;background:#f9fafb;border-radius:8px;text-align:center;">
-                  <div style="font-size:12px;color:#666;">現在のステータス</div>
-                  <div style="font-size:20px;font-weight:bold;margin-top:4px;">
-                    ${getStatusLabel(status)}
-                  </div>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding-top:20px;font-size:14px;color:#374151;">
-                修理状況確認ページでは、以下を入力してください。<br />
-                ・受付番号：${requestNo}<br />
-                ・電話番号：${phone || ""}
-              </td>
-            </tr>
-            <tr>
-              <td style="padding-top:20px;text-align:center;">
-                <a href="${statusUrl}"
-                   style="display:inline-block;padding:12px 20px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;">
-                  修理状況を確認する
-                </a>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding-top:20px;font-size:12px;color:#999;text-align:center;">
-                ※本メールは自動送信です
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-`,
+      subject: `【STAR WARRANTY】修理状況更新のお知らせ（${requestNo}）`,
+      text: buildStatusMailText({
+        requestNo,
+        status,
+        phone: phone || "",
+        statusUrl,
+      }),
+      html: buildStatusMailHtml({
+        requestNo,
+        status,
+        phone: phone || "",
+        statusUrl,
+      }),
     });
   } catch (e) {
     console.error("mail error:", e);
