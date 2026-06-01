@@ -267,8 +267,8 @@ function WarrantyTemplatePdf({
         style: [styles.whiteBox, { top: 274, left: 456, width: 45, height: 31 }],
       }),
       React.createElement(Text, {
-        style: [styles.yearsText, { top: 274, left: 455, width: 50 }],
-      }, String(years)),
+  style: [styles.yearsText, { top: 274, left: 455, width: 50 }],
+}, `${years}年`),
 
       React.createElement(View, {
         style: [styles.whiteBox, { top: 540, left: 65, width: 78, height: 78 }],
