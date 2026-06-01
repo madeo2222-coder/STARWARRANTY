@@ -14,6 +14,14 @@ type ReminderBody = {
   subject?: string;
 };
 
+type InvoiceRow = {
+  id: string;
+  invoice_no: string | null;
+  status: string | null;
+  total_amount: number | null;
+  payment_due_date: string | null;
+};
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -29,7 +37,23 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
-function buildReminderEmailHtml(params: { subject: string }) {
+function getMailFrom() {
+  return (
+    process.env.WARRANTY_MAIL_FROM ||
+    "STAR WARRANTY <onboarding@resend.dev>"
+  );
+}
+
+function formatYen(value: number | null | undefined) {
+  return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
+}
+
+function buildReminderEmailHtml(params: {
+  subject: string;
+  invoiceNo: string;
+  totalAmount: number | null;
+  paymentDueDate: string | null;
+}) {
   return `
 <!doctype html>
 <html lang="ja">
@@ -54,7 +78,12 @@ function buildReminderEmailHtml(params: { subject: string }) {
               <td style="padding:24px;">
                 <div style="font-size:14px; line-height:1.9; color:#374151;">
                   いつもお世話になっております。<br />
-                  先日お送りしました請求書につきまして、現時点で入金確認が取れていないため、念のためご案内いたします。<br />
+                  先日お送りしました請求書につきまして、現時点で入金確認が取れていないため、念のためご案内いたします。<br /><br />
+
+                  <strong>請求書番号：</strong>${params.invoiceNo}<br />
+                  <strong>請求金額：</strong>${formatYen(params.totalAmount)}<br />
+                  <strong>支払期限：</strong>${params.paymentDueDate || "-"}<br /><br />
+
                   請求書PDFを添付しておりますので、ご確認をお願いいたします。
                 </div>
 
@@ -89,6 +118,56 @@ export async function POST(req: Request) {
         {
           success: false,
           error: "invoice_id または to_email がありません",
+        },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getAdminClient();
+
+    const { data: invoice, error: fetchError } = await supabase
+      .from("warranty_invoices")
+      .select("id, invoice_no, status, total_amount, payment_due_date")
+      .eq("id", invoiceId)
+      .maybeSingle();
+
+    if (fetchError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: fetchError.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!invoice) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "対象の請求書が見つかりません",
+        },
+        { status: 404 }
+      );
+    }
+
+    const invoiceRow = invoice as InvoiceRow;
+
+    if (invoiceRow.status === "paid") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "入金済み請求書には督促メールを送信できません",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (invoiceRow.status === "cancelled") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "取消済み請求書には督促メールを送信できません",
         },
         { status: 400 }
       );
@@ -129,10 +208,13 @@ export async function POST(req: Request) {
 
     const html = buildReminderEmailHtml({
       subject,
+      invoiceNo: invoiceRow.invoice_no || "-",
+      totalAmount: invoiceRow.total_amount,
+      paymentDueDate: invoiceRow.payment_due_date,
     });
 
     const { data, error } = await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: getMailFrom(),
       to: [toEmail],
       subject,
       html,
@@ -156,13 +238,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = getAdminClient();
+    const now = new Date().toISOString();
 
-    // 🔥 ここ追加（ステータス更新）
-    await supabase
+    const { error: updateError } = await supabase
       .from("warranty_invoices")
-      .update({ status: "unpaid" })
+      .update({
+        status: "overdue",
+        updated_at: now,
+      })
       .eq("id", invoiceId);
+
+    if (updateError) {
+      console.error("manual reminder status update error:", updateError);
+    }
 
     const { error: logError } = await supabase
       .from("warranty_invoice_send_logs")
@@ -171,7 +259,7 @@ export async function POST(req: Request) {
         to_email: toEmail,
         subject,
         send_type: "reminder",
-        sent_at: new Date().toISOString(),
+        sent_at: now,
       });
 
     if (logError) {
