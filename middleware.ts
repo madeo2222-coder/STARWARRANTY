@@ -14,9 +14,9 @@ export function middleware(request: NextRequest) {
     pathname === "/login" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico") ||
-
-    // 👇 これ追加（超重要）
-    pathname.startsWith("/repair-status");
+    pathname.startsWith("/repair-status") ||
+    pathname.startsWith("/repair-request-form") ||
+    pathname.startsWith("/api/generate-warranty-pdf");
 
   const isLoggedIn = hasSupabaseSessionCookie(request);
 
