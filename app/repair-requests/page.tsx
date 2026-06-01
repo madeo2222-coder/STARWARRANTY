@@ -15,6 +15,11 @@ type RepairRequestRow = {
   assigned_to: string | null;
   created_at: string;
   agency_name: string | null;
+  photo_count: number;
+};
+
+type AttachmentRow = {
+  repair_request_id: string;
 };
 
 const STATUS_OPTIONS = [
@@ -45,8 +50,13 @@ function getAdminClient() {
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
   return date.toLocaleString("ja-JP");
 }
 
@@ -82,6 +92,14 @@ function isActiveStatus(status: string) {
   return !["completed", "out_of_warranty", "cancelled"].includes(status);
 }
 
+function isClosedStatus(status: string) {
+  return ["out_of_warranty", "cancelled"].includes(status);
+}
+
+function buildDetailHref(requestNo: string) {
+  return `/repair-requests/detail?request_no=${encodeURIComponent(requestNo)}`;
+}
+
 export default async function RepairRequestsPage({
   searchParams,
 }: {
@@ -108,7 +126,37 @@ export default async function RepairRequestsPage({
     if (error) {
       errorMessage = error.message;
     } else {
-      rows = (data || []) as RepairRequestRow[];
+      const baseRows = (data || []) as Omit<RepairRequestRow, "photo_count">[];
+
+      const requestIds = baseRows.map((row) => row.id);
+
+      let photoCountMap = new Map<string, number>();
+
+      if (requestIds.length > 0) {
+        const { data: attachmentRows, error: attachmentError } = await supabase
+          .from("repair_request_attachments")
+          .select("repair_request_id")
+          .in("repair_request_id", requestIds);
+
+        if (attachmentError) {
+          console.error("repair request attachment count error:", attachmentError);
+        } else {
+          for (const attachment of (attachmentRows || []) as AttachmentRow[]) {
+            const currentCount =
+              photoCountMap.get(attachment.repair_request_id) || 0;
+
+            photoCountMap.set(
+              attachment.repair_request_id,
+              currentCount + 1
+            );
+          }
+        }
+      }
+
+      rows = baseRows.map((row) => ({
+        ...row,
+        photo_count: photoCountMap.get(row.id) || 0,
+      }));
     }
   } catch (error) {
     errorMessage =
@@ -121,10 +169,15 @@ export default async function RepairRequestsPage({
 
   const activeRows = filteredRows.filter((row) => isActiveStatus(row.status));
   const completedRows = filteredRows.filter((row) => row.status === "completed");
-  const closedRows = filteredRows.filter((row) =>
-    ["out_of_warranty", "cancelled"].includes(row.status)
-  );
+  const closedRows = filteredRows.filter((row) => isClosedStatus(row.status));
   const unassignedRows = activeRows.filter((row) => !row.assigned_to);
+
+  const latestActiveRows = activeRows.slice(0, 5);
+
+  const statusStats = STATUS_OPTIONS.map((status) => ({
+    ...status,
+    count: filteredRows.filter((row) => row.status === status.value).length,
+  }));
 
   const agencyStatsMap = new Map<
     string,
@@ -149,11 +202,12 @@ export default async function RepairRequestsPage({
     }
 
     const stats = agencyStatsMap.get(agencyName)!;
+
     stats.total += 1;
 
     if (row.status === "completed") {
       stats.completed += 1;
-    } else if (["out_of_warranty", "cancelled"].includes(row.status)) {
+    } else if (isClosedStatus(row.status)) {
       stats.closed += 1;
     } else {
       stats.active += 1;
@@ -163,50 +217,52 @@ export default async function RepairRequestsPage({
   const agencyStats = Array.from(agencyStatsMap.entries()).sort(
     (a, b) => b[1].total - a[1].total
   );
-const monthlyStatsMap = new Map<
-  string,
-  {
-    total: number;
-    active: number;
-    completed: number;
-    closed: number;
+
+  const monthlyStatsMap = new Map<
+    string,
+    {
+      total: number;
+      active: number;
+      completed: number;
+      closed: number;
+    }
+  >();
+
+  for (const row of rows) {
+    const date = new Date(row.created_at);
+
+    const monthKey = Number.isNaN(date.getTime())
+      ? "日付不明"
+      : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+          2,
+          "0"
+        )}`;
+
+    if (!monthlyStatsMap.has(monthKey)) {
+      monthlyStatsMap.set(monthKey, {
+        total: 0,
+        active: 0,
+        completed: 0,
+        closed: 0,
+      });
+    }
+
+    const stats = monthlyStatsMap.get(monthKey)!;
+
+    stats.total += 1;
+
+    if (row.status === "completed") {
+      stats.completed += 1;
+    } else if (isClosedStatus(row.status)) {
+      stats.closed += 1;
+    } else {
+      stats.active += 1;
+    }
   }
->();
 
-for (const row of rows) {
-  const date = new Date(row.created_at);
-
-  const monthKey = `${date.getFullYear()}-${String(
-    date.getMonth() + 1
-  ).padStart(2, "0")}`;
-
-  if (!monthlyStatsMap.has(monthKey)) {
-    monthlyStatsMap.set(monthKey, {
-      total: 0,
-      active: 0,
-      completed: 0,
-      closed: 0,
-    });
-  }
-
-  const stats = monthlyStatsMap.get(monthKey)!;
-
-  stats.total += 1;
-
-  if (row.status === "completed") {
-    stats.completed += 1;
-  } else if (
-    ["out_of_warranty", "cancelled"].includes(row.status)
-  ) {
-    stats.closed += 1;
-  } else {
-    stats.active += 1;
-  }
-}
-
-const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
-  (a, b) => b[0].localeCompare(a[0])
-);
+  const monthlyStats = Array.from(monthlyStatsMap.entries()).sort((a, b) =>
+    b[0].localeCompare(a[0])
+  );
 
   const csvHref = selectedAgency
     ? `/api/repair-requests-csv?agency=${encodeURIComponent(selectedAgency)}`
@@ -284,9 +340,11 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
           <div className="mt-2 text-3xl font-bold">{activeRows.length}</div>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm text-gray-500">未担当</div>
-          <div className="mt-2 text-3xl font-bold">{unassignedRows.length}</div>
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-5 shadow-sm">
+          <div className="text-sm text-red-600">未担当</div>
+          <div className="mt-2 text-3xl font-bold text-red-700">
+            {unassignedRows.length}
+          </div>
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -299,46 +357,148 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
           <div className="mt-2 text-3xl font-bold">{closedRows.length}</div>
         </div>
       </div>
-<div className="rounded-2xl border bg-white shadow-sm">
-  <div className="border-b px-5 py-4">
-    <h2 className="text-base font-semibold">月別修理件数</h2>
-    <p className="mt-1 text-sm text-gray-500">
-      月ごとの修理受付数・対応状況を確認できます。
-    </p>
-  </div>
 
-  {monthlyStats.length === 0 ? (
-    <div className="p-6 text-sm text-gray-500">
-      データがありません。
-    </div>
-  ) : (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead className="bg-gray-50 text-left">
-          <tr>
-            <th className="px-4 py-3 font-medium">月</th>
-            <th className="px-4 py-3 font-medium">全受付</th>
-            <th className="px-4 py-3 font-medium">対応中</th>
-            <th className="px-4 py-3 font-medium">修理完了</th>
-            <th className="px-4 py-3 font-medium">対象外・キャンセル</th>
-          </tr>
-        </thead>
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold">ステータス別件数</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              現在の対応状況をステータス別に確認できます。
+            </p>
+          </div>
+        </div>
 
-        <tbody>
-          {monthlyStats.map(([month, stats]) => (
-            <tr key={month} className="border-t hover:bg-gray-50">
-              <td className="px-4 py-3 font-medium">{month}</td>
-              <td className="px-4 py-3">{stats.total}</td>
-              <td className="px-4 py-3">{stats.active}</td>
-              <td className="px-4 py-3">{stats.completed}</td>
-              <td className="px-4 py-3">{stats.closed}</td>
-            </tr>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {statusStats.map((status) => (
+            <div
+              key={status.value}
+              className={`rounded-xl border p-4 ${statusBadgeClass(
+                status.value
+              )}`}
+            >
+              <div className="text-sm font-medium">{status.label}</div>
+              <div className="mt-2 text-2xl font-bold">{status.count}</div>
+            </div>
           ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
+        </div>
+      </div>
+
+      {latestActiveRows.length > 0 ? (
+        <div className="rounded-2xl border bg-white shadow-sm">
+          <div className="border-b px-5 py-4">
+            <h2 className="text-base font-semibold">最近の未完了受付</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              優先して確認したい対応中の修理受付です。
+            </p>
+          </div>
+
+          <div className="divide-y">
+            {latestActiveRows.map((row) => (
+              <div
+                key={row.id}
+                className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between"
+              >
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={buildDetailHref(row.request_no)}
+                      className="font-semibold text-blue-600 hover:underline"
+                    >
+                      {row.request_no}
+                    </Link>
+
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+                        row.status
+                      )}`}
+                    >
+                      {statusLabel(row.status)}
+                    </span>
+
+                    {row.assigned_to ? (
+                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {row.assigned_to}
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
+                        未担当
+                      </span>
+                    )}
+
+                    {row.photo_count > 0 ? (
+                      <span className="inline-flex rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+                        写真 {row.photo_count}枚
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-500">
+                        写真なし
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-sm text-gray-700">
+                    {row.customer_name} / {row.product_name || "-"} /{" "}
+                    {row.phone || "-"}
+                  </div>
+
+                  <div className="text-xs text-gray-500">
+                    受付日時：{formatDateTime(row.created_at)}
+                  </div>
+                </div>
+
+                <Link
+                  href={buildDetailHref(row.request_no)}
+                  className="rounded-lg bg-black px-4 py-2 text-center text-xs text-white hover:opacity-90"
+                >
+                  詳細・編集
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="rounded-2xl border bg-white shadow-sm">
+        <div className="border-b px-5 py-4">
+          <h2 className="text-base font-semibold">月別修理件数</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            月ごとの修理受付数・対応状況を確認できます。
+          </p>
+        </div>
+
+        {monthlyStats.length === 0 ? (
+          <div className="p-6 text-sm text-gray-500">データがありません。</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">月</th>
+                  <th className="px-4 py-3 font-medium">全受付</th>
+                  <th className="px-4 py-3 font-medium">対応中</th>
+                  <th className="px-4 py-3 font-medium">修理完了</th>
+                  <th className="px-4 py-3 font-medium">
+                    対象外・キャンセル
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {monthlyStats.map(([month, stats]) => (
+                  <tr key={month} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{month}</td>
+                    <td className="px-4 py-3">{stats.total}</td>
+                    <td className="px-4 py-3">{stats.active}</td>
+                    <td className="px-4 py-3">{stats.completed}</td>
+                    <td className="px-4 py-3">{stats.closed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="rounded-2xl border bg-white shadow-sm">
         <div className="border-b px-5 py-4">
           <h2 className="text-base font-semibold">代理店別修理統計</h2>
@@ -348,9 +508,7 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
         </div>
 
         {agencyStats.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">
-            データがありません。
-          </div>
+          <div className="p-6 text-sm text-gray-500">データがありません。</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -360,7 +518,9 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
                   <th className="px-4 py-3 font-medium">全受付</th>
                   <th className="px-4 py-3 font-medium">対応中</th>
                   <th className="px-4 py-3 font-medium">修理完了</th>
-                  <th className="px-4 py-3 font-medium">対象外・キャンセル</th>
+                  <th className="px-4 py-3 font-medium">
+                    対象外・キャンセル
+                  </th>
                 </tr>
               </thead>
 
@@ -411,6 +571,7 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
                   <th className="px-4 py-3 font-medium">受付番号</th>
                   <th className="px-4 py-3 font-medium">状態</th>
                   <th className="px-4 py-3 font-medium">担当者</th>
+                  <th className="px-4 py-3 font-medium">写真</th>
                   <th className="px-4 py-3 font-medium">お客様名</th>
                   <th className="px-4 py-3 font-medium">電話番号</th>
                   <th className="px-4 py-3 font-medium">対象機器</th>
@@ -426,7 +587,7 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
                   <tr key={row.id} className="border-t hover:bg-gray-50">
                     <td className="whitespace-nowrap px-4 py-3 font-medium">
                       <Link
-                        href={`/repair-requests/detail?request_no=${row.request_no}`}
+                        href={buildDetailHref(row.request_no)}
                         className="text-blue-600 hover:underline"
                       >
                         {row.request_no}
@@ -456,24 +617,44 @@ const monthlyStats = Array.from(monthlyStatsMap.entries()).sort(
                     </td>
 
                     <td className="whitespace-nowrap px-4 py-3">
+                      {row.photo_count > 0 ? (
+                        <span className="inline-flex rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+                          {row.photo_count}枚
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-500">
+                          なし
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
                       {row.customer_name}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">{row.phone}</td>
+
                     <td className="whitespace-nowrap px-4 py-3">
-                      {row.product_name}
+                      {row.phone}
                     </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {row.product_name || "-"}
+                    </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       {row.symptom_category || "-"}
                     </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       {row.certificate_no || "-"}
                     </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       {formatDateTime(row.created_at)}
                     </td>
+
                     <td className="whitespace-nowrap px-4 py-3">
                       <Link
-                        href={`/repair-requests/detail?request_no=${row.request_no}`}
+                        href={buildDetailHref(row.request_no)}
                         className="rounded-lg bg-black px-3 py-2 text-xs text-white hover:opacity-90"
                       >
                         詳細・編集
