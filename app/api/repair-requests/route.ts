@@ -31,7 +31,7 @@ type WarrantyCertificateRow = {
   customer_phone: string | null;
   customer_email: string | null;
   postal_code: string | null;
-  address1: string | null;
+  address: string | null;
   address2: string | null;
   address3: string | null;
   product_name: string | null;
@@ -45,8 +45,6 @@ type WarrantyCertificateItemRow = {
   id: string;
   product_name: string | null;
   category: string | null;
-  manufacturer: string | null;
-  model_no: string | null;
   is_active: boolean | null;
 };
 
@@ -94,11 +92,7 @@ function normalizeToken(value: string | null | undefined) {
 }
 
 function joinAddress(certificate: WarrantyCertificateRow) {
-  return [
-    certificate.address1,
-    certificate.address2,
-    certificate.address3,
-  ]
+  return [certificate.address, certificate.address2, certificate.address3]
     .filter(Boolean)
     .join(" ");
 }
@@ -128,7 +122,7 @@ export async function GET(request: Request) {
         customer_phone,
         customer_email,
         postal_code,
-        address1,
+        address,
         address2,
         address3,
         product_name,
@@ -147,7 +141,7 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "保証書情報の取得に失敗しました",
+          error: `保証書情報の取得に失敗しました: ${certificateError.message}`,
         },
         { status: 500 }
       );
@@ -167,7 +161,7 @@ export async function GET(request: Request) {
 
     const { data: itemRows, error: itemError } = await supabase
       .from("warranty_certificate_items")
-      .select("id, product_name, category, manufacturer, model_no, is_active")
+      .select("id, product_name, category, is_active")
       .eq("certificate_id", certificateRow.id);
 
     if (itemError) {
@@ -176,20 +170,23 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "保証対象機器の取得に失敗しました",
+          error: `保証対象機器の取得に失敗しました: ${itemError.message}`,
         },
         { status: 500 }
       );
     }
 
-    const products = ((itemRows || []) as WarrantyCertificateItemRow[])
-      .filter((item) => item.is_active !== false)
+    const activeItems = ((itemRows || []) as WarrantyCertificateItemRow[]).filter(
+      (item) => item.is_active !== false
+    );
+
+    const products = activeItems
       .map((item) => item.product_name || item.category || "")
       .filter((name) => name.trim().length > 0);
 
-    const firstActiveItem = ((itemRows || []) as WarrantyCertificateItemRow[])
-      .filter((item) => item.is_active !== false)
-      .find((item) => item.product_name || item.category);
+    const firstActiveItem = activeItems.find(
+      (item) => item.product_name || item.category
+    );
 
     return NextResponse.json({
       success: true,
@@ -207,9 +204,8 @@ export async function GET(request: Request) {
           firstActiveItem?.product_name ||
           firstActiveItem?.category ||
           "",
-        manufacturer:
-          certificateRow.manufacturer || firstActiveItem?.manufacturer || "",
-        model_no: certificateRow.model_no || firstActiveItem?.model_no || "",
+        manufacturer: certificateRow.manufacturer || "",
+        model_no: certificateRow.model_no || "",
         start_date: certificateRow.start_date || "",
         products,
       },
@@ -284,7 +280,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "保証書情報の取得に失敗しました",
+          error: `保証書情報の取得に失敗しました: ${certificateError.message}`,
         },
         { status: 500 }
       );
