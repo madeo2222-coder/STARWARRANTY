@@ -7,6 +7,14 @@ type CertificateSummary = {
   id: string;
   certificate_no: string;
   customer_name: string;
+  customer_name_kana: string;
+  customer_phone: string;
+  customer_email: string;
+  postal_code: string;
+  address: string;
+  product_name: string;
+  manufacturer: string;
+  model_no: string;
   start_date: string;
   products: string[];
 };
@@ -101,10 +109,21 @@ function RepairRequestFormContent() {
         }
 
         const cert = json.certificate as CertificateSummary;
-        setCertificate(cert);
-        setCustomerName(cert.customer_name || "");
 
-        if (cert.products.length === 1) {
+        setCertificate(cert);
+
+        setCustomerName(cert.customer_name || "");
+        setCustomerNameKana(cert.customer_name_kana || "");
+        setPhone(cert.customer_phone || "");
+        setEmail(cert.customer_email || "");
+        setPostalCode(cert.postal_code || "");
+        setAddress(cert.address || "");
+        setManufacturer(cert.manufacturer || "");
+        setModelNo(cert.model_no || "");
+
+        if (cert.product_name) {
+          setProductName(cert.product_name);
+        } else if (cert.products.length === 1) {
           setProductName(cert.products[0]);
         }
       } catch (error) {
@@ -343,13 +362,13 @@ function RepairRequestFormContent() {
             <div>
               <div className="text-gray-500">保証書番号</div>
               <div className="mt-1 font-medium">
-                {certificate.certificate_no}
+                {certificate.certificate_no || "-"}
               </div>
             </div>
             <div>
               <div className="text-gray-500">施主名</div>
               <div className="mt-1 font-medium">
-                {certificate.customer_name}
+                {certificate.customer_name || "-"}
               </div>
             </div>
             <div>
@@ -363,7 +382,7 @@ function RepairRequestFormContent() {
               <div className="mt-1 font-medium">
                 {certificate.products.length > 0
                   ? certificate.products.join(" / ")
-                  : "-"}
+                  : certificate.product_name || "-"}
               </div>
             </div>
           </div>
@@ -376,6 +395,9 @@ function RepairRequestFormContent() {
       >
         <div>
           <h2 className="text-base font-semibold">お客様入力情報</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            保証書に登録済みの情報は自動入力しています。変更がある場合は修正してください。
+          </p>
         </div>
 
         <div className="grid gap-5 md:grid-cols-2">
@@ -491,17 +513,17 @@ function RepairRequestFormContent() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">故障発生日</label>
-           <input
-  type="text"
-  inputMode="numeric"
-  value={failureDate}
-  onChange={(e) => setFailureDate(e.target.value)}
-  className="w-full rounded-lg border px-3 py-2"
-  placeholder="例：2026-05-04"
-/>
-<p className="text-xs text-gray-500">
-  日付は 2026-05-04 または 2026/05/04 の形式で入力できます。
-</p>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={failureDate}
+              onChange={(e) => setFailureDate(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="例：2026-05-04"
+            />
+            <p className="text-xs text-gray-500">
+              日付は 2026-05-04 または 2026/05/04 の形式で入力できます。
+            </p>
           </div>
 
           <div className="space-y-2">
