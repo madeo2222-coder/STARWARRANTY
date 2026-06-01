@@ -23,30 +23,7 @@ type RepairRequestBody = {
   is_usable?: boolean | null;
 };
 
-type WarrantyCertificateRow = {
-  id: string;
-  certificate_no: string | null;
-  customer_name: string | null;
-  customer_name_kana: string | null;
-  customer_phone: string | null;
-  customer_email: string | null;
-  postal_code: string | null;
-  address: string | null;
-  address2: string | null;
-  address3: string | null;
-  product_name: string | null;
-  manufacturer: string | null;
-  model_no: string | null;
-  start_date: string | null;
-  seller_name: string | null;
-};
-
-type WarrantyCertificateItemRow = {
-  id: string;
-  product_name: string | null;
-  category: string | null;
-  is_active: boolean | null;
-};
+type AnyRow = Record<string, any>;
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -91,8 +68,26 @@ function normalizeToken(value: string | null | undefined) {
   return String(value || "").trim();
 }
 
-function joinAddress(certificate: WarrantyCertificateRow) {
-  return [certificate.address, certificate.address2, certificate.address3]
+function pickText(row: AnyRow | null | undefined, keys: string[]) {
+  if (!row) return "";
+
+  for (const key of keys) {
+    const value = row[key];
+
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+
+  return "";
+}
+
+function joinAddress(row: AnyRow) {
+  return [
+    pickText(row, ["address", "address1"]),
+    pickText(row, ["address2"]),
+    pickText(row, ["address3"]),
+  ]
     .filter(Boolean)
     .join(" ");
 }
@@ -113,25 +108,7 @@ export async function GET(request: Request) {
 
     const { data: certificate, error: certificateError } = await supabase
       .from("warranty_certificates")
-      .select(
-        `
-        id,
-        certificate_no,
-        customer_name,
-        customer_name_kana,
-        customer_phone,
-        customer_email,
-        postal_code,
-        address,
-        address2,
-        address3,
-        product_name,
-        manufacturer,
-        model_no,
-        start_date,
-        seller_name
-      `
-      )
+      .select("*")
       .eq("repair_form_token", token)
       .maybeSingle();
 
@@ -157,11 +134,11 @@ export async function GET(request: Request) {
       );
     }
 
-    const certificateRow = certificate as WarrantyCertificateRow;
+    const certificateRow = certificate as AnyRow;
 
     const { data: itemRows, error: itemError } = await supabase
       .from("warranty_certificate_items")
-      .select("id, product_name, category, is_active")
+      .select("*")
       .eq("certificate_id", certificateRow.id);
 
     if (itemError) {
@@ -176,37 +153,50 @@ export async function GET(request: Request) {
       );
     }
 
-    const activeItems = ((itemRows || []) as WarrantyCertificateItemRow[]).filter(
-      (item) => item.is_active !== false
-    );
+    const activeItems = ((itemRows || []) as AnyRow[]).filter((item) => {
+      if ("is_active" in item) return item.is_active !== false;
+      if ("is_enabled" in item) return item.is_enabled !== false;
+      return true;
+    });
 
     const products = activeItems
-      .map((item) => item.product_name || item.category || "")
-      .filter((name) => name.trim().length > 0);
+      .map((item) => pickText(item, ["product_name", "category", "name"]))
+      .filter((name) => name.length > 0);
 
-    const firstActiveItem = activeItems.find(
-      (item) => item.product_name || item.category
+    const firstActiveItem = activeItems.find((item) =>
+      pickText(item, ["product_name", "category", "name"])
     );
 
     return NextResponse.json({
       success: true,
       certificate: {
-        id: certificateRow.id,
-        certificate_no: certificateRow.certificate_no || "",
-        customer_name: certificateRow.customer_name || "",
-        customer_name_kana: certificateRow.customer_name_kana || "",
-        customer_phone: certificateRow.customer_phone || "",
-        customer_email: certificateRow.customer_email || "",
-        postal_code: certificateRow.postal_code || "",
+        id: pickText(certificateRow, ["id"]),
+        certificate_no: pickText(certificateRow, ["certificate_no"]),
+        customer_name: pickText(certificateRow, ["customer_name"]),
+        customer_name_kana: pickText(certificateRow, ["customer_name_kana"]),
+        customer_phone: pickText(certificateRow, [
+          "customer_phone",
+          "phone",
+          "customer_tel",
+          "tel",
+        ]),
+        customer_email: pickText(certificateRow, [
+          "customer_email",
+          "email",
+          "mail",
+        ]),
+        postal_code: pickText(certificateRow, ["postal_code", "zip_code"]),
         address: joinAddress(certificateRow),
         product_name:
-          certificateRow.product_name ||
-          firstActiveItem?.product_name ||
-          firstActiveItem?.category ||
-          "",
-        manufacturer: certificateRow.manufacturer || "",
-        model_no: certificateRow.model_no || "",
-        start_date: certificateRow.start_date || "",
+          pickText(certificateRow, ["product_name"]) ||
+          pickText(firstActiveItem, ["product_name", "category", "name"]),
+        manufacturer:
+          pickText(certificateRow, ["manufacturer"]) ||
+          pickText(firstActiveItem, ["manufacturer"]),
+        model_no:
+          pickText(certificateRow, ["model_no", "model_number"]) ||
+          pickText(firstActiveItem, ["model_no", "model_number"]),
+        start_date: pickText(certificateRow, ["start_date"]),
         products,
       },
     });
@@ -270,7 +260,7 @@ export async function POST(request: Request) {
 
     const { data: certificate, error: certificateError } = await supabase
       .from("warranty_certificates")
-      .select("id, certificate_no, seller_name")
+      .select("*")
       .eq("repair_form_token", token)
       .maybeSingle();
 
@@ -296,20 +286,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const certificateRow = certificate as {
-      id: string;
-      certificate_no: string | null;
-      seller_name: string | null;
-    };
-
+    const certificateRow = certificate as AnyRow;
     const requestNo = buildRequestNo();
 
     const { data: inserted, error: insertError } = await supabase
       .from("repair_requests")
       .insert({
         request_no: requestNo,
-        certificate_no: certificateRow.certificate_no,
-        certificate_id: certificateRow.id,
+        certificate_no: pickText(certificateRow, ["certificate_no"]),
+        certificate_id: pickText(certificateRow, ["id"]),
         customer_name: body.customer_name.trim(),
         customer_name_kana: body.customer_name_kana?.trim() || null,
         phone: body.phone.trim(),
@@ -327,7 +312,7 @@ export async function POST(request: Request) {
         is_usable:
           typeof body.is_usable === "boolean" ? body.is_usable : null,
         status: "received",
-        agency_name: certificateRow.seller_name || null,
+        agency_name: pickText(certificateRow, ["seller_name", "agency_name"]) || null,
       })
       .select("id, request_no")
       .single();
