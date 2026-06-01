@@ -154,17 +154,13 @@ function getMainProduct(
 
 const styles = StyleSheet.create({
   page: {
-    width: 595.28,
-    height: 841.89,
     position: "relative",
     fontFamily: "NotoSansJP",
+    padding: 0,
   },
   bg: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: 595.28,
-    height: 841.89,
+    width: "100%",
+    height: "100%",
   },
   text: {
     position: "absolute",
