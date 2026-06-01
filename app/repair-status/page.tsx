@@ -2,15 +2,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-const BUCKET_NAME = "repair_request_attachments";
-
-type RepairRequestAttachment = {
-  id: string;
-  repair_request_id: string;
-  file_path: string;
-  signed_url?: string | null;
-};
-
 type RepairRequestHistory = {
   id: string;
   repair_request_id: string;
@@ -46,8 +37,13 @@ function normalizePhone(value: string | null | undefined) {
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
   return date.toLocaleString("ja-JP");
 }
 
@@ -248,28 +244,13 @@ export default async function Page({
     );
   }
 
-  const { data: attachmentRows } = await supabase
-    .from("repair_request_attachments")
-    .select("id, repair_request_id, file_path")
-    .eq("repair_request_id", data.id);
-
-  const attachments: RepairRequestAttachment[] = [];
-
-  for (const attachment of (attachmentRows || []) as RepairRequestAttachment[]) {
-    const { data: signedData } = await supabase.storage
-      .from(BUCKET_NAME)
-      .createSignedUrl(attachment.file_path, 60 * 60);
-
-    attachments.push({
-      ...attachment,
-      signed_url: signedData?.signedUrl || null,
-    });
-  }
-
   const { data: historyRows } = await supabase
     .from("repair_request_histories")
-    .select("id, repair_request_id, action_type, title, detail, created_by, created_at")
+    .select(
+      "id, repair_request_id, action_type, title, detail, created_by, created_at"
+    )
     .eq("repair_request_id", data.id)
+    .eq("action_type", "status_update")
     .order("created_at", { ascending: false });
 
   const histories = (historyRows || []) as RepairRequestHistory[];
@@ -372,7 +353,7 @@ export default async function Page({
           <section className="rounded-2xl bg-white p-6 shadow-sm">
             <h2 className="text-sm font-bold text-gray-900">対応履歴</h2>
             <p className="mt-2 text-xs leading-5 text-gray-500">
-              修理受付後の対応状況を時系列で確認できます。
+              お客様にご案内できるステータス変更履歴のみ表示しています。
             </p>
 
             <div className="mt-5 space-y-4">
@@ -389,11 +370,6 @@ export default async function Page({
                     <p className="mt-1 text-xs text-gray-500">
                       {formatDateTime(history.created_at)}
                     </p>
-                    {history.detail ? (
-                      <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-gray-600">
-                        {history.detail}
-                      </p>
-                    ) : null}
                   </div>
                 </div>
               ))}
@@ -401,39 +377,12 @@ export default async function Page({
           </section>
         ) : null}
 
-        {attachments.length > 0 ? (
-          <section className="rounded-2xl bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-bold text-gray-900">添付写真</h2>
-            <p className="mt-2 text-xs leading-5 text-gray-500">
-              受付時または対応中に登録された写真です。
-            </p>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {attachments.map((photo, index) => (
-                <a
-                  key={photo.id}
-                  href={photo.signed_url || "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block overflow-hidden rounded-xl border bg-gray-100"
-                >
-                  {photo.signed_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={photo.signed_url}
-                      alt={`修理受付写真 ${index + 1}`}
-                      className="h-36 w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-36 items-center justify-center text-xs text-gray-400">
-                      写真を表示できません
-                    </div>
-                  )}
-                </a>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-bold text-gray-900">ご案内</h2>
+          <p className="mt-2 text-xs leading-5 text-gray-500">
+            修理内容の確認や日程調整が必要な場合は、担当者より電話またはメールでご連絡いたします。
+          </p>
+        </section>
       </div>
     </main>
   );
