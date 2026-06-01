@@ -10,12 +10,18 @@ function hasSupabaseSessionCookie(request: NextRequest) {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const isRepairPublicPath =
+    pathname.startsWith("/repair-request-form") ||
+    pathname.startsWith("/api/repair-requests") ||
+    pathname.startsWith("/api/repair-request-attachments");
+
   const isPublicPath =
     pathname === "/login" ||
+    pathname.startsWith("/invite") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico") ||
     pathname.startsWith("/repair-status") ||
-    pathname.startsWith("/repair-request-form") ||
+    isRepairPublicPath ||
     pathname.startsWith("/api/generate-warranty-pdf");
 
   const isLoggedIn = hasSupabaseSessionCookie(request);
@@ -28,7 +34,18 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+
+  if (isRepairPublicPath) {
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+  }
+
+  return response;
 }
 
 export const config = {
