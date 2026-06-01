@@ -225,8 +225,8 @@ function WarrantyTemplatePdf({
     null,
 
     React.createElement(
-      Page,
-      { size: "A4", style: styles.page },
+     Page,
+{ size: "A4", style: styles.page, wrap: false },
       React.createElement(Image, {
         src: templateImage("page-1.png"),
         style: styles.bg,
@@ -288,7 +288,7 @@ function WarrantyTemplatePdf({
 
     React.createElement(
       Page,
-      { size: "A4", style: styles.page },
+{ size: "A4", style: styles.page, wrap: false },
       React.createElement(Image, {
         src: templateImage("page-2.png"),
         style: styles.bg,
@@ -296,8 +296,8 @@ function WarrantyTemplatePdf({
     ),
 
     React.createElement(
-      Page,
-      { size: "A4", style: styles.page },
+     Page,
+{ size: "A4", style: styles.page, wrap: false },
       React.createElement(Image, {
         src: templateImage("page-3.png"),
         style: styles.bg,
