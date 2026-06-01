@@ -92,6 +92,41 @@ function joinAddress(row: AnyRow) {
     .join(" ");
 }
 
+function uniqueTexts(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))
+  );
+}
+
+function getProductIdFromItem(item: AnyRow) {
+  return pickText(item, [
+    "product_id",
+    "warranty_product_id",
+    "warranty_products_id",
+    "equipment_id",
+  ]);
+}
+
+function getProductNameFromProduct(product: AnyRow | null | undefined) {
+  return pickText(product, ["product_name", "name", "category", "product_code"]);
+}
+
+function getProductNameFromItem(item: AnyRow, productMap: Map<string, AnyRow>) {
+  const directName = pickText(item, ["product_name", "name", "category"]);
+
+  if (directName) {
+    return directName;
+  }
+
+  const productId = getProductIdFromItem(item);
+
+  if (!productId) {
+    return "";
+  }
+
+  return getProductNameFromProduct(productMap.get(productId));
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -153,19 +188,55 @@ export async function GET(request: Request) {
       );
     }
 
-    const activeItems = ((itemRows || []) as AnyRow[]).filter((item) => {
+    const allItems = (itemRows || []) as AnyRow[];
+
+    const activeItems = allItems.filter((item) => {
       if ("is_active" in item) return item.is_active !== false;
       if ("is_enabled" in item) return item.is_enabled !== false;
       return true;
     });
 
-    const products = activeItems
-      .map((item) => pickText(item, ["product_name", "category", "name"]))
-      .filter((name) => name.length > 0);
+    const productIds = uniqueTexts(activeItems.map((item) => getProductIdFromItem(item)));
+
+    let productMap = new Map<string, AnyRow>();
+
+    if (productIds.length > 0) {
+      const { data: productRows, error: productError } = await supabase
+        .from("warranty_products")
+        .select("*")
+        .in("id", productIds);
+
+      if (productError) {
+        console.error("repair request warranty products GET error:", productError);
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `保証対象機器マスタの取得に失敗しました: ${productError.message}`,
+          },
+          { status: 500 }
+        );
+      }
+
+      productMap = new Map(
+        ((productRows || []) as AnyRow[]).map((product) => [
+          pickText(product, ["id"]),
+          product,
+        ])
+      );
+    }
+
+    const products = uniqueTexts(
+      activeItems.map((item) => getProductNameFromItem(item, productMap))
+    );
 
     const firstActiveItem = activeItems.find((item) =>
-      pickText(item, ["product_name", "category", "name"])
+      getProductNameFromItem(item, productMap)
     );
+
+    const firstProductName = firstActiveItem
+      ? getProductNameFromItem(firstActiveItem, productMap)
+      : "";
 
     return NextResponse.json({
       success: true,
@@ -188,8 +259,7 @@ export async function GET(request: Request) {
         postal_code: pickText(certificateRow, ["postal_code", "zip_code"]),
         address: joinAddress(certificateRow),
         product_name:
-          pickText(certificateRow, ["product_name"]) ||
-          pickText(firstActiveItem, ["product_name", "category", "name"]),
+          pickText(certificateRow, ["product_name"]) || firstProductName,
         manufacturer:
           pickText(certificateRow, ["manufacturer"]) ||
           pickText(firstActiveItem, ["manufacturer"]),
