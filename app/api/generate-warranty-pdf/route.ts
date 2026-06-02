@@ -50,17 +50,20 @@ type CertificateItem = {
 
 type WarrantyProduct = {
   id: string;
+  product_code: string | null;
   product_name: string | null;
   name: string | null;
   category: string | null;
-  product_code: string | null;
   warranty_years: number | null;
+  is_active: boolean | null;
+  sort_order: number | null;
 };
 
 type DisplayProduct = {
   name: string;
   category: string;
   years: number | null;
+  sort_order: number | null;
 };
 
 type CoveredLayout = {
@@ -182,7 +185,9 @@ function pickText(row: AnyRow | null | undefined, keys: string[]) {
 
 function uniqueTexts(values: string[]) {
   return Array.from(
-    new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))
+    new Set(
+      values.map((value) => value.trim()).filter((value) => value.length > 0)
+    )
   );
 }
 
@@ -215,6 +220,11 @@ function getWarrantyYearsFromProduct(
 ) {
   const years = Number(product?.warranty_years || 0);
   return years > 0 ? years : null;
+}
+
+function getSortOrderFromProduct(product: WarrantyProduct | null | undefined) {
+  const sortOrder = Number(product?.sort_order || 0);
+  return sortOrder > 0 ? sortOrder : null;
 }
 
 function getProductNameFromItem(
@@ -278,9 +288,28 @@ function getWarrantyYearsFromItem(
   return getWarrantyYearsFromProduct(productMap.get(productId));
 }
 
+function getSortOrderFromItem(
+  item: CertificateItem,
+  productMap: Map<string, WarrantyProduct>
+) {
+  const productId = getProductIdFromItem(item);
+
+  if (!productId) {
+    return null;
+  }
+
+  return getSortOrderFromProduct(productMap.get(productId));
+}
+
 function isActiveItem(item: CertificateItem) {
   if ("is_active" in item && item.is_active === false) return false;
   if ("is_enabled" in item && item.is_enabled === false) return false;
+  return true;
+}
+
+function isActiveProduct(product: WarrantyProduct | null | undefined) {
+  if (!product) return true;
+  if ("is_active" in product && product.is_active === false) return false;
   return true;
 }
 
@@ -292,17 +321,28 @@ function getDisplayProducts(
 
   const displayProducts = activeItems
     .map((item) => {
+      const productId = getProductIdFromItem(item);
+      const productMaster = productId ? productMap.get(productId) : undefined;
+
+      if (!isActiveProduct(productMaster)) {
+        return null;
+      }
+
       const name = getProductNameFromItem(item, productMap);
       const category = getCategoryFromItem(item, productMap);
       const years = getWarrantyYearsFromItem(item, productMap);
+      const sortOrder = getSortOrderFromItem(item, productMap);
 
       return {
         name,
         category,
         years,
+        sort_order: sortOrder,
       };
     })
-    .filter((product) => product.name.length > 0);
+    .filter((product): product is DisplayProduct => {
+      return product !== null && product.name.length > 0;
+    });
 
   const uniqueMap = new Map<string, DisplayProduct>();
 
@@ -314,7 +354,16 @@ function getDisplayProducts(
     }
   }
 
-  return Array.from(uniqueMap.values());
+  return Array.from(uniqueMap.values()).sort((a, b) => {
+    const aOrder = a.sort_order ?? 9999;
+    const bOrder = b.sort_order ?? 9999;
+
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
+
+    return a.name.localeCompare(b.name, "ja");
+  });
 }
 
 function getWarrantyYears(
