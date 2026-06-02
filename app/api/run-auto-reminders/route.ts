@@ -84,6 +84,13 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+function getMailFrom() {
+  return (
+    process.env.WARRANTY_MAIL_FROM ||
+    "STAR WARRANTY <onboarding@resend.dev>"
+  );
+}
+
 function formatYen(value: number | null | undefined) {
   return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
 }
@@ -322,7 +329,7 @@ async function runAutoReminders(req: Request) {
         });
 
         const { error: sendError } = await resend.emails.send({
-          from: "Star Warranty <onboarding@resend.dev>",
+          from: getMailFrom(),
           to: [toEmail],
           subject,
           html,
@@ -346,6 +353,8 @@ async function runAutoReminders(req: Request) {
           continue;
         }
 
+        const now = new Date().toISOString();
+
         const { error: logError } = await supabase
           .from("warranty_invoice_send_logs")
           .insert({
@@ -353,7 +362,7 @@ async function runAutoReminders(req: Request) {
             to_email: toEmail,
             subject,
             send_type: nextStage.sendType,
-            sent_at: new Date().toISOString(),
+            sent_at: now,
           });
 
         if (logError) {
@@ -362,7 +371,10 @@ async function runAutoReminders(req: Request) {
 
         const { error: statusUpdateError } = await supabase
           .from("warranty_invoices")
-          .update({ status: "overdue" })
+          .update({
+            status: "overdue",
+            updated_at: now,
+          })
           .eq("id", invoice.id);
 
         if (statusUpdateError) {
