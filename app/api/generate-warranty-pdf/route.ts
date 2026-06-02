@@ -63,6 +63,17 @@ type DisplayProduct = {
   years: number | null;
 };
 
+type CoveredLayout = {
+  columnCount: number;
+  titleFontSize: number;
+  leadFontSize: number;
+  itemNameFontSize: number;
+  itemSubFontSize: number;
+  itemMinHeight: number;
+  itemPaddingBottom: number;
+  columnGap: number;
+};
+
 type PdfProps = {
   certificate: WarrantyCertificate;
   items: CertificateItem[];
@@ -316,24 +327,95 @@ function getWarrantyYears(
   return years.length > 0 ? Math.max(...years) : 10;
 }
 
-function getMainProduct(
+function getMainProductForFirstPage(
   certificate: WarrantyCertificate,
   items: CertificateItem[],
   productMap: Map<string, WarrantyProduct>
 ) {
-  if (certificate.product_name) return certificate.product_name;
+  const products = getDisplayProducts(items, productMap);
+  const names = products.map((item) => item.name).filter(Boolean);
 
-  const names = getDisplayProducts(items, productMap).map((item) => item.name);
+  if (names.length === 1) {
+    return names[0];
+  }
 
-  return names.length > 0 ? names.join("、") : "";
+  if (names.length === 2) {
+    return names.join("、");
+  }
+
+  if (names.length >= 3) {
+    return "加入対象設備一式";
+  }
+
+  const certificateProductName = safeText(certificate.product_name);
+
+  if (certificateProductName.length > 18) {
+    return "加入対象設備一式";
+  }
+
+  return certificateProductName || "加入対象設備一式";
 }
 
 function splitIntoColumns<T>(items: T[], columnCount: number) {
-  const columns: T[][] = Array.from({ length: columnCount }, () => []);
-  items.forEach((item, index) => {
-    columns[index % columnCount].push(item);
+  const perColumn = Math.ceil(items.length / columnCount);
+
+  return Array.from({ length: columnCount }, (_, columnIndex) => {
+    const start = columnIndex * perColumn;
+    const end = start + perColumn;
+    return items.slice(start, end);
   });
-  return columns;
+}
+
+function getCoveredLayout(count: number): CoveredLayout {
+  if (count <= 6) {
+    return {
+      columnCount: 2,
+      titleFontSize: 13,
+      leadFontSize: 8.5,
+      itemNameFontSize: 10,
+      itemSubFontSize: 6.8,
+      itemMinHeight: 36,
+      itemPaddingBottom: 7,
+      columnGap: 16,
+    };
+  }
+
+  if (count <= 15) {
+    return {
+      columnCount: 3,
+      titleFontSize: 12,
+      leadFontSize: 8,
+      itemNameFontSize: 8.8,
+      itemSubFontSize: 6.2,
+      itemMinHeight: 31,
+      itemPaddingBottom: 5,
+      columnGap: 12,
+    };
+  }
+
+  if (count <= 24) {
+    return {
+      columnCount: 3,
+      titleFontSize: 11.5,
+      leadFontSize: 7.4,
+      itemNameFontSize: 7.8,
+      itemSubFontSize: 5.6,
+      itemMinHeight: 25,
+      itemPaddingBottom: 4,
+      columnGap: 10,
+    };
+  }
+
+  return {
+    columnCount: 4,
+    titleFontSize: 11,
+    leadFontSize: 7,
+    itemNameFontSize: 6.8,
+    itemSubFontSize: 4.9,
+    itemMinHeight: 21,
+    itemPaddingBottom: 3,
+    columnGap: 8,
+  };
 }
 
 const styles = StyleSheet.create({
@@ -384,49 +466,42 @@ const styles = StyleSheet.create({
   coveredArea: {
     position: "absolute",
     top: 190,
-    left: 52,
-    width: 490,
-    minHeight: 455,
+    left: 50,
+    width: 495,
+    minHeight: 445,
     backgroundColor: "#ffffff",
     paddingTop: 12,
     paddingHorizontal: 14,
     paddingBottom: 12,
   },
   coveredTitle: {
-    fontSize: 12,
     fontWeight: 700,
     color: "#111827",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 6,
   },
   coveredLead: {
-    fontSize: 8,
     color: "#374151",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 11,
   },
   coveredColumns: {
     flexDirection: "row",
-    gap: 8,
   },
   coveredColumn: {
     flex: 1,
-    gap: 6,
   },
   coveredItem: {
     borderBottomWidth: 1,
     borderBottomColor: "#d1d5db",
-    paddingBottom: 5,
-    minHeight: 25,
+    marginBottom: 5,
   },
   coveredItemName: {
-    fontSize: 8.5,
     fontWeight: 700,
     color: "#111827",
   },
   coveredItemSub: {
     marginTop: 2,
-    fontSize: 6.5,
     color: "#6b7280",
   },
 });
@@ -436,7 +511,9 @@ function CoveredProductsList({
 }: {
   products: DisplayProduct[];
 }) {
-  const columns = splitIntoColumns(products.slice(0, 39), 3);
+  const visibleProducts = products.slice(0, 39);
+  const layout = getCoveredLayout(visibleProducts.length);
+  const columns = splitIntoColumns(visibleProducts, layout.columnCount);
 
   return React.createElement(
     View,
@@ -444,13 +521,27 @@ function CoveredProductsList({
 
     React.createElement(
       Text,
-      { style: styles.coveredTitle },
+      {
+        style: [
+          styles.coveredTitle,
+          {
+            fontSize: layout.titleFontSize,
+          },
+        ],
+      },
       "延長保証の対象となる対象設備機器"
     ),
 
     React.createElement(
       Text,
-      { style: styles.coveredLead },
+      {
+        style: [
+          styles.coveredLead,
+          {
+            fontSize: layout.leadFontSize,
+          },
+        ],
+      },
       "本保証書で選択された加入保証のみを表示しています。"
     ),
 
@@ -460,22 +551,51 @@ function CoveredProductsList({
       ...columns.map((column, columnIndex) =>
         React.createElement(
           View,
-          { key: `column-${columnIndex}`, style: styles.coveredColumn },
+          {
+            key: `column-${columnIndex}`,
+            style: [
+              styles.coveredColumn,
+              {
+                marginRight:
+                  columnIndex === columns.length - 1 ? 0 : layout.columnGap,
+              },
+            ],
+          },
           ...column.map((product, itemIndex) =>
             React.createElement(
               View,
               {
                 key: `${product.name}-${columnIndex}-${itemIndex}`,
-                style: styles.coveredItem,
+                style: [
+                  styles.coveredItem,
+                  {
+                    minHeight: layout.itemMinHeight,
+                    paddingBottom: layout.itemPaddingBottom,
+                  },
+                ],
               },
               React.createElement(
                 Text,
-                { style: styles.coveredItemName },
+                {
+                  style: [
+                    styles.coveredItemName,
+                    {
+                      fontSize: layout.itemNameFontSize,
+                    },
+                  ],
+                },
                 product.name
               ),
               React.createElement(
                 Text,
-                { style: styles.coveredItemSub },
+                {
+                  style: [
+                    styles.coveredItemSub,
+                    {
+                      fontSize: layout.itemSubFontSize,
+                    },
+                  ],
+                },
                 `${product.category || "対象設備"} / ${
                   product.years ? `${product.years}年` : "保証期間"
                 }`
@@ -503,7 +623,7 @@ function WarrantyTemplatePdf({
     .filter(Boolean)
     .join(" ");
 
-  const product = getMainProduct(certificate, items, productMap);
+  const product = getMainProductForFirstPage(certificate, items, productMap);
   const years = getWarrantyYears(items, productMap);
   const displayProducts = getDisplayProducts(items, productMap);
 
@@ -578,6 +698,26 @@ function WarrantyTemplatePdf({
       ),
 
       React.createElement(View, {
+        style: [styles.whiteBox, { top: 296, left: 63, width: 130, height: 10 }],
+      }),
+      React.createElement(
+        Text,
+        {
+          style: [
+            styles.productText,
+            {
+              top: 296,
+              left: 63,
+              width: 130,
+              fontSize: 5.5,
+              color: "#374151",
+            },
+          ],
+        },
+        "※詳細は別紙リストをご確認ください"
+      ),
+
+      React.createElement(View, {
         style: [styles.whiteBox, { top: 274, left: 456, width: 45, height: 31 }],
       }),
       React.createElement(
@@ -641,12 +781,26 @@ function WarrantyTemplatePdf({
             { style: styles.coveredArea },
             React.createElement(
               Text,
-              { style: styles.coveredTitle },
+              {
+                style: [
+                  styles.coveredTitle,
+                  {
+                    fontSize: 12,
+                  },
+                ],
+              },
               "延長保証の対象となる対象設備機器"
             ),
             React.createElement(
               Text,
-              { style: styles.coveredLead },
+              {
+                style: [
+                  styles.coveredLead,
+                  {
+                    fontSize: 8,
+                  },
+                ],
+              },
               "対象設備機器が登録されていません。"
             )
           )
@@ -654,13 +808,10 @@ function WarrantyTemplatePdf({
   );
 }
 
-async function getProductMap(
-  supabase: any,
-  itemRows: CertificateItem[]
-) {
+async function getProductMap(supabase: any, itemRows: CertificateItem[]) {
   const productIds = uniqueTexts(
-  itemRows.map((item: CertificateItem) => getProductIdFromItem(item))
-);
+    itemRows.map((item: CertificateItem) => getProductIdFromItem(item))
+  );
 
   if (productIds.length === 0) {
     return new Map<string, WarrantyProduct>();
