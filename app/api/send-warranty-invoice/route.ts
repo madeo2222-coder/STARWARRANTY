@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
 type SendWarrantyInvoiceBody = {
@@ -9,6 +12,14 @@ type SendWarrantyInvoiceBody = {
   invoiceId?: string;
   to_email?: string;
   subject?: string;
+};
+
+type InvoiceRow = {
+  id: string;
+  invoice_no: string | null;
+  status: string | null;
+  total_amount: number | null;
+  payment_due_date: string | null;
 };
 
 function getAdminClient() {
@@ -26,7 +37,23 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
-function buildEmailHtml(params: { subject: string }) {
+function getMailFrom() {
+  return (
+    process.env.WARRANTY_MAIL_FROM ||
+    "STAR WARRANTY <onboarding@resend.dev>"
+  );
+}
+
+function formatYen(value: number | null | undefined) {
+  return `¥${Number(value || 0).toLocaleString("ja-JP")}`;
+}
+
+function buildEmailHtml(params: {
+  subject: string;
+  invoiceNo: string;
+  totalAmount: number | null;
+  paymentDueDate: string | null;
+}) {
   return `
 <!doctype html>
 <html lang="ja">
@@ -53,7 +80,11 @@ function buildEmailHtml(params: { subject: string }) {
               <td style="padding:24px;">
                 <div style="font-size:14px; line-height:1.9; color:#374151;">
                   いつもお世話になっております。<br />
-                  請求書PDFを添付しておりますので、ご確認をお願いいたします。
+                  請求書PDFを添付しておりますので、ご確認をお願いいたします。<br /><br />
+
+                  <strong>請求書番号：</strong>${params.invoiceNo}<br />
+                  <strong>請求金額：</strong>${formatYen(params.totalAmount)}<br />
+                  <strong>支払期限：</strong>${params.paymentDueDate || "-"}
                 </div>
 
                 <div style="margin-top:20px; padding:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; font-size:13px; line-height:1.8; color:#6b7280;">
@@ -87,6 +118,56 @@ export async function POST(req: Request) {
         {
           success: false,
           error: "invoice_id または to_email がありません",
+        },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getAdminClient();
+
+    const { data: invoice, error: fetchError } = await supabase
+      .from("warranty_invoices")
+      .select("id, invoice_no, status, total_amount, payment_due_date")
+      .eq("id", invoiceId)
+      .maybeSingle();
+
+    if (fetchError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: fetchError.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!invoice) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "対象の請求書が見つかりません",
+        },
+        { status: 404 }
+      );
+    }
+
+    const invoiceRow = invoice as InvoiceRow;
+
+    if (invoiceRow.status === "cancelled") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "取消済み請求書は送信できません",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (invoiceRow.status === "paid") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "入金済み請求書は通常送信できません",
         },
         { status: 400 }
       );
@@ -128,16 +209,19 @@ export async function POST(req: Request) {
 
     const html = buildEmailHtml({
       subject,
+      invoiceNo: invoiceRow.invoice_no || "-",
+      totalAmount: invoiceRow.total_amount,
+      paymentDueDate: invoiceRow.payment_due_date,
     });
 
     const { data, error } = await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: getMailFrom(),
       to: [toEmail],
       subject,
       html,
       attachments: [
         {
-          filename: `warranty-invoice-${invoiceId}.pdf`,
+          filename: `warranty-invoice-${invoiceRow.invoice_no || invoiceId}.pdf`,
           content: pdfBase64,
         },
       ],
@@ -155,13 +239,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = getAdminClient();
+    const now = new Date().toISOString();
 
-    // 🔥 ここ追加（ステータス更新）
-    await supabase
-      .from("warranty_invoices")
-      .update({ status: "issued" })
-      .eq("id", invoiceId);
+    if (invoiceRow.status === "draft") {
+      const { error: updateError } = await supabase
+        .from("warranty_invoices")
+        .update({
+          status: "issued",
+          updated_at: now,
+        })
+        .eq("id", invoiceId);
+
+      if (updateError) {
+        console.error("warranty invoice status update error:", updateError);
+      }
+    }
 
     const { error: logError } = await supabase
       .from("warranty_invoice_send_logs")
@@ -170,7 +262,7 @@ export async function POST(req: Request) {
         to_email: toEmail,
         subject,
         send_type: "invoice",
-        sent_at: new Date().toISOString(),
+        sent_at: now,
       });
 
     if (logError) {
@@ -187,7 +279,8 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: "サーバーエラー",
+        error:
+          error instanceof Error ? error.message : "請求書メール送信に失敗しました",
       },
       { status: 500 }
     );
