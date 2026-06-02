@@ -71,6 +71,7 @@ type CoveredLayout = {
   itemSubFontSize: number;
   itemMinHeight: number;
   itemPaddingBottom: number;
+  itemMarginBottom: number;
   columnGap: number;
 };
 
@@ -367,42 +368,31 @@ function splitIntoColumns<T>(items: T[], columnCount: number) {
 }
 
 function getCoveredLayout(count: number): CoveredLayout {
-  if (count <= 6) {
+  if (count <= 12) {
     return {
       columnCount: 2,
-      titleFontSize: 13,
-      leadFontSize: 8.5,
-      itemNameFontSize: 10,
-      itemSubFontSize: 6.8,
-      itemMinHeight: 36,
+      titleFontSize: 14,
+      leadFontSize: 8.8,
+      itemNameFontSize: 10.6,
+      itemSubFontSize: 7,
+      itemMinHeight: 39,
       itemPaddingBottom: 7,
-      columnGap: 16,
-    };
-  }
-
-  if (count <= 15) {
-    return {
-      columnCount: 3,
-      titleFontSize: 12,
-      leadFontSize: 8,
-      itemNameFontSize: 8.8,
-      itemSubFontSize: 6.2,
-      itemMinHeight: 31,
-      itemPaddingBottom: 5,
-      columnGap: 12,
+      itemMarginBottom: 7,
+      columnGap: 22,
     };
   }
 
   if (count <= 24) {
     return {
       columnCount: 3,
-      titleFontSize: 11.5,
-      leadFontSize: 7.4,
-      itemNameFontSize: 7.8,
-      itemSubFontSize: 5.6,
-      itemMinHeight: 25,
-      itemPaddingBottom: 4,
-      columnGap: 10,
+      titleFontSize: 12,
+      leadFontSize: 8,
+      itemNameFontSize: 8.6,
+      itemSubFontSize: 6.2,
+      itemMinHeight: 28,
+      itemPaddingBottom: 5,
+      itemMarginBottom: 5,
+      columnGap: 12,
     };
   }
 
@@ -410,10 +400,11 @@ function getCoveredLayout(count: number): CoveredLayout {
     columnCount: 4,
     titleFontSize: 11,
     leadFontSize: 7,
-    itemNameFontSize: 6.8,
-    itemSubFontSize: 4.9,
+    itemNameFontSize: 6.9,
+    itemSubFontSize: 5,
     itemMinHeight: 21,
     itemPaddingBottom: 3,
+    itemMarginBottom: 4,
     columnGap: 8,
   };
 }
@@ -465,25 +456,25 @@ const styles = StyleSheet.create({
   },
   coveredArea: {
     position: "absolute",
-    top: 190,
-    left: 50,
-    width: 495,
-    minHeight: 445,
+    top: 184,
+    left: 42,
+    width: 512,
+    height: 610,
     backgroundColor: "#ffffff",
-    paddingTop: 12,
-    paddingHorizontal: 14,
-    paddingBottom: 12,
+    paddingTop: 14,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
   },
   coveredTitle: {
     fontWeight: 700,
     color: "#111827",
     textAlign: "center",
-    marginBottom: 6,
+    marginBottom: 7,
   },
   coveredLead: {
     color: "#374151",
     textAlign: "center",
-    marginBottom: 11,
+    marginBottom: 15,
   },
   coveredColumns: {
     flexDirection: "row",
@@ -494,7 +485,6 @@ const styles = StyleSheet.create({
   coveredItem: {
     borderBottomWidth: 1,
     borderBottomColor: "#d1d5db",
-    marginBottom: 5,
   },
   coveredItemName: {
     fontWeight: 700,
@@ -571,6 +561,7 @@ function CoveredProductsList({
                   {
                     minHeight: layout.itemMinHeight,
                     paddingBottom: layout.itemPaddingBottom,
+                    marginBottom: layout.itemMarginBottom,
                   },
                 ],
               },
