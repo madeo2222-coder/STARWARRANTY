@@ -4,13 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-type AppRole = "headquarters" | "agency" | "sub_agency";
-
-type Profile = {
-  role: AppRole;
-  agency_id: string | null;
-};
-
 type HeadquartersSettings = {
   id: string;
   company_name: string | null;
@@ -25,7 +18,6 @@ type HeadquartersSettings = {
   updated_at?: string | null;
 };
 
-const LOGO_BUCKET = "agency-logos";
 const MAX_LOGO_SIZE_MB = 5;
 
 const HEADQUARTERS_ADMIN_EMAILS = [
@@ -35,17 +27,6 @@ const HEADQUARTERS_ADMIN_EMAILS = [
   "n.fukuda@st-w.jp",
   "t.hiraga@st-w.jp",
 ];
-
-const DEFAULT_HEADQUARTERS_SETTINGS = {
-  company_name: "株式会社スター・ワランティ",
-  representative_name: null,
-  email: null,
-  phone: "0120-992-857",
-  postal_code: null,
-  address: null,
-  note: null,
-  logo_url: null,
-};
 
 const managementCards = [
   {
@@ -74,10 +55,6 @@ function isHeadquartersAdminEmail(email: string | null | undefined) {
   return HEADQUARTERS_ADMIN_EMAILS.includes(normalizedEmail);
 }
 
-function isHeadquartersProfile(profile: Profile | null) {
-  return profile?.role === "headquarters";
-}
-
 export default function HeadquartersPage() {
   const supabase = useMemo(() => createClient(), []);
 
@@ -85,7 +62,6 @@ export default function HeadquartersPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
   const [settingsId, setSettingsId] = useState("");
 
@@ -102,8 +78,7 @@ export default function HeadquartersPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  const canManageHeadquarters =
-    isHeadquartersAdminEmail(loginEmail) || isHeadquartersProfile(profile);
+  const canManageHeadquarters = isHeadquartersAdminEmail(loginEmail);
 
   useEffect(() => {
     void loadPageData();
@@ -112,10 +87,6 @@ export default function HeadquartersPage() {
 
   function sanitizePostalCode(value: string) {
     return value.replace(/[^\d-]/g, "").slice(0, 8);
-  }
-
-  function sanitizeFileName(fileName: string) {
-    return fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
   }
 
   function applySettingsToState(settings: HeadquartersSettings) {
@@ -131,51 +102,30 @@ export default function HeadquartersPage() {
     setSelectedLogoName("");
   }
 
-  async function getOrCreateHeadquartersSettings() {
-    const { data: rows, error: settingsError } = await supabase
-      .from("headquarters_settings")
-      .select("*")
-      .order("created_at", { ascending: true })
-      .limit(1);
+  async function getAccessToken() {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
 
-    if (settingsError) {
-      throw new Error(settingsError.message);
+    if (error || !session?.access_token) {
+      throw new Error("ログイン情報が取得できませんでした");
     }
 
-    const existingSettings = (rows?.[0] ?? null) as HeadquartersSettings | null;
-
-    if (existingSettings?.id) {
-      return existingSettings;
-    }
-
-    const { data: inserted, error: insertError } = await supabase
-      .from("headquarters_settings")
-      .insert(DEFAULT_HEADQUARTERS_SETTINGS)
-      .select("*")
-      .single();
-
-    if (insertError || !inserted) {
-      throw new Error(
-        insertError?.message || "本部設定の初期作成に失敗しました"
-      );
-    }
-
-    return inserted as HeadquartersSettings;
+    return session.access_token;
   }
 
-  async function ensureSettingsId() {
-    if (settingsId) {
-      return settingsId;
-    }
+  async function fetchWithAuth(url: string, init?: RequestInit) {
+    const token = await getAccessToken();
 
-    const currentSettings = await getOrCreateHeadquartersSettings();
-    applySettingsToState(currentSettings);
+    const headers = new Headers(init?.headers || {});
+    headers.set("Authorization", `Bearer ${token}`);
 
-    if (!currentSettings.id) {
-      throw new Error("本部設定IDが取得できていません");
-    }
-
-    return currentSettings.id;
+    return fetch(url, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
   }
 
   async function loadPageData() {
@@ -198,40 +148,25 @@ export default function HeadquartersPage() {
       }
 
       const currentLoginEmail = normalizeEmail(user.email);
-      const isListedAdmin = isHeadquartersAdminEmail(currentLoginEmail);
-
       setLoginEmail(currentLoginEmail);
 
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("role, agency_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (profileError) {
-        throw new Error(profileError.message);
+      if (!isHeadquartersAdminEmail(currentLoginEmail)) {
+        throw new Error("本部最高権限アカウントのみ利用できます");
       }
 
-      const loadedProfile = profileData as Profile | null;
+      const res = await fetchWithAuth("/api/headquarters-settings");
 
-      const currentProfile: Profile = isListedAdmin
-        ? {
-            role: "headquarters",
-            agency_id: loadedProfile?.agency_id || null,
-          }
-        : loadedProfile || {
-            role: "agency",
-            agency_id: null,
-          };
+      const json = (await res.json()) as {
+        success: boolean;
+        error?: string;
+        settings?: HeadquartersSettings;
+      };
 
-      setProfile(currentProfile);
-
-      if (!isListedAdmin && currentProfile.role !== "headquarters") {
-        throw new Error("本部アカウントのみ利用できます");
+      if (!res.ok || !json.success || !json.settings) {
+        throw new Error(json.error || "本部設定の取得に失敗しました");
       }
 
-      const currentSettings = await getOrCreateHeadquartersSettings();
-      applySettingsToState(currentSettings);
+      applySettingsToState(json.settings);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "データ取得に失敗しました";
@@ -248,7 +183,7 @@ export default function HeadquartersPage() {
       setSuccessMessage("");
 
       if (!canManageHeadquarters) {
-        throw new Error("本部アカウントのみ更新できます");
+        throw new Error("本部最高権限アカウントのみ更新できます");
       }
 
       const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
@@ -261,40 +196,31 @@ export default function HeadquartersPage() {
         throw new Error(`画像サイズは ${MAX_LOGO_SIZE_MB}MB 以下にしてください`);
       }
 
-      const currentSettingsId = await ensureSettingsId();
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const safeFileName = sanitizeFileName(file.name);
-      const filePath = `headquarters/${Date.now()}-${safeFileName}`;
+      const res = await fetchWithAuth("/api/headquarters-logo", {
+        method: "POST",
+        body: formData,
+      });
 
-      const { error: uploadError } = await supabase.storage
-        .from(LOGO_BUCKET)
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: true,
-        });
+      const json = (await res.json()) as {
+        success: boolean;
+        error?: string;
+        logo_url?: string | null;
+        settings?: HeadquartersSettings;
+      };
 
-      if (uploadError) {
-        throw new Error(uploadError.message);
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "本部ロゴ更新に失敗しました");
       }
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(filePath);
-
-      const { error: updateError } = await supabase
-        .from("headquarters_settings")
-        .update({
-          logo_url: publicUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", currentSettingsId);
-
-      if (updateError) {
-        throw new Error(updateError.message);
+      if (json.settings) {
+        applySettingsToState(json.settings);
+      } else {
+        setLogoUrl(json.logo_url || "");
       }
 
-      setSettingsId(currentSettingsId);
-      setLogoUrl(publicUrl);
       setSelectedLogoName(file.name);
       setSuccessMessage("本部ロゴを更新しました");
     } catch (error) {
@@ -313,26 +239,30 @@ export default function HeadquartersPage() {
       setSuccessMessage("");
 
       if (!canManageHeadquarters) {
-        throw new Error("本部アカウントのみ更新できます");
+        throw new Error("本部最高権限アカウントのみ更新できます");
       }
 
-      const currentSettingsId = await ensureSettingsId();
+      const res = await fetchWithAuth("/api/headquarters-logo", {
+        method: "DELETE",
+      });
 
-      const { error } = await supabase
-        .from("headquarters_settings")
-        .update({
-          logo_url: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", currentSettingsId);
+      const json = (await res.json()) as {
+        success: boolean;
+        error?: string;
+        settings?: HeadquartersSettings;
+      };
 
-      if (error) {
-        throw new Error(error.message);
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "本部ロゴ削除に失敗しました");
       }
 
-      setSettingsId(currentSettingsId);
-      setLogoUrl("");
-      setSelectedLogoName("");
+      if (json.settings) {
+        applySettingsToState(json.settings);
+      } else {
+        setLogoUrl("");
+        setSelectedLogoName("");
+      }
+
       setSuccessMessage("本部ロゴを外しました");
     } catch (error) {
       const message =
@@ -352,18 +282,19 @@ export default function HeadquartersPage() {
 
     try {
       if (!canManageHeadquarters) {
-        throw new Error("本部アカウントのみ更新できます");
+        throw new Error("本部最高権限アカウントのみ更新できます");
       }
-
-      const currentSettingsId = await ensureSettingsId();
 
       if (!companyName.trim()) {
         throw new Error("会社名を入力してください");
       }
 
-      const { error } = await supabase
-        .from("headquarters_settings")
-        .update({
+      const res = await fetchWithAuth("/api/headquarters-settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           company_name: companyName.trim(),
           representative_name: representativeName.trim() || null,
           email: email.trim() || null,
@@ -372,15 +303,20 @@ export default function HeadquartersPage() {
           address: address.trim() || null,
           note: note.trim() || null,
           logo_url: logoUrl.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", currentSettingsId);
+        }),
+      });
 
-      if (error) {
-        throw new Error(error.message);
+      const json = (await res.json()) as {
+        success: boolean;
+        error?: string;
+        settings?: HeadquartersSettings;
+      };
+
+      if (!res.ok || !json.success || !json.settings) {
+        throw new Error(json.error || "本部情報の更新に失敗しました");
       }
 
-      setSettingsId(currentSettingsId);
+      applySettingsToState(json.settings);
       setSuccessMessage("本部情報を更新しました");
     } catch (error) {
       const message =
@@ -432,9 +368,15 @@ export default function HeadquartersPage() {
         </div>
       ) : (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          本部アカウントのみ更新できます。
+          本部最高権限アカウントのみ更新できます。
         </div>
       )}
+
+      {settingsId ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          本部設定IDを取得済みです。
+        </div>
+      ) : null}
 
       {errorMessage ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
