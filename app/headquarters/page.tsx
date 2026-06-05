@@ -28,6 +28,14 @@ type HeadquartersSettings = {
 const LOGO_BUCKET = "agency-logos";
 const MAX_LOGO_SIZE_MB = 5;
 
+const HEADQUARTERS_ADMIN_EMAILS = [
+  "madeo8888@gmail.com",
+  "y.shimizu@st-w.jp",
+  "s.hidaka@st-w.jp",
+  "n.fukuda@st-w.jp",
+  "t.hiraga@st-w.jp",
+];
+
 const managementCards = [
   {
     title: "保証書管理",
@@ -46,6 +54,20 @@ const managementCards = [
   },
 ];
 
+function normalizeEmail(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isHeadquartersAdminEmail(email: string | null | undefined) {
+  const normalizedEmail = normalizeEmail(email);
+
+  return HEADQUARTERS_ADMIN_EMAILS.includes(normalizedEmail);
+}
+
+function isHeadquartersProfile(profile: Profile | null) {
+  return profile?.role === "headquarters";
+}
+
 export default function HeadquartersPage() {
   const supabase = useMemo(() => createClient(), []);
 
@@ -54,6 +76,7 @@ export default function HeadquartersPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
   const [settingsId, setSettingsId] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [representativeName, setRepresentativeName] = useState("");
@@ -67,6 +90,9 @@ export default function HeadquartersPage() {
 
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  const canManageHeadquarters =
+    isHeadquartersAdminEmail(loginEmail) || isHeadquartersProfile(profile);
 
   useEffect(() => {
     void loadPageData();
@@ -99,6 +125,11 @@ export default function HeadquartersPage() {
         throw new Error("ログイン情報が取得できませんでした");
       }
 
+      const currentLoginEmail = normalizeEmail(user.email);
+      const isListedAdmin = isHeadquartersAdminEmail(currentLoginEmail);
+
+      setLoginEmail(currentLoginEmail);
+
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("role, agency_id")
@@ -109,14 +140,21 @@ export default function HeadquartersPage() {
         throw new Error(profileError.message);
       }
 
-      if (!profileData) {
-        throw new Error("プロフィールが見つかりません");
-      }
+      const loadedProfile = profileData as Profile | null;
 
-      const currentProfile = profileData as Profile;
+      const currentProfile: Profile = isListedAdmin
+        ? {
+            role: "headquarters",
+            agency_id: loadedProfile?.agency_id || null,
+          }
+        : loadedProfile || {
+            role: "agency",
+            agency_id: null,
+          };
+
       setProfile(currentProfile);
 
-      if (currentProfile.role !== "headquarters") {
+      if (!isListedAdmin && currentProfile.role !== "headquarters") {
         throw new Error("本部アカウントのみ利用できます");
       }
 
@@ -149,7 +187,9 @@ export default function HeadquartersPage() {
           .single();
 
         if (insertError || !inserted) {
-          throw new Error(insertError?.message || "本部設定の初期作成に失敗しました");
+          throw new Error(
+            insertError?.message || "本部設定の初期作成に失敗しました"
+          );
         }
 
         currentSettings = inserted as HeadquartersSettings;
@@ -180,7 +220,7 @@ export default function HeadquartersPage() {
       setErrorMessage("");
       setSuccessMessage("");
 
-      if (profile?.role !== "headquarters") {
+      if (!canManageHeadquarters) {
         throw new Error("本部アカウントのみ更新できます");
       }
 
@@ -246,6 +286,10 @@ export default function HeadquartersPage() {
       setErrorMessage("");
       setSuccessMessage("");
 
+      if (!canManageHeadquarters) {
+        throw new Error("本部アカウントのみ更新できます");
+      }
+
       if (!settingsId) {
         throw new Error("本部設定IDが取得できていません");
       }
@@ -282,7 +326,7 @@ export default function HeadquartersPage() {
     setSuccessMessage("");
 
     try {
-      if (profile?.role !== "headquarters") {
+      if (!canManageHeadquarters) {
         throw new Error("本部アカウントのみ更新できます");
       }
 
@@ -358,6 +402,16 @@ export default function HeadquartersPage() {
         </div>
       </div>
 
+      {canManageHeadquarters ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          本部最高権限アカウントとしてログイン中です。
+        </div>
+      ) : (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          本部アカウントのみ更新できます。
+        </div>
+      )}
+
       {errorMessage ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -418,7 +472,7 @@ export default function HeadquartersPage() {
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 className="hidden"
-                disabled={uploadingLogo}
+                disabled={uploadingLogo || !canManageHeadquarters}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
@@ -440,7 +494,7 @@ export default function HeadquartersPage() {
               <button
                 type="button"
                 onClick={() => void handleRemoveLogo()}
-                disabled={uploadingLogo}
+                disabled={uploadingLogo || !canManageHeadquarters}
                 className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
                 ロゴ画像を外す
@@ -470,6 +524,7 @@ export default function HeadquartersPage() {
               onChange={(e) => setCompanyName(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="株式会社スター・ワランティ"
+              disabled={!canManageHeadquarters}
             />
           </div>
 
@@ -481,17 +536,21 @@ export default function HeadquartersPage() {
               onChange={(e) => setRepresentativeName(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="担当者名を入力"
+              disabled={!canManageHeadquarters}
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">メールアドレス</label>
+            <label className="text-sm font-medium text-gray-700">
+              メールアドレス
+            </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="example@example.com"
+              disabled={!canManageHeadquarters}
             />
           </div>
 
@@ -503,6 +562,7 @@ export default function HeadquartersPage() {
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="09012345678"
+              disabled={!canManageHeadquarters}
             />
           </div>
 
@@ -514,6 +574,7 @@ export default function HeadquartersPage() {
               onChange={(e) => setPostalCode(sanitizePostalCode(e.target.value))}
               className="w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="101-0048"
+              disabled={!canManageHeadquarters}
             />
           </div>
 
@@ -525,6 +586,7 @@ export default function HeadquartersPage() {
               onChange={(e) => setAddress(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="住所を入力"
+              disabled={!canManageHeadquarters}
             />
           </div>
 
@@ -535,6 +597,7 @@ export default function HeadquartersPage() {
               onChange={(e) => setNote(e.target.value)}
               className="min-h-[100px] w-full rounded-lg border px-3 py-2 outline-none"
               placeholder="備考を入力"
+              disabled={!canManageHeadquarters}
             />
           </div>
         </div>
@@ -542,7 +605,7 @@ export default function HeadquartersPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || !canManageHeadquarters}
             className="rounded-lg bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {saving ? "更新中..." : "更新する"}
