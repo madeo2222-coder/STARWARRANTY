@@ -36,6 +36,17 @@ const HEADQUARTERS_ADMIN_EMAILS = [
   "t.hiraga@st-w.jp",
 ];
 
+const DEFAULT_HEADQUARTERS_SETTINGS = {
+  company_name: "株式会社スター・ワランティ",
+  representative_name: null,
+  email: null,
+  phone: "0120-992-857",
+  postal_code: null,
+  address: null,
+  note: null,
+  logo_url: null,
+};
+
 const managementCards = [
   {
     title: "保証書管理",
@@ -60,7 +71,6 @@ function normalizeEmail(value: string | null | undefined) {
 
 function isHeadquartersAdminEmail(email: string | null | undefined) {
   const normalizedEmail = normalizeEmail(email);
-
   return HEADQUARTERS_ADMIN_EMAILS.includes(normalizedEmail);
 }
 
@@ -78,6 +88,7 @@ export default function HeadquartersPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
   const [settingsId, setSettingsId] = useState("");
+
   const [companyName, setCompanyName] = useState("");
   const [representativeName, setRepresentativeName] = useState("");
   const [email, setEmail] = useState("");
@@ -96,6 +107,7 @@ export default function HeadquartersPage() {
 
   useEffect(() => {
     void loadPageData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function sanitizePostalCode(value: string) {
@@ -104,6 +116,66 @@ export default function HeadquartersPage() {
 
   function sanitizeFileName(fileName: string) {
     return fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  }
+
+  function applySettingsToState(settings: HeadquartersSettings) {
+    setSettingsId(settings.id);
+    setCompanyName(settings.company_name || "");
+    setRepresentativeName(settings.representative_name || "");
+    setEmail(settings.email || "");
+    setPhone(settings.phone || "");
+    setPostalCode(settings.postal_code || "");
+    setAddress(settings.address || "");
+    setNote(settings.note || "");
+    setLogoUrl(settings.logo_url || "");
+    setSelectedLogoName("");
+  }
+
+  async function getOrCreateHeadquartersSettings() {
+    const { data: rows, error: settingsError } = await supabase
+      .from("headquarters_settings")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (settingsError) {
+      throw new Error(settingsError.message);
+    }
+
+    const existingSettings = (rows?.[0] ?? null) as HeadquartersSettings | null;
+
+    if (existingSettings?.id) {
+      return existingSettings;
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from("headquarters_settings")
+      .insert(DEFAULT_HEADQUARTERS_SETTINGS)
+      .select("*")
+      .single();
+
+    if (insertError || !inserted) {
+      throw new Error(
+        insertError?.message || "本部設定の初期作成に失敗しました"
+      );
+    }
+
+    return inserted as HeadquartersSettings;
+  }
+
+  async function ensureSettingsId() {
+    if (settingsId) {
+      return settingsId;
+    }
+
+    const currentSettings = await getOrCreateHeadquartersSettings();
+    applySettingsToState(currentSettings);
+
+    if (!currentSettings.id) {
+      throw new Error("本部設定IDが取得できていません");
+    }
+
+    return currentSettings.id;
   }
 
   async function loadPageData() {
@@ -158,53 +230,8 @@ export default function HeadquartersPage() {
         throw new Error("本部アカウントのみ利用できます");
       }
 
-      const { data: rows, error: settingsError } = await supabase
-        .from("headquarters_settings")
-        .select("*")
-        .order("created_at", { ascending: true })
-        .limit(1);
-
-      if (settingsError) {
-        throw new Error(settingsError.message);
-      }
-
-      let currentSettings = (rows?.[0] ?? null) as HeadquartersSettings | null;
-
-      if (!currentSettings) {
-        const { data: inserted, error: insertError } = await supabase
-          .from("headquarters_settings")
-          .insert({
-            company_name: "株式会社スター・ワランティ",
-            representative_name: null,
-            email: null,
-            phone: null,
-            postal_code: null,
-            address: null,
-            note: null,
-            logo_url: null,
-          })
-          .select("*")
-          .single();
-
-        if (insertError || !inserted) {
-          throw new Error(
-            insertError?.message || "本部設定の初期作成に失敗しました"
-          );
-        }
-
-        currentSettings = inserted as HeadquartersSettings;
-      }
-
-      setSettingsId(currentSettings.id);
-      setCompanyName(currentSettings.company_name || "");
-      setRepresentativeName(currentSettings.representative_name || "");
-      setEmail(currentSettings.email || "");
-      setPhone(currentSettings.phone || "");
-      setPostalCode(currentSettings.postal_code || "");
-      setAddress(currentSettings.address || "");
-      setNote(currentSettings.note || "");
-      setLogoUrl(currentSettings.logo_url || "");
-      setSelectedLogoName("");
+      const currentSettings = await getOrCreateHeadquartersSettings();
+      applySettingsToState(currentSettings);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "データ取得に失敗しました";
@@ -234,9 +261,7 @@ export default function HeadquartersPage() {
         throw new Error(`画像サイズは ${MAX_LOGO_SIZE_MB}MB 以下にしてください`);
       }
 
-      if (!settingsId) {
-        throw new Error("本部設定IDが取得できていません");
-      }
+      const currentSettingsId = await ensureSettingsId();
 
       const safeFileName = sanitizeFileName(file.name);
       const filePath = `headquarters/${Date.now()}-${safeFileName}`;
@@ -262,12 +287,13 @@ export default function HeadquartersPage() {
           logo_url: publicUrl,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", settingsId);
+        .eq("id", currentSettingsId);
 
       if (updateError) {
         throw new Error(updateError.message);
       }
 
+      setSettingsId(currentSettingsId);
       setLogoUrl(publicUrl);
       setSelectedLogoName(file.name);
       setSuccessMessage("本部ロゴを更新しました");
@@ -290,9 +316,7 @@ export default function HeadquartersPage() {
         throw new Error("本部アカウントのみ更新できます");
       }
 
-      if (!settingsId) {
-        throw new Error("本部設定IDが取得できていません");
-      }
+      const currentSettingsId = await ensureSettingsId();
 
       const { error } = await supabase
         .from("headquarters_settings")
@@ -300,12 +324,13 @@ export default function HeadquartersPage() {
           logo_url: null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", settingsId);
+        .eq("id", currentSettingsId);
 
       if (error) {
         throw new Error(error.message);
       }
 
+      setSettingsId(currentSettingsId);
       setLogoUrl("");
       setSelectedLogoName("");
       setSuccessMessage("本部ロゴを外しました");
@@ -330,9 +355,7 @@ export default function HeadquartersPage() {
         throw new Error("本部アカウントのみ更新できます");
       }
 
-      if (!settingsId) {
-        throw new Error("本部設定IDが取得できていません");
-      }
+      const currentSettingsId = await ensureSettingsId();
 
       if (!companyName.trim()) {
         throw new Error("会社名を入力してください");
@@ -351,12 +374,13 @@ export default function HeadquartersPage() {
           logo_url: logoUrl.trim() || null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", settingsId);
+        .eq("id", currentSettingsId);
 
       if (error) {
         throw new Error(error.message);
       }
 
+      setSettingsId(currentSettingsId);
       setSuccessMessage("本部情報を更新しました");
     } catch (error) {
       const message =
@@ -561,7 +585,7 @@ export default function HeadquartersPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 outline-none"
-              placeholder="09012345678"
+              placeholder="0120-992-857"
               disabled={!canManageHeadquarters}
             />
           </div>
