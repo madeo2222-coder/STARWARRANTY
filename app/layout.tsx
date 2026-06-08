@@ -41,6 +41,9 @@ export default function RootLayout({
               <a href="/ai-support-inquiries" className="btn">
                 AI一次受付
               </a>
+              <a href="/ai-support-faqs" className="btn">
+                FAQ管理
+              </a>
               <a href="/headquarters" className="btn">
                 本部管理
               </a>
