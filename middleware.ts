@@ -15,6 +15,11 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/api/repair-requests") ||
     pathname.startsWith("/api/repair-request-attachments");
 
+  const isAiSupportPublicPath =
+    pathname === "/support-chat" ||
+    pathname.startsWith("/support-chat/") ||
+    pathname.startsWith("/api/ai-support-inquiries");
+
   const isPublicPath =
     pathname === "/login" ||
     pathname.startsWith("/invite") ||
@@ -22,6 +27,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/favicon.ico") ||
     pathname.startsWith("/repair-status") ||
     isRepairPublicPath ||
+    isAiSupportPublicPath ||
     pathname.startsWith("/api/generate-warranty-pdf");
 
   const isLoggedIn = hasSupabaseSessionCookie(request);
@@ -36,7 +42,7 @@ export function middleware(request: NextRequest) {
 
   const response = NextResponse.next();
 
-  if (isRepairPublicPath) {
+  if (isRepairPublicPath || isAiSupportPublicPath) {
     response.headers.set(
       "Cache-Control",
       "no-store, no-cache, must-revalidate, proxy-revalidate"

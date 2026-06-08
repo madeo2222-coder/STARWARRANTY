@@ -16,7 +16,9 @@ export default function RootLayout({
     pathname === "/repair-status" ||
     pathname.startsWith("/repair-status/") ||
     pathname === "/repair-request-form" ||
-    pathname.startsWith("/repair-request-form/");
+    pathname.startsWith("/repair-request-form/") ||
+    pathname === "/support-chat" ||
+    pathname.startsWith("/support-chat/");
 
   return (
     <html lang="ja">
@@ -35,6 +37,9 @@ export default function RootLayout({
               </a>
               <a href="/warranty-invoices" className="btn">
                 請求書管理
+              </a>
+              <a href="/ai-support-inquiries" className="btn">
+                AI一次受付
               </a>
               <a href="/headquarters" className="btn">
                 本部管理
