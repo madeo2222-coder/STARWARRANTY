@@ -204,9 +204,16 @@ export default function WarrantyCustomersPage() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/" className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">
             ホームへ
+          </Link>
+
+          <Link
+            href="/warranty-customers/import"
+            className="rounded-lg bg-black px-4 py-2 text-sm text-white hover:bg-gray-800"
+          >
+            CSV/Excel取込
           </Link>
 
           <Link
@@ -224,53 +231,12 @@ export default function WarrantyCustomersPage() {
         </h2>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <input
-            type="text"
-            placeholder="会社名"
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-          />
-
-          <input
-            type="text"
-            placeholder="担当者名"
-            value={contactName}
-            onChange={(e) => setContactName(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-          />
-
-          <input
-            type="email"
-            placeholder="メールアドレス"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-          />
-
-          <input
-            type="text"
-            placeholder="電話番号"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-          />
-
-          <input
-            type="text"
-            placeholder="郵便番号"
-            value={postalCode}
-            onChange={(e) => setPostalCode(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-          />
-
-          <input
-            type="text"
-            placeholder="住所"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-          />
+          <input type="text" placeholder="会社名" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input type="text" placeholder="担当者名" value={contactName} onChange={(e) => setContactName(e.target.value)} className="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input type="email" placeholder="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input type="text" placeholder="電話番号" value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input type="text" placeholder="郵便番号" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} className="rounded-lg border px-3 py-2 text-sm outline-none" />
+          <input type="text" placeholder="住所" value={address} onChange={(e) => setAddress(e.target.value)} className="rounded-lg border px-3 py-2 text-sm outline-none" />
         </div>
 
         <textarea
@@ -323,9 +289,7 @@ export default function WarrantyCustomersPage() {
         {loading ? (
           <div className="p-6 text-sm text-gray-500">読み込み中...</div>
         ) : filteredCustomers.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">
-            顧客データがありません。
-          </div>
+          <div className="p-6 text-sm text-gray-500">顧客データがありません。</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -346,62 +310,29 @@ export default function WarrantyCustomersPage() {
               <tbody>
                 {filteredCustomers.map((customer) => (
                   <tr key={customer.id} className="border-t hover:bg-gray-50">
-                    <td className="whitespace-nowrap px-4 py-3 font-medium">
-                      {customer.company_name || "-"}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {customer.contact_name || "-"}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {customer.email || "-"}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {customer.phone || "-"}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {customer.postal_code || "-"}
-                    </td>
-
-                    <td className="min-w-[240px] px-4 py-3">
-                      {customer.address || "-"}
-                    </td>
-
-                    <td className="min-w-[220px] px-4 py-3">
-                      {customer.note || "-"}
-                    </td>
-
+                    <td className="whitespace-nowrap px-4 py-3 font-medium">{customer.company_name || "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{customer.contact_name || "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{customer.email || "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{customer.phone || "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-3">{customer.postal_code || "-"}</td>
+                    <td className="min-w-[240px] px-4 py-3">{customer.address || "-"}</td>
+                    <td className="min-w-[220px] px-4 py-3">{customer.note || "-"}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       {customer.created_at
                         ? new Date(customer.created_at).toLocaleDateString("ja-JP")
                         : "-"}
                     </td>
-
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <Link
-                          href={`/warranty-customers/${customer.id}`}
-                          className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
-                        >
+                        <Link href={`/warranty-customers/${customer.id}`} className="rounded-lg border px-3 py-2 text-xs hover:bg-gray-50">
                           詳細
                         </Link>
 
-                        <button
-                          type="button"
-                          onClick={() => handleStartEdit(customer)}
-                          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 hover:bg-blue-100"
-                        >
+                        <button type="button" onClick={() => handleStartEdit(customer)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 hover:bg-blue-100">
                           編集
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCustomer(customer)}
-                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100"
-                        >
+                        <button type="button" onClick={() => handleDeleteCustomer(customer)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 hover:bg-red-100">
                           削除
                         </button>
                       </div>
