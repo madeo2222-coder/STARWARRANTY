@@ -42,7 +42,13 @@ export default function RootLayout({
                 AI一次受付
               </a>
               <a href="/ai-support-faqs" className="btn">
-                FAQ管理
+                FAQ住宅設備
+              </a>
+              <a href="/ai-support-faqs/appliance" className="btn">
+                FAQ家電
+              </a>
+              <a href="/ai-support-faqs/solar" className="btn">
+                FAQ太陽光
               </a>
               <a href="/headquarters" className="btn">
                 本部管理

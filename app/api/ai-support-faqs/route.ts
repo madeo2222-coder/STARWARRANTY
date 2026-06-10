@@ -4,8 +4,11 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+type FaqGroup = "housing" | "appliance" | "solar";
+
 type FaqBody = {
   id?: string;
+  faq_group?: FaqGroup | null;
   product_category?: string | null;
   manufacturer?: string | null;
   symptom_category?: string | null;
@@ -38,6 +41,15 @@ function getAdminClient() {
 
 function normalizeText(value: string | null | undefined) {
   return String(value || "").trim();
+}
+
+function normalizeFaqGroup(value: string | null | undefined): FaqGroup {
+  const normalized = normalizeText(value);
+
+  if (normalized === "appliance") return "appliance";
+  if (normalized === "solar") return "solar";
+
+  return "housing";
 }
 
 function normalizeSortOrder(value: number | null | undefined) {
@@ -75,12 +87,17 @@ export async function GET(request: Request) {
 
     const productCategory = normalizeText(searchParams.get("product_category"));
     const activeOnly = normalizeText(searchParams.get("active_only"));
+    const faqGroupParam = normalizeText(searchParams.get("faq_group"));
 
     let query = supabase
       .from("ai_support_faqs")
       .select("*")
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
+
+    if (faqGroupParam) {
+      query = query.eq("faq_group", normalizeFaqGroup(faqGroupParam));
+    }
 
     if (productCategory) {
       query = query.eq("product_category", productCategory);
@@ -119,6 +136,7 @@ export async function POST(request: Request) {
     const { supabase } = await requireLoggedInUser(request);
     const body = (await request.json()) as FaqBody;
 
+    const faqGroup = normalizeFaqGroup(body.faq_group);
     const productCategory = normalizeText(body.product_category);
     const question = normalizeText(body.question);
     const answer = normalizeText(body.answer);
@@ -138,6 +156,7 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("ai_support_faqs")
       .insert({
+        faq_group: faqGroup,
         product_category: productCategory,
         manufacturer: normalizeText(body.manufacturer) || null,
         symptom_category: normalizeText(body.symptom_category) || null,
@@ -183,6 +202,7 @@ export async function PUT(request: Request) {
     const body = (await request.json()) as FaqBody;
 
     const id = normalizeText(body.id);
+    const faqGroup = normalizeFaqGroup(body.faq_group);
     const productCategory = normalizeText(body.product_category);
     const question = normalizeText(body.question);
     const answer = normalizeText(body.answer);
@@ -206,6 +226,7 @@ export async function PUT(request: Request) {
     const { data, error } = await supabase
       .from("ai_support_faqs")
       .update({
+        faq_group: faqGroup,
         product_category: productCategory,
         manufacturer: normalizeText(body.manufacturer) || null,
         symptom_category: normalizeText(body.symptom_category) || null,
