@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+type FaqGroup = "housing" | "appliance" | "solar";
+
 type AiSupportInquiry = {
   id: string;
   inquiry_no: string;
   source_type: string | null;
+  faq_group: FaqGroup | null;
   contact_type: string | null;
   customer_name: string | null;
   phone: string | null;
@@ -43,6 +46,18 @@ function formatDateTime(value: string | null | undefined) {
   }
 
   return date.toLocaleString("ja-JP");
+}
+
+function getFaqGroupLabel(value: FaqGroup | null) {
+  switch (value) {
+    case "appliance":
+      return "家電";
+    case "solar":
+      return "太陽光・蓄電池";
+    case "housing":
+    default:
+      return "住宅設備";
+  }
 }
 
 function getContactTypeLabel(value: string | null) {
@@ -97,11 +112,12 @@ export default function AiSupportInquiriesPage() {
   const [inquiries, setInquiries] = useState<AiSupportInquiry[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [filter, setFilter] = useState("all");
+  const [faqGroupFilter, setFaqGroupFilter] = useState("");
 
   useEffect(() => {
     void loadInquiries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [filter, faqGroupFilter]);
 
   async function getAccessToken() {
     const {
@@ -122,7 +138,6 @@ export default function AiSupportInquiriesPage() {
 
     try {
       const token = await getAccessToken();
-
       const params = new URLSearchParams();
 
       if (filter === "needs_staff") {
@@ -131,6 +146,10 @@ export default function AiSupportInquiriesPage() {
 
       if (filter === "new") {
         params.set("status", "new");
+      }
+
+      if (faqGroupFilter) {
+        params.set("faq_group", faqGroupFilter);
       }
 
       const url = params.toString()
@@ -187,6 +206,7 @@ export default function AiSupportInquiriesPage() {
           >
             公開フォームを開く
           </Link>
+
           <button
             type="button"
             onClick={() => void loadInquiries()}
@@ -224,7 +244,7 @@ export default function AiSupportInquiriesPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -237,6 +257,7 @@ export default function AiSupportInquiriesPage() {
           >
             すべて
           </button>
+
           <button
             type="button"
             onClick={() => setFilter("needs_staff")}
@@ -248,6 +269,7 @@ export default function AiSupportInquiriesPage() {
           >
             スタッフ対応のみ
           </button>
+
           <button
             type="button"
             onClick={() => setFilter("new")}
@@ -260,6 +282,21 @@ export default function AiSupportInquiriesPage() {
             新規のみ
           </button>
         </div>
+
+        <div className="flex flex-col gap-2 md:max-w-sm">
+          <label className="text-sm font-medium">機器区分</label>
+
+          <select
+            value={faqGroupFilter}
+            onChange={(e) => setFaqGroupFilter(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm"
+          >
+            <option value="">すべての機器区分</option>
+            <option value="housing">住宅設備</option>
+            <option value="appliance">家電</option>
+            <option value="solar">太陽光・蓄電池</option>
+          </select>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
@@ -271,11 +308,12 @@ export default function AiSupportInquiriesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full border-collapse text-sm">
+            <table className="min-w-[1250px] w-full border-collapse text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
                   <th className="border-b px-4 py-3">受付日時</th>
                   <th className="border-b px-4 py-3">受付番号</th>
+                  <th className="border-b px-4 py-3">機器区分</th>
                   <th className="border-b px-4 py-3">問い合わせ元</th>
                   <th className="border-b px-4 py-3">名前/会社名</th>
                   <th className="border-b px-4 py-3">製品</th>
@@ -291,36 +329,59 @@ export default function AiSupportInquiriesPage() {
                     <td className="border-b px-4 py-3 text-gray-600">
                       {formatDateTime(item.created_at)}
                     </td>
+
                     <td className="border-b px-4 py-3 font-medium">
                       {item.inquiry_no}
                     </td>
+
+                    <td className="border-b px-4 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-1 text-xs ${
+                          item.faq_group === "appliance"
+                            ? "bg-blue-100 text-blue-700"
+                            : item.faq_group === "solar"
+                            ? "bg-yellow-100 text-yellow-800"
+                            : "bg-green-100 text-green-700"
+                        }`}
+                      >
+                        {getFaqGroupLabel(item.faq_group)}
+                      </span>
+                    </td>
+
                     <td className="border-b px-4 py-3">
                       {getContactTypeLabel(item.contact_type)}
                     </td>
+
                     <td className="border-b px-4 py-3">
                       <div className="font-medium">
                         {item.customer_name || "-"}
                       </div>
+
                       <div className="mt-1 text-xs text-gray-500">
                         {item.phone || item.email || ""}
                       </div>
                     </td>
+
                     <td className="border-b px-4 py-3">
                       <div>{item.product_category || "-"}</div>
+
                       <div className="mt-1 text-xs text-gray-500">
                         {item.manufacturer || ""}
                         {item.model_no ? ` / ${item.model_no}` : ""}
                       </div>
                     </td>
+
                     <td className="border-b px-4 py-3">
                       <div className="max-w-[360px] whitespace-pre-wrap leading-6">
                         {item.symptom_detail}
                       </div>
+
                       {item.error_code ? (
                         <div className="mt-1 text-xs text-gray-500">
                           エラーコード：{item.error_code}
                         </div>
                       ) : null}
+
                       {item.guided_video_url ? (
                         <a
                           href={item.guided_video_url}
@@ -332,6 +393,7 @@ export default function AiSupportInquiriesPage() {
                         </a>
                       ) : null}
                     </td>
+
                     <td className="border-b px-4 py-3">
                       <span
                         className={`rounded-full px-2 py-1 text-xs ${
@@ -345,6 +407,7 @@ export default function AiSupportInquiriesPage() {
                         {getUrgencyLabel(item.urgency_level)}
                       </span>
                     </td>
+
                     <td className="border-b px-4 py-3">
                       <div
                         className={`inline-flex rounded-full px-2 py-1 text-xs ${
@@ -357,6 +420,7 @@ export default function AiSupportInquiriesPage() {
                           ? "スタッフ確認"
                           : "AI一次対応"}
                       </div>
+
                       <div className="mt-2 text-xs text-gray-500">
                         {getStatusLabel(item.staff_status)}
                       </div>

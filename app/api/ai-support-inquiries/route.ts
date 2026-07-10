@@ -4,8 +4,11 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+type FaqGroup = "housing" | "appliance" | "solar";
+
 type InquiryBody = {
   source_type?: string | null;
+  faq_group?: FaqGroup | null;
   contact_type?: string | null;
   customer_name?: string | null;
   phone?: string | null;
@@ -20,7 +23,7 @@ type InquiryBody = {
   is_usable?: boolean | null;
 };
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 const DANGER_KEYWORDS = [
   "水漏れ",
@@ -82,8 +85,29 @@ function buildInquiryNo() {
   return `AI-${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
 }
 
-function normalizeText(value: string | null | undefined) {
-  return String(value || "").trim();
+function normalizeText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeFaqGroup(value: unknown): FaqGroup {
+  const normalized = normalizeText(value);
+
+  if (normalized === "appliance") return "appliance";
+  if (normalized === "solar") return "solar";
+
+  return "housing";
+}
+
+function getFaqGroupLabel(value: FaqGroup) {
+  switch (value) {
+    case "appliance":
+      return "家電";
+    case "solar":
+      return "太陽光・蓄電池";
+    case "housing":
+    default:
+      return "住宅設備";
+  }
 }
 
 function includesAnyKeyword(text: string, keywords: string[]) {
@@ -103,6 +127,7 @@ function getUrgencyLevel(symptomText: string) {
 }
 
 function buildAiSummary({
+  faqGroup,
   productCategory,
   manufacturer,
   modelNo,
@@ -112,6 +137,7 @@ function buildAiSummary({
   isDanger,
   requiresStaff,
 }: {
+  faqGroup: FaqGroup;
   productCategory: string;
   manufacturer: string;
   modelNo: string;
@@ -122,6 +148,7 @@ function buildAiSummary({
   requiresStaff: boolean;
 }) {
   const lines = [
+    `機器区分：${getFaqGroupLabel(faqGroup)}`,
     `製品カテゴリ：${productCategory || "-"}`,
     `メーカー：${manufacturer || "-"}`,
     `型番：${modelNo || "-"}`,
@@ -228,6 +255,7 @@ export async function GET(request: Request) {
 
     const status = normalizeText(searchParams.get("status"));
     const requiresStaff = normalizeText(searchParams.get("requires_staff"));
+    const faqGroupParam = normalizeText(searchParams.get("faq_group"));
 
     let query = supabase
       .from("ai_support_inquiries")
@@ -241,6 +269,10 @@ export async function GET(request: Request) {
 
     if (requiresStaff === "true") {
       query = query.eq("requires_staff", true);
+    }
+
+    if (faqGroupParam) {
+      query = query.eq("faq_group", normalizeFaqGroup(faqGroupParam));
     }
 
     const { data, error } = await query;
@@ -282,6 +314,7 @@ export async function POST(request: Request) {
     }
 
     const inquiryNo = buildInquiryNo();
+    const faqGroup = normalizeFaqGroup(body.faq_group);
 
     const productCategory = normalizeText(body.product_category);
     const manufacturer = normalizeText(body.manufacturer);
@@ -290,6 +323,7 @@ export async function POST(request: Request) {
     const errorCode = normalizeText(body.error_code);
 
     const fullText = [
+      getFaqGroupLabel(faqGroup),
       productCategory,
       manufacturer,
       modelNo,
@@ -307,9 +341,10 @@ export async function POST(request: Request) {
     const { data: faqRows, error: faqError } = await supabase
       .from("ai_support_faqs")
       .select("*")
+      .eq("faq_group", faqGroup)
       .eq("is_active", true)
       .order("sort_order", { ascending: true })
-      .limit(50);
+      .limit(100);
 
     if (faqError) {
       throw new Error(faqError.message);
@@ -324,7 +359,10 @@ export async function POST(request: Request) {
         const question = normalizeText(faq.question);
 
         const productMatched =
-          !faqProduct || !productCategory || productCategory.includes(faqProduct) || faqProduct.includes(productCategory);
+          !faqProduct ||
+          !productCategory ||
+          productCategory.includes(faqProduct) ||
+          faqProduct.includes(productCategory);
 
         const symptomMatched =
           (faqSymptom && fullText.includes(faqSymptom)) ||
@@ -334,6 +372,7 @@ export async function POST(request: Request) {
       }) ||
       faqs.find((faq) => {
         const faqProduct = normalizeText(faq.product_category);
+
         return (
           faqProduct &&
           productCategory &&
@@ -352,6 +391,7 @@ export async function POST(request: Request) {
     });
 
     const aiSummary = buildAiSummary({
+      faqGroup,
       productCategory,
       manufacturer,
       modelNo,
@@ -367,6 +407,7 @@ export async function POST(request: Request) {
       .insert({
         inquiry_no: inquiryNo,
         source_type: normalizeText(body.source_type) || "web",
+        faq_group: faqGroup,
         contact_type: normalizeText(body.contact_type) || "customer",
         customer_name: normalizeText(body.customer_name) || null,
         phone: normalizeText(body.phone) || null,
@@ -385,9 +426,11 @@ export async function POST(request: Request) {
         staff_status: requiresStaff ? "needs_staff" : "new",
         ai_status: "answered",
         ai_summary: aiSummary,
-        guided_video_title: matchedFaq?.video_title || null,
-        guided_video_url: matchedFaq?.video_url || null,
-        guided_faq_id: matchedFaq?.id || null,
+        guided_video_title: normalizeText(
+          matchedFaq?.video_title
+        ) || null,
+        guided_video_url: normalizeText(matchedFaq?.video_url) || null,
+        guided_faq_id: normalizeText(matchedFaq?.id) || null,
       })
       .select("*")
       .single();
@@ -398,18 +441,24 @@ export async function POST(request: Request) {
 
     const inquiry = inserted as AnyRow;
 
-    await supabase.from("ai_support_messages").insert([
-      {
-        inquiry_id: inquiry.id,
-        sender_type: "user",
-        message: symptomDetail,
-      },
-      {
-        inquiry_id: inquiry.id,
-        sender_type: "assistant",
-        message: aiResponse,
-      },
-    ]);
+    const { error: messageError } = await supabase
+      .from("ai_support_messages")
+      .insert([
+        {
+          inquiry_id: inquiry.id,
+          sender_type: "user",
+          message: symptomDetail,
+        },
+        {
+          inquiry_id: inquiry.id,
+          sender_type: "assistant",
+          message: aiResponse,
+        },
+      ]);
+
+    if (messageError) {
+      console.error("ai support messages insert error:", messageError);
+    }
 
     return NextResponse.json({
       success: true,
@@ -417,6 +466,7 @@ export async function POST(request: Request) {
       ai_response: aiResponse,
       requires_staff: requiresStaff,
       urgency_level: urgencyLevel,
+      faq_group: faqGroup,
     });
   } catch (error) {
     console.error("ai support inquiry POST error:", error);

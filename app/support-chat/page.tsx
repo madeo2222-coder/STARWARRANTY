@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+type FaqGroup = "housing" | "appliance" | "solar";
 
 type SubmitResult = {
   inquiry_no: string;
@@ -9,7 +11,7 @@ type SubmitResult = {
   urgency_level: string;
 };
 
-const productCategories = [
+const housingProductCategories = [
   "",
   "給湯器",
   "エコキュート",
@@ -28,9 +30,62 @@ const productCategories = [
   "その他",
 ];
 
+const applianceProductCategories = [
+  "",
+  "冷蔵庫",
+  "冷凍庫",
+  "洗濯機",
+  "ドラム式洗濯機",
+  "衣類乾燥機",
+  "テレビ",
+  "電子レンジ",
+  "オーブンレンジ",
+  "炊飯器",
+  "掃除機",
+  "空気清浄機",
+  "加湿器",
+  "除湿機",
+  "扇風機",
+  "ヒーター",
+  "ドライヤー",
+  "プリンター",
+  "パソコン",
+  "タブレット",
+  "カメラ",
+  "その他",
+];
+
+const solarProductCategories = [
+  "",
+  "太陽光パネル",
+  "パワーコンディショナ",
+  "蓄電池",
+  "HEMS",
+  "接続箱",
+  "分電盤",
+  "モニター",
+  "売電メーター",
+  "ケーブル",
+  "架台",
+  "その他",
+];
+
+function getFaqGroupLabel(value: FaqGroup) {
+  switch (value) {
+    case "appliance":
+      return "家電";
+    case "solar":
+      return "太陽光・蓄電池";
+    case "housing":
+    default:
+      return "住宅設備";
+  }
+}
+
 export default function SupportChatPage() {
   const [submitting, setSubmitting] = useState(false);
 
+  const [faqGroup, setFaqGroup] = useState<FaqGroup>("housing");
   const [contactType, setContactType] = useState("customer");
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
@@ -46,6 +101,23 @@ export default function SupportChatPage() {
 
   const [errorMessage, setErrorMessage] = useState("");
   const [result, setResult] = useState<SubmitResult | null>(null);
+
+  const productCategories = useMemo(() => {
+    if (faqGroup === "appliance") {
+      return applianceProductCategories;
+    }
+
+    if (faqGroup === "solar") {
+      return solarProductCategories;
+    }
+
+    return housingProductCategories;
+  }, [faqGroup]);
+
+  function handleFaqGroupChange(value: FaqGroup) {
+    setFaqGroup(value);
+    setProductCategory("");
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -66,6 +138,7 @@ export default function SupportChatPage() {
         },
         body: JSON.stringify({
           source_type: "web",
+          faq_group: faqGroup,
           contact_type: contactType,
           customer_name: customerName.trim() || null,
           phone: phone.trim() || null,
@@ -121,6 +194,13 @@ export default function SupportChatPage() {
           </div>
         </div>
 
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="text-sm text-gray-500">お問い合わせ機器区分</div>
+          <div className="mt-2 text-lg font-semibold">
+            {getFaqGroupLabel(faqGroup)}
+          </div>
+        </div>
+
         {result.requires_staff ? (
           <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5 text-sm leading-7 text-orange-800">
             内容確認のため、スタッフ対応が必要な可能性があります。
@@ -137,6 +217,7 @@ export default function SupportChatPage() {
 
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="text-base font-semibold">次の流れ</h2>
+
           <div className="mt-4 space-y-3 text-sm text-gray-700">
             <div className="rounded-xl border p-4">
               <div className="font-medium">1. まず案内内容をご確認ください</div>
@@ -144,12 +225,14 @@ export default function SupportChatPage() {
                 安全に確認できる範囲で、電源・エラーコード・写真などをご確認ください。
               </div>
             </div>
+
             <div className="rounded-xl border p-4">
               <div className="font-medium">2. 復旧しない場合</div>
               <div className="mt-1 text-gray-500">
                 保証書QRの修理受付フォーム、またはスタッフからの案内に従って修理受付へ進んでください。
               </div>
             </div>
+
             <div className="rounded-xl border p-4">
               <div className="font-medium">3. 危険がある場合</div>
               <div className="mt-1 text-gray-500">
@@ -180,6 +263,7 @@ export default function SupportChatPage() {
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <p className="text-sm text-gray-500">STAR WARRANTY</p>
         <h1 className="mt-1 text-2xl font-bold">故障かな？AI一次受付</h1>
+
         <p className="mt-2 text-sm leading-6 text-gray-500">
           故障かもしれない症状について、まず安全に確認できる内容をご案内します。
           内容によってはスタッフ確認に引き継ぎます。
@@ -204,8 +288,71 @@ export default function SupportChatPage() {
         <div>
           <h2 className="text-base font-semibold">問い合わせ内容</h2>
           <p className="mt-1 text-xs text-gray-500">
-            分かる範囲で入力してください。未入力でも送信できます。
+            分かる範囲で入力してください。症状・問い合わせ内容のみ必須です。
           </p>
+        </div>
+
+        <div className="space-y-3">
+          <label className="text-sm font-medium">お問い合わせ機器区分</label>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => handleFaqGroupChange("housing")}
+              className={`rounded-xl border px-4 py-4 text-left ${
+                faqGroup === "housing"
+                  ? "border-black bg-black text-white"
+                  : "bg-white hover:bg-gray-50"
+              }`}
+            >
+              <div className="font-semibold">住宅設備</div>
+              <div
+                className={`mt-1 text-xs ${
+                  faqGroup === "housing" ? "text-gray-200" : "text-gray-500"
+                }`}
+              >
+                給湯器・エコキュート・換気扇など
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleFaqGroupChange("appliance")}
+              className={`rounded-xl border px-4 py-4 text-left ${
+                faqGroup === "appliance"
+                  ? "border-black bg-black text-white"
+                  : "bg-white hover:bg-gray-50"
+              }`}
+            >
+              <div className="font-semibold">家電</div>
+              <div
+                className={`mt-1 text-xs ${
+                  faqGroup === "appliance" ? "text-gray-200" : "text-gray-500"
+                }`}
+              >
+                冷蔵庫・洗濯機・テレビなど
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleFaqGroupChange("solar")}
+              className={`rounded-xl border px-4 py-4 text-left ${
+                faqGroup === "solar"
+                  ? "border-black bg-black text-white"
+                  : "bg-white hover:bg-gray-50"
+              }`}
+            >
+              <div className="font-semibold">太陽光・蓄電池</div>
+              <div
+                className={`mt-1 text-xs ${
+                  faqGroup === "solar" ? "text-gray-200" : "text-gray-500"
+                }`}
+              >
+                太陽光パネル・パワコン・蓄電池など
+              </div>
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-5 md:grid-cols-2">
@@ -276,6 +423,7 @@ export default function SupportChatPage() {
               className="w-full rounded-lg border px-3 py-2"
             >
               <option value="">選択してください</option>
+
               {productCategories
                 .filter((category) => category)
                 .map((category) => (
@@ -347,6 +495,7 @@ export default function SupportChatPage() {
             <label className="text-sm font-medium">
               症状・問い合わせ内容
             </label>
+
             <textarea
               value={symptomDetail}
               onChange={(e) => setSymptomDetail(e.target.value)}
