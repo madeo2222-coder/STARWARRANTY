@@ -50,6 +50,32 @@ type RepairRequestHistory = {
   created_at: string;
 };
 
+type AiSupportFaq = {
+  id: string;
+  product_category: string | null;
+  manufacturer: string | null;
+  symptom_category: string | null;
+  question: string | null;
+  answer: string | null;
+  troubleshooting_steps: string | null;
+  video_title: string | null;
+  video_url: string | null;
+  requires_staff: boolean | null;
+  is_active: boolean | null;
+  sort_order: number | null;
+};
+
+type PastRepairRequest = {
+  id: string;
+  request_no: string;
+  product_name: string;
+  manufacturer: string | null;
+  model_no: string | null;
+  symptom_category: string | null;
+  status: string;
+  created_at: string;
+};
+
 const STATUS_OPTIONS = [
   { value: "received", label: "受付完了" },
   { value: "checking", label: "内容確認中" },
@@ -112,6 +138,263 @@ function getIsUsableValue(value: boolean | null) {
   if (value === true) return "yes";
   if (value === false) return "no";
   return "";
+}
+
+
+function normalizeForMatch(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function includesEither(left: string, right: string) {
+  if (!left || !right) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+function findBestFaq(
+  request: RepairRequestDetail,
+  faqs: AiSupportFaq[]
+) {
+  const requestProduct = normalizeForMatch(request.product_name);
+  const requestManufacturer = normalizeForMatch(request.manufacturer);
+  const requestSymptom = normalizeForMatch(
+    [
+      request.symptom_category,
+      request.symptom_detail,
+      request.error_code,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  let bestFaq: AiSupportFaq | null = null;
+  let bestScore = 0;
+
+  for (const faq of faqs) {
+    let score = 0;
+
+    const faqProduct = normalizeForMatch(faq.product_category);
+    const faqManufacturer = normalizeForMatch(faq.manufacturer);
+    const faqSymptom = normalizeForMatch(faq.symptom_category);
+    const faqQuestion = normalizeForMatch(faq.question);
+
+    if (includesEither(requestProduct, faqProduct)) {
+      score += 5;
+    }
+
+    if (
+      requestManufacturer &&
+      faqManufacturer &&
+      includesEither(requestManufacturer, faqManufacturer)
+    ) {
+      score += 3;
+    }
+
+    if (faqSymptom && requestSymptom.includes(faqSymptom)) {
+      score += 4;
+    }
+
+    if (faqQuestion && requestSymptom.includes(faqQuestion)) {
+      score += 2;
+    }
+
+    if (faq.requires_staff) {
+      score += 1;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestFaq = faq;
+    }
+  }
+
+  return bestScore >= 4 ? bestFaq : null;
+}
+
+function getSafetyWarnings(request: RepairRequestDetail) {
+  const text = normalizeForMatch(
+    [
+      request.symptom_category,
+      request.symptom_detail,
+      request.error_code,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  const warnings: string[] = [];
+
+  if (
+    ["焦げ", "煙", "火花", "発火", "異臭"].some((keyword) =>
+      text.includes(keyword)
+    )
+  ) {
+    warnings.push(
+      "焦げ臭い・煙・火花・発火の兆候がある場合は、使用を中止し、安全に可能な範囲で電源を切ってください。"
+    );
+  }
+
+  if (
+    ["漏電", "感電", "ブレーカー"].some((keyword) =>
+      text.includes(keyword)
+    )
+  ) {
+    warnings.push(
+      "漏電・感電・ブレーカー異常が疑われる場合は、無理な再操作を繰り返さずスタッフ判断へ回してください。"
+    );
+  }
+
+  if (
+    ["水漏れ", "漏水", "大量の水"].some((keyword) =>
+      text.includes(keyword)
+    )
+  ) {
+    warnings.push(
+      "水漏れがある場合は、可能であれば止水し、電気機器へ水がかかっている場合は触れないよう案内してください。"
+    );
+  }
+
+  if (
+    ["ガス臭", "ガスくさい"].some((keyword) =>
+      text.includes(keyword)
+    )
+  ) {
+    warnings.push(
+      "ガス臭がある場合は火気や電気スイッチの操作を避け、換気とガス事業者への連絡を優先してください。"
+    );
+  }
+
+  return warnings;
+}
+
+function getDefaultChecks(request: RepairRequestDetail) {
+  const product = normalizeForMatch(request.product_name);
+
+  const commonChecks = [
+    "本体・リモコン・操作パネルに表示されているエラーコードを確認する",
+    "電源プラグ、ブレーカー、リモコン電池など基本的な電源状態を確認する",
+    "メーカー名・型番・製造番号が読める状態か確認する",
+    "症状が発生した時期、頻度、直前に行った操作を確認する",
+  ];
+
+  if (
+    ["給湯器", "エコキュート", "温水器"].some((keyword) =>
+      product.includes(keyword)
+    )
+  ) {
+    return [
+      "お湯が出ないのが全箇所か、一部の蛇口だけか確認する",
+      "リモコンのエラーコードと時刻表示を確認する",
+      "本体・配管まわりの水漏れ、凍結、異音を確認する",
+      "給水・給湯・電源の状態を確認する",
+      ...commonChecks,
+    ];
+  }
+
+  if (
+    ["エアコン", "空調"].some((keyword) => product.includes(keyword))
+  ) {
+    return [
+      "運転モード、設定温度、風量設定を確認する",
+      "室内機フィルターの目詰まりを確認する",
+      "室外機の吸込口・吹出口が塞がれていないか確認する",
+      "ランプ点滅やリモコンのエラー表示を確認する",
+      ...commonChecks,
+    ];
+  }
+
+  if (
+    ["冷蔵庫", "冷凍庫"].some((keyword) => product.includes(keyword))
+  ) {
+    return [
+      "庫内灯と操作パネルが点灯しているか確認する",
+      "温度設定とドアの閉まりを確認する",
+      "放熱スペースと周囲温度を確認する",
+      "異音・霜付き・水漏れの有無を確認する",
+      ...commonChecks,
+    ];
+  }
+
+  if (
+    ["洗濯機", "乾燥機"].some((keyword) => product.includes(keyword))
+  ) {
+    return [
+      "給水栓、排水口、ドア・ふたのロック状態を確認する",
+      "洗濯物の偏りや入れ過ぎがないか確認する",
+      "糸くずフィルターや排水フィルターを確認する",
+      "エラーコードと停止した工程を確認する",
+      ...commonChecks,
+    ];
+  }
+
+  if (
+    ["太陽光", "パワーコンディショナ", "蓄電池", "hems"].some(
+      (keyword) => product.includes(keyword)
+    )
+  ) {
+    return [
+      "モニター・パワコン・蓄電池に表示されているエラーコードを確認する",
+      "停電・ブレーカー・自立運転設定の状態を確認する",
+      "発電量または充放電量がいつから変化したか確認する",
+      "異音・焦げ臭い・発熱・水濡れがないか確認する",
+      ...commonChecks,
+    ];
+  }
+
+  return commonChecks;
+}
+
+function getRecommendedChecks(
+  request: RepairRequestDetail,
+  matchedFaq: AiSupportFaq | null
+) {
+  const faqSteps = String(matchedFaq?.troubleshooting_steps || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-・●■✓]|\d+[.)、])\s*/, "").trim())
+    .filter(Boolean);
+
+  if (faqSteps.length > 0) {
+    return faqSteps.slice(0, 8);
+  }
+
+  return getDefaultChecks(request).slice(0, 8);
+}
+
+function getRequiredPhotos(request: RepairRequestDetail) {
+  const product = normalizeForMatch(request.product_name);
+
+  const photos = [
+    "製品全体が分かる写真",
+    "メーカー名・型番・製造番号が読める銘板写真",
+    "エラーコードやランプ状態が分かる表示部の写真",
+    "故障箇所または異常が確認できる写真",
+  ];
+
+  if (
+    ["水漏れ", "漏水"].some((keyword) =>
+      normalizeForMatch(request.symptom_detail).includes(keyword)
+    )
+  ) {
+    photos.push("水漏れ箇所と周辺状況が分かる写真");
+  }
+
+  if (
+    ["太陽光", "パワーコンディショナ", "蓄電池", "hems"].some(
+      (keyword) => product.includes(keyword)
+    )
+  ) {
+    photos.push("モニター画面とブレーカー・配線周辺が分かる写真");
+  }
+
+  if (
+    ["エアコン"].some((keyword) => product.includes(keyword))
+  ) {
+    photos.push("室内機と室外機の設置状況が分かる写真");
+  }
+
+  return Array.from(new Set(photos)).slice(0, 6);
 }
 
 function HiddenRequestFields({
@@ -293,6 +576,66 @@ export default async function RepairRequestDetailPage({
     .order("created_at", { ascending: false });
 
   const histories = (historyRows || []) as RepairRequestHistory[];
+
+  const { data: faqRows } = await supabase
+    .from("ai_support_faqs")
+    .select(
+      "id, product_category, manufacturer, symptom_category, question, answer, troubleshooting_steps, video_title, video_url, requires_staff, is_active, sort_order"
+    )
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .limit(200);
+
+  const matchedFaq = findBestFaq(
+    request,
+    (faqRows || []) as AiSupportFaq[]
+  );
+
+  let pastRepairRows: PastRepairRequest[] = [];
+
+  if (request.model_no) {
+    const result = await supabase
+      .from("repair_requests")
+      .select(
+        "id, request_no, product_name, manufacturer, model_no, symptom_category, status, created_at"
+      )
+      .neq("id", request.id)
+      .eq("model_no", request.model_no)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    pastRepairRows = (result.data || []) as PastRepairRequest[];
+  } else if (request.manufacturer) {
+    const result = await supabase
+      .from("repair_requests")
+      .select(
+        "id, request_no, product_name, manufacturer, model_no, symptom_category, status, created_at"
+      )
+      .neq("id", request.id)
+      .eq("manufacturer", request.manufacturer)
+      .eq("product_name", request.product_name)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    pastRepairRows = (result.data || []) as PastRepairRequest[];
+  } else {
+    const result = await supabase
+      .from("repair_requests")
+      .select(
+        "id, request_no, product_name, manufacturer, model_no, symptom_category, status, created_at"
+      )
+      .neq("id", request.id)
+      .eq("product_name", request.product_name)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    pastRepairRows = (result.data || []) as PastRepairRequest[];
+  }
+
+  const safetyWarnings = getSafetyWarnings(request);
+  const recommendedChecks = getRecommendedChecks(request, matchedFaq);
+  const requiredPhotos = getRequiredPhotos(request);
+
   const nextPath = `/repair-requests/detail?request_no=${encodeURIComponent(
   request.request_no
 )}`;
@@ -630,6 +973,158 @@ export default async function RepairRequestDetailPage({
         </form>
 
         <div className="space-y-6">
+          <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold tracking-wide text-blue-600">
+                  FAQ・受付内容から自動整理
+                </p>
+                <h2 className="mt-1 text-base font-semibold">
+                  AI修理アシスタント
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  電話対応やメーカー確認の前に見るべき項目をまとめています。
+                  保証対象・費用・責任区分の最終判断はスタッフが行ってください。
+                </p>
+              </div>
+
+              <div className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                対応補助
+              </div>
+            </div>
+
+            {safetyWarnings.length > 0 ? (
+              <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
+                <div className="text-sm font-semibold text-red-700">
+                  安全確認を優先
+                </div>
+                <ul className="mt-2 space-y-2 text-sm leading-6 text-red-700">
+                  {safetyWarnings.map((warning) => (
+                    <li key={warning}>・{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold">最初に確認すること</h3>
+              <ol className="mt-3 space-y-3">
+                {recommendedChecks.map((check, index) => (
+                  <li
+                    key={`${index}-${check}`}
+                    className="flex gap-3 rounded-xl bg-gray-50 p-3 text-sm leading-6 text-gray-700"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black text-xs font-bold text-white">
+                      {index + 1}
+                    </span>
+                    <span>{check}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold">準備してもらう写真</h3>
+              <div className="mt-3 space-y-2">
+                {requiredPhotos.map((photo) => (
+                  <div
+                    key={photo}
+                    className="flex items-start gap-2 rounded-lg border p-3 text-sm text-gray-700"
+                  >
+                    <span className="mt-0.5 text-green-600">✓</span>
+                    <span>{photo}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {matchedFaq ? (
+              <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="text-sm font-semibold text-blue-800">
+                  関連FAQ候補
+                </div>
+
+                <div className="mt-2 text-sm font-medium text-blue-900">
+                  {matchedFaq.question || matchedFaq.product_category || "関連FAQ"}
+                </div>
+
+                {matchedFaq.answer ? (
+                  <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-blue-900">
+                    {matchedFaq.answer}
+                  </div>
+                ) : null}
+
+                {matchedFaq.requires_staff ? (
+                  <div className="mt-3 inline-flex rounded-full bg-orange-100 px-2 py-1 text-xs text-orange-700">
+                    スタッフ対応前提FAQ
+                  </div>
+                ) : null}
+
+                {matchedFaq.video_url ? (
+                  <a
+                    href={matchedFaq.video_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-4 block break-all text-sm font-medium text-blue-700 underline"
+                  >
+                    {matchedFaq.video_title || "関連動画を開く"}
+                  </a>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-xl border bg-gray-50 p-4 text-sm leading-6 text-gray-600">
+                現在、この製品・症状に一致する登録済みFAQはありません。
+                現場で繰り返し案内する内容があればFAQ管理へ追加してください。
+              </div>
+            )}
+
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold">
+                同型番・同製品の過去修理
+              </h3>
+
+              {pastRepairRows.length > 0 ? (
+                <div className="mt-3 space-y-3">
+                  {pastRepairRows.map((pastRepair) => (
+                    <Link
+                      key={pastRepair.id}
+                      href={`/repair-requests/detail?id=${encodeURIComponent(
+                        pastRepair.id
+                      )}`}
+                      className="block rounded-xl border p-3 text-sm hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="font-medium">
+                          {pastRepair.request_no}
+                        </div>
+                        <div className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
+                          {statusLabel(pastRepair.status)}
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs leading-5 text-gray-500">
+                        {pastRepair.product_name}
+                        {pastRepair.manufacturer
+                          ? ` / ${pastRepair.manufacturer}`
+                          : ""}
+                        {pastRepair.model_no
+                          ? ` / ${pastRepair.model_no}`
+                          : ""}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">
+                        症状：{pastRepair.symptom_category || "-"} /{" "}
+                        {formatDateTime(pastRepair.created_at)}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border bg-gray-50 p-4 text-sm text-gray-500">
+                  同型番・同製品の過去修理は見つかりませんでした。
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h2 className="text-base font-semibold">ステータス操作</h2>
             <p className="mt-2 text-sm text-gray-600">
