@@ -308,7 +308,7 @@ export default function AiSupportInquiriesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1250px] w-full border-collapse text-sm">
+            <table className="min-w-[1300px] w-full border-collapse text-sm">
               <thead className="bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
                   <th className="border-b px-4 py-3">受付日時</th>
@@ -320,6 +320,7 @@ export default function AiSupportInquiriesPage() {
                   <th className="border-b px-4 py-3">症状</th>
                   <th className="border-b px-4 py-3">緊急度</th>
                   <th className="border-b px-4 py-3">状態</th>
+                  <th className="border-b px-4 py-3">操作</th>
                 </tr>
               </thead>
 
@@ -331,7 +332,12 @@ export default function AiSupportInquiriesPage() {
                     </td>
 
                     <td className="border-b px-4 py-3 font-medium">
-                      {item.inquiry_no}
+                      <Link
+                        href={`/ai-support-inquiries/${item.id}`}
+                        className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                      >
+                        {item.inquiry_no}
+                      </Link>
                     </td>
 
                     <td className="border-b px-4 py-3">
@@ -424,6 +430,15 @@ export default function AiSupportInquiriesPage() {
                       <div className="mt-2 text-xs text-gray-500">
                         {getStatusLabel(item.staff_status)}
                       </div>
+                    </td>
+
+                    <td className="border-b px-4 py-3">
+                      <Link
+                        href={`/ai-support-inquiries/${item.id}`}
+                        className="inline-block rounded-lg border px-3 py-2 text-xs hover:bg-gray-50"
+                      >
+                        詳細
+                      </Link>
                     </td>
                   </tr>
                 ))}

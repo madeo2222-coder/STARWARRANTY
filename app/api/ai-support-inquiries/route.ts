@@ -23,6 +23,12 @@ type InquiryBody = {
   is_usable?: boolean | null;
 };
 
+type InquiryUpdateBody = {
+  id?: string | null;
+  staff_status?: string | null;
+  memo?: string | null;
+};
+
 type AnyRow = Record<string, unknown>;
 
 const DANGER_KEYWORDS = [
@@ -57,6 +63,13 @@ const STAFF_HANDOFF_KEYWORDS = [
   "至急",
   "今すぐ",
 ];
+
+const STAFF_STATUSES = [
+  "new",
+  "needs_staff",
+  "in_progress",
+  "closed",
+] as const;
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -124,6 +137,12 @@ function getUrgencyLevel(symptomText: string) {
   }
 
   return "normal";
+}
+
+function isValidStaffStatus(value: string) {
+  return STAFF_STATUSES.includes(
+    value as (typeof STAFF_STATUSES)[number]
+  );
 }
 
 function buildAiSummary({
@@ -253,9 +272,46 @@ export async function GET(request: Request) {
     const { supabase } = await requireLoggedInUser(request);
     const { searchParams } = new URL(request.url);
 
+    const id = normalizeText(searchParams.get("id"));
     const status = normalizeText(searchParams.get("status"));
-    const requiresStaff = normalizeText(searchParams.get("requires_staff"));
+    const requiresStaff = normalizeText(
+      searchParams.get("requires_staff")
+    );
     const faqGroupParam = normalizeText(searchParams.get("faq_group"));
+
+    if (id) {
+      const { data: inquiry, error: inquiryError } = await supabase
+        .from("ai_support_inquiries")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (inquiryError || !inquiry) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: inquiryError?.message || "問い合わせが見つかりません",
+          },
+          { status: 404 }
+        );
+      }
+
+      const { data: messages, error: messagesError } = await supabase
+        .from("ai_support_messages")
+        .select("*")
+        .eq("inquiry_id", id)
+        .order("created_at", { ascending: true });
+
+      if (messagesError) {
+        throw new Error(messagesError.message);
+      }
+
+      return NextResponse.json({
+        success: true,
+        inquiry,
+        messages: messages || [],
+      });
+    }
 
     let query = supabase
       .from("ai_support_inquiries")
@@ -272,7 +328,10 @@ export async function GET(request: Request) {
     }
 
     if (faqGroupParam) {
-      query = query.eq("faq_group", normalizeFaqGroup(faqGroupParam));
+      query = query.eq(
+        "faq_group",
+        normalizeFaqGroup(faqGroupParam)
+      );
     }
 
     const { data, error } = await query;
@@ -292,7 +351,7 @@ export async function GET(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "AI問い合わせ一覧の取得に失敗しました",
+            : "AI問い合わせの取得に失敗しました",
       },
       { status: 403 }
     );
@@ -308,7 +367,10 @@ export async function POST(request: Request) {
 
     if (!symptomDetail) {
       return NextResponse.json(
-        { success: false, error: "症状・問い合わせ内容を入力してください" },
+        {
+          success: false,
+          error: "症状・問い合わせ内容を入力してください",
+        },
         { status: 400 }
       );
     }
@@ -334,7 +396,8 @@ export async function POST(request: Request) {
 
     const isDanger = includesAnyKeyword(fullText, DANGER_KEYWORDS);
     const requiresStaff =
-      isDanger || includesAnyKeyword(fullText, STAFF_HANDOFF_KEYWORDS);
+      isDanger ||
+      includesAnyKeyword(fullText, STAFF_HANDOFF_KEYWORDS);
 
     const urgencyLevel = getUrgencyLevel(fullText);
 
@@ -408,11 +471,14 @@ export async function POST(request: Request) {
         inquiry_no: inquiryNo,
         source_type: normalizeText(body.source_type) || "web",
         faq_group: faqGroup,
-        contact_type: normalizeText(body.contact_type) || "customer",
-        customer_name: normalizeText(body.customer_name) || null,
+        contact_type:
+          normalizeText(body.contact_type) || "customer",
+        customer_name:
+          normalizeText(body.customer_name) || null,
         phone: normalizeText(body.phone) || null,
         email: normalizeText(body.email) || null,
-        certificate_no: normalizeText(body.certificate_no) || null,
+        certificate_no:
+          normalizeText(body.certificate_no) || null,
         product_category: productCategory || null,
         manufacturer: manufacturer || null,
         model_no: modelNo || null,
@@ -420,23 +486,28 @@ export async function POST(request: Request) {
         symptom_detail: symptomDetail,
         error_code: errorCode || null,
         is_usable:
-          typeof body.is_usable === "boolean" ? body.is_usable : null,
+          typeof body.is_usable === "boolean"
+            ? body.is_usable
+            : null,
         urgency_level: urgencyLevel,
         requires_staff: requiresStaff,
         staff_status: requiresStaff ? "needs_staff" : "new",
         ai_status: "answered",
         ai_summary: aiSummary,
-        guided_video_title: normalizeText(
-          matchedFaq?.video_title
-        ) || null,
-        guided_video_url: normalizeText(matchedFaq?.video_url) || null,
-        guided_faq_id: normalizeText(matchedFaq?.id) || null,
+        guided_video_title:
+          normalizeText(matchedFaq?.video_title) || null,
+        guided_video_url:
+          normalizeText(matchedFaq?.video_url) || null,
+        guided_faq_id:
+          normalizeText(matchedFaq?.id) || null,
       })
       .select("*")
       .single();
 
     if (insertError || !inserted) {
-      throw new Error(insertError?.message || "問い合わせ保存に失敗しました");
+      throw new Error(
+        insertError?.message || "問い合わせ保存に失敗しました"
+      );
     }
 
     const inquiry = inserted as AnyRow;
@@ -457,7 +528,10 @@ export async function POST(request: Request) {
       ]);
 
     if (messageError) {
-      console.error("ai support messages insert error:", messageError);
+      console.error(
+        "ai support messages insert error:",
+        messageError
+      );
     }
 
     return NextResponse.json({
@@ -480,6 +554,69 @@ export async function POST(request: Request) {
             : "AI一次受付の送信に失敗しました",
       },
       { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const { supabase } = await requireLoggedInUser(request);
+    const body = (await request.json()) as InquiryUpdateBody;
+
+    const id = normalizeText(body.id);
+    const staffStatus = normalizeText(body.staff_status);
+    const memo = normalizeText(body.memo);
+
+    if (!id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "問い合わせIDがありません",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!staffStatus || !isValidStaffStatus(staffStatus)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "対応ステータスが正しくありません",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data, error } = await supabase
+      .from("ai_support_inquiries")
+      .update({
+        staff_status: staffStatus,
+        memo: memo || null,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      throw new Error(
+        error?.message || "問い合わせの更新に失敗しました"
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      inquiry: data,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "問い合わせの更新に失敗しました",
+      },
+      { status: 400 }
     );
   }
 }
