@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type FaqGroup = "housing" | "appliance" | "solar";
@@ -50,6 +50,17 @@ type DetailApiResponse = {
   error?: string;
   inquiry?: AiSupportInquiry;
   messages?: AiSupportMessage[];
+};
+
+type ConvertApiResponse = {
+  success?: boolean;
+  error?: string;
+  already_converted?: boolean;
+  inquiry?: AiSupportInquiry;
+  repair_request?: {
+    id: string;
+    request_no: string;
+  };
 };
 
 function formatDateTime(value: string | null | undefined) {
@@ -142,12 +153,15 @@ function getSenderLabel(value: string) {
 
 export default function AiSupportInquiryDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+
   const inquiryId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const supabase = useMemo(() => createClient(), []);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   const [inquiry, setInquiry] = useState<AiSupportInquiry | null>(null);
   const [messages, setMessages] = useState<AiSupportMessage[]>([]);
@@ -262,6 +276,117 @@ export default function AiSupportInquiryDetailPage() {
     }
   }
 
+  async function handleConvertToRepairRequest() {
+    if (!inquiry) return;
+
+    if (inquiry.converted_repair_request_id) {
+      router.push(
+        `/repair-requests/detail?request_no=${encodeURIComponent(
+          inquiry.converted_repair_request_no || ""
+        )}`
+      );
+      return;
+    }
+
+    const missingFields: string[] = [];
+
+    if (!inquiry.customer_name?.trim()) {
+      missingFields.push("お名前・会社名");
+    }
+
+    if (!inquiry.phone?.trim()) {
+      missingFields.push("電話番号");
+    }
+
+    if (!inquiry.product_category?.trim()) {
+      missingFields.push("対象機器");
+    }
+
+    if (!inquiry.symptom_detail?.trim()) {
+      missingFields.push("症状・問い合わせ内容");
+    }
+
+    if (missingFields.length > 0) {
+      setErrorMessage(
+        `修理受付へ変換するには、${missingFields.join(
+          "、"
+        )}が必要です。AI問い合わせ内容を確認してください。`
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      [
+        "このAI問い合わせを修理受付へ変換します。",
+        "",
+        `お名前・会社名：${inquiry.customer_name}`,
+        `電話番号：${inquiry.phone}`,
+        `対象機器：${inquiry.product_category}`,
+        "",
+        "変換後は修理受付詳細画面へ移動します。",
+        "よろしいですか？",
+      ].join("\n")
+    );
+
+    if (!confirmed) return;
+
+    setConverting(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const token = await getAccessToken();
+
+      const response = await fetch("/api/ai-support-convert-repair", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inquiry_id: inquiry.id,
+        }),
+      });
+
+      const result = (await response.json()) as ConvertApiResponse;
+
+      if (
+        !response.ok ||
+        !result.success ||
+        !result.repair_request?.request_no
+      ) {
+        throw new Error(result.error || "修理受付への変換に失敗しました");
+      }
+
+      if (result.inquiry) {
+        setInquiry(result.inquiry);
+        setStaffStatus(result.inquiry.staff_status || "in_progress");
+      }
+
+      setSuccessMessage(
+        result.already_converted
+          ? "すでに修理受付へ変換されています"
+          : `修理受付 ${result.repair_request.request_no} を作成しました`
+      );
+
+      router.push(
+        `/repair-requests/detail?request_no=${encodeURIComponent(
+          result.repair_request.request_no
+        )}`
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "修理受付への変換に失敗しました"
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      setConverting(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-6xl p-4 md:p-6">
@@ -367,6 +492,55 @@ export default function AiSupportInquiryDetailPage() {
           </div>
         </div>
       </div>
+
+      {inquiry.converted_repair_request_id ? (
+        <section className="rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-green-800">
+                修理受付へ変換済み
+              </h2>
+              <p className="mt-2 text-sm text-green-700">
+                修理受付番号：
+                <span className="ml-1 font-semibold">
+                  {inquiry.converted_repair_request_no || "-"}
+                </span>
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleConvertToRepairRequest()}
+              className="rounded-lg border border-green-300 bg-white px-4 py-2 text-sm text-green-800 hover:bg-green-100"
+            >
+              修理受付詳細を開く
+            </button>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-blue-900">
+                修理受付への変換
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-blue-800">
+                このAI問い合わせの内容を引き継いで、修理受付を作成します。
+                AI要約とスタッフメモも修理受付へ引き継がれます。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleConvertToRepairRequest()}
+              disabled={converting}
+              className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+            >
+              {converting ? "変換中..." : "修理受付へ変換"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -596,26 +770,6 @@ export default function AiSupportInquiryDetailPage() {
           </div>
         </div>
       </section>
-
-      {inquiry.converted_repair_request_id ? (
-        <section className="rounded-2xl border border-green-200 bg-green-50 p-5 text-sm text-green-800 shadow-sm">
-          <h2 className="text-lg font-semibold">修理受付へ変換済み</h2>
-
-          <p className="mt-2">
-            修理受付番号：
-            {inquiry.converted_repair_request_no || "-"}
-          </p>
-
-          <Link
-            href={`/repair-requests/detail?id=${encodeURIComponent(
-              inquiry.converted_repair_request_id
-            )}`}
-            className="mt-4 inline-block rounded-lg border border-green-300 bg-white px-4 py-2 text-sm hover:bg-green-100"
-          >
-            修理受付詳細を開く
-          </Link>
-        </section>
-      ) : null}
     </div>
   );
 }
