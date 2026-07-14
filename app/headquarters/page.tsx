@@ -30,6 +30,12 @@ const HEADQUARTERS_ADMIN_EMAILS = [
 
 const managementCards = [
   {
+    title: "代理店提出センター",
+    description:
+      "代理店・施工店から提出された加入データExcelの受付・確認・差戻し・処理状況を管理します",
+    href: "/headquarters/agency-submissions",
+  },
+  {
     title: "保証書管理",
     description: "保証書の一覧確認・新規作成・PDF発行へ進みます",
     href: "/warranty-certificates",
@@ -390,7 +396,7 @@ export default function HeadquartersPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         {managementCards.map((card) => (
           <Link
             key={card.href}
@@ -452,8 +458,8 @@ export default function HeadquartersPage() {
               {selectedLogoName
                 ? `選択画像: ${selectedLogoName}`
                 : logoUrl
-                ? "現在の本部ロゴを表示中"
-                : "まだロゴ画像は登録されていません"}
+                  ? "現在の本部ロゴを表示中"
+                  : "まだロゴ画像は登録されていません"}
             </div>
 
             {logoUrl ? (
