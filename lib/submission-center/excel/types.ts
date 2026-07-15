@@ -172,12 +172,6 @@ export type SubmissionParseResult = {
   fatalErrors: string[];
 };
 
-/**
- * public.submission_rows へINSERTするデータ型。
- *
- * DBの実カラム名に合わせているため、
- * Parser内部のcamelCase型とは分離して管理する。
- */
 export type SubmissionRowInsert = {
   batch_id: string;
 
@@ -222,7 +216,6 @@ export type SubmissionRowInsert = {
   duplicate_status: DuplicateStatus;
   duplicate_of_row_id: string | null;
 
-  parse_status: "parsed";
   import_status: "pending";
 
   raw_data: RawSubmissionData;

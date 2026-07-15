@@ -145,27 +145,19 @@ function validateParserContext(
   context: SubmissionParserContext
 ): void {
   if (!context.batchId.trim()) {
-    throw new Error(
-      "提出バッチIDが指定されていません"
-    );
+    throw new Error("提出バッチIDが指定されていません");
   }
 
   if (!context.partnerId.trim()) {
-    throw new Error(
-      "取引先IDが指定されていません"
-    );
+    throw new Error("取引先IDが指定されていません");
   }
 
   if (!context.targetMonth.trim()) {
-    throw new Error(
-      "対象月が指定されていません"
-    );
+    throw new Error("対象月が指定されていません");
   }
 
   if (!context.originalFilename.trim()) {
-    throw new Error(
-      "元ファイル名が指定されていません"
-    );
+    throw new Error("元ファイル名が指定されていません");
   }
 }
 
@@ -185,9 +177,7 @@ function getFileExtension(filename: string): string {
 function validateParserFileExtension(
   originalFilename: string
 ): void {
-  const extension = getFileExtension(
-    originalFilename
-  );
+  const extension = getFileExtension(originalFilename);
 
   if (extension !== "xlsx") {
     throw new Error(
@@ -220,12 +210,6 @@ function normalizeAddressText(
   return normalized || null;
 }
 
-/**
- * 住所は元Excelに1列で入っているため、
- * 確実に判定できる範囲だけ分離する。
- *
- * 分離できない場合でも address_full には必ず元住所を残す。
- */
 function parseJapaneseAddress(
   value: string | null
 ): ParsedJapaneseAddress {
@@ -258,16 +242,6 @@ function parseJapaneseAddress(
     };
   }
 
-  /**
-   * 市・区・町・村・郡までを市区町村部分として取得する。
-   *
-   * 例：
-   * 福岡市中央区薬院2-1-4
-   * → city: 福岡市中央区
-   * → detail: 薬院2-1-4
-   *
-   * ○○郡△△町の場合も可能な範囲で取得する。
-   */
   const municipalityMatch =
     afterPrefecture.match(
       /^(.+?(?:市.+?区|郡.+?[町村]|市|区|町|村))(.*)$/
@@ -299,9 +273,7 @@ function parseJapaneseAddress(
 export function parsedRowToSubmissionRowInsert(
   row: ParsedSubmissionRow
 ): SubmissionRowInsert {
-  const address = parseJapaneseAddress(
-    row.address
-  );
+  const address = parseJapaneseAddress(row.address);
 
   return {
     batch_id: row.batchId,
@@ -311,12 +283,10 @@ export function parsedRowToSubmissionRowInsert(
     row_type: row.submissionType,
 
     customer_name: row.customerName,
-    customer_name_kana:
-      row.customerNameKana,
+    customer_name_kana: row.customerNameKana,
     postal_code: row.postalCode,
 
-    address_prefecture:
-      address.prefecture,
+    address_prefecture: address.prefecture,
     address_city: address.city,
     address_detail: address.detail,
     address_full: address.full,
@@ -324,10 +294,8 @@ export function parsedRowToSubmissionRowInsert(
     phone: row.phone,
     email: row.email,
 
-    application_date:
-      row.applicationDate,
-    warranty_start_date:
-      row.warrantyStartDate,
+    application_date: row.applicationDate,
+    warranty_start_date: row.warrantyStartDate,
 
     plan_code: row.planCode,
 
@@ -336,9 +304,7 @@ export function parsedRowToSubmissionRowInsert(
         ? row.productName
         : null,
 
-    manufacturer:
-      row.manufacturerName,
-
+    manufacturer: row.manufacturerName,
     model_number: row.modelNumber,
 
     equipment_name:
@@ -357,12 +323,6 @@ export function parsedRowToSubmissionRowInsert(
     additional_quantity:
       row.additionalQuantity,
 
-    /**
-     * DBには保証料カラムが1つだけなので、
-     * Excelから正しく取得できた場合はExcel値を保存する。
-     *
-     * Excel値が取得できない場合のみ再計算額を使用する。
-     */
     warranty_fee:
       row.warrantyFeeExTax ??
       row.calculatedWarrantyFeeExTax,
@@ -381,10 +341,10 @@ export function parsedRowToSubmissionRowInsert(
     duplicate_of_row_id:
       row.duplicateRowId,
 
-    parse_status: "parsed",
     import_status: "pending",
 
     raw_data: row.rawData,
+
     normalized_data: {
       ...row.normalizedData,
 
@@ -426,8 +386,7 @@ export function parseSubmissionExcel(
       context.originalFilename
     );
 
-    const parsedWorkbook =
-      readWorkbook(buffer);
+    const parsedWorkbook = readWorkbook(buffer);
 
     const detection =
       detectWorkbookFormat(parsedWorkbook);
@@ -482,8 +441,7 @@ export function parseSubmissionExcel(
         comparisonRows
       );
 
-    const summary =
-      createSummary(checkedRows);
+    const summary = createSummary(checkedRows);
 
     const workbookWarnings = [
       ...springWaResult.warnings,
