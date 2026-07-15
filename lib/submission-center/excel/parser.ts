@@ -16,15 +16,70 @@ import {
 
 import { parseSpringWaWorkbook } from "./springwa";
 
-import {
-  applyValidationToRows,
-} from "./validator";
+import { applyValidationToRows } from "./validator";
 
 import { readWorkbook } from "./workbook";
 
 export type ParseSubmissionExcelOptions = {
   comparisonRows?: DuplicateComparisonRow[];
 };
+
+type ParsedJapaneseAddress = {
+  prefecture: string | null;
+  city: string | null;
+  detail: string | null;
+  full: string | null;
+};
+
+const JAPANESE_PREFECTURES = [
+  "北海道",
+  "青森県",
+  "岩手県",
+  "宮城県",
+  "秋田県",
+  "山形県",
+  "福島県",
+  "茨城県",
+  "栃木県",
+  "群馬県",
+  "埼玉県",
+  "千葉県",
+  "東京都",
+  "神奈川県",
+  "新潟県",
+  "富山県",
+  "石川県",
+  "福井県",
+  "山梨県",
+  "長野県",
+  "岐阜県",
+  "静岡県",
+  "愛知県",
+  "三重県",
+  "滋賀県",
+  "京都府",
+  "大阪府",
+  "兵庫県",
+  "奈良県",
+  "和歌山県",
+  "鳥取県",
+  "島根県",
+  "岡山県",
+  "広島県",
+  "山口県",
+  "徳島県",
+  "香川県",
+  "愛媛県",
+  "高知県",
+  "福岡県",
+  "佐賀県",
+  "長崎県",
+  "熊本県",
+  "大分県",
+  "宮崎県",
+  "鹿児島県",
+  "沖縄県",
+] as const;
 
 function createEmptySummary(): SubmissionParseSummary {
   return {
@@ -90,19 +145,27 @@ function validateParserContext(
   context: SubmissionParserContext
 ): void {
   if (!context.batchId.trim()) {
-    throw new Error("提出バッチIDが指定されていません");
+    throw new Error(
+      "提出バッチIDが指定されていません"
+    );
   }
 
   if (!context.partnerId.trim()) {
-    throw new Error("取引先IDが指定されていません");
+    throw new Error(
+      "取引先IDが指定されていません"
+    );
   }
 
   if (!context.targetMonth.trim()) {
-    throw new Error("対象月が指定されていません");
+    throw new Error(
+      "対象月が指定されていません"
+    );
   }
 
   if (!context.originalFilename.trim()) {
-    throw new Error("元ファイル名が指定されていません");
+    throw new Error(
+      "元ファイル名が指定されていません"
+    );
   }
 }
 
@@ -136,73 +199,210 @@ function validateParserFileExtension(
 function normalizeComparisonRows(
   rows: DuplicateComparisonRow[]
 ): DuplicateComparisonRow[] {
-  return rows.filter((row) => {
-    return Boolean(
-      row.id &&
-        row.partnerId
+  return rows.filter((row) =>
+    Boolean(row.id && row.partnerId)
+  );
+}
+
+function normalizeAddressText(
+  value: string | null
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\s　]+/g, " ")
+    .trim();
+
+  return normalized || null;
+}
+
+/**
+ * 住所は元Excelに1列で入っているため、
+ * 確実に判定できる範囲だけ分離する。
+ *
+ * 分離できない場合でも address_full には必ず元住所を残す。
+ */
+function parseJapaneseAddress(
+  value: string | null
+): ParsedJapaneseAddress {
+  const full = normalizeAddressText(value);
+
+  if (!full) {
+    return {
+      prefecture: null,
+      city: null,
+      detail: null,
+      full: null,
+    };
+  }
+
+  const prefecture =
+    JAPANESE_PREFECTURES.find((name) =>
+      full.startsWith(name)
+    ) || null;
+
+  const afterPrefecture = prefecture
+    ? full.slice(prefecture.length).trim()
+    : full;
+
+  if (!afterPrefecture) {
+    return {
+      prefecture,
+      city: null,
+      detail: null,
+      full,
+    };
+  }
+
+  /**
+   * 市・区・町・村・郡までを市区町村部分として取得する。
+   *
+   * 例：
+   * 福岡市中央区薬院2-1-4
+   * → city: 福岡市中央区
+   * → detail: 薬院2-1-4
+   *
+   * ○○郡△△町の場合も可能な範囲で取得する。
+   */
+  const municipalityMatch =
+    afterPrefecture.match(
+      /^(.+?(?:市.+?区|郡.+?[町村]|市|区|町|村))(.*)$/
     );
-  });
+
+  if (!municipalityMatch) {
+    return {
+      prefecture,
+      city: null,
+      detail: afterPrefecture || null,
+      full,
+    };
+  }
+
+  const city =
+    municipalityMatch[1]?.trim() || null;
+
+  const detail =
+    municipalityMatch[2]?.trim() || null;
+
+  return {
+    prefecture,
+    city,
+    detail,
+    full,
+  };
 }
 
 export function parsedRowToSubmissionRowInsert(
   row: ParsedSubmissionRow
 ): SubmissionRowInsert {
+  const address = parseJapaneseAddress(
+    row.address
+  );
+
   return {
     batch_id: row.batchId,
-    file_id: row.fileId,
-    partner_id: row.partnerId,
 
-    source_sheet: row.sourceSheet,
-    source_row_number: row.sourceRowNumber,
-    submission_type: row.submissionType,
+    sheet_name: row.sourceSheet,
+    row_number: row.sourceRowNumber,
+    row_type: row.submissionType,
 
     customer_name: row.customerName,
-    customer_name_kana: row.customerNameKana,
+    customer_name_kana:
+      row.customerNameKana,
     postal_code: row.postalCode,
-    address: row.address,
+
+    address_prefecture:
+      address.prefecture,
+    address_city: address.city,
+    address_detail: address.detail,
+    address_full: address.full,
+
     phone: row.phone,
     email: row.email,
 
-    application_date: row.applicationDate,
+    application_date:
+      row.applicationDate,
     warranty_start_date:
       row.warrantyStartDate,
 
     plan_code: row.planCode,
-    manufacturer_name:
+
+    water_heater_type:
+      row.submissionType === "plan"
+        ? row.productName
+        : null,
+
+    manufacturer:
       row.manufacturerName,
 
-    product_name: row.productName,
     model_number: row.modelNumber,
+
+    equipment_name:
+      row.submissionType === "individual"
+        ? row.productName
+        : null,
+
     quantity: row.quantity,
 
-    additional_product_name:
+    additional_equipment:
       row.additionalProductName,
+
     additional_model_number:
       row.additionalModelNumber,
+
     additional_quantity:
       row.additionalQuantity,
 
-    warranty_fee_ex_tax:
-      row.warrantyFeeExTax,
-    calculated_warranty_fee_ex_tax:
+    /**
+     * DBには保証料カラムが1つだけなので、
+     * Excelから正しく取得できた場合はExcel値を保存する。
+     *
+     * Excel値が取得できない場合のみ再計算額を使用する。
+     */
+    warranty_fee:
+      row.warrantyFeeExTax ??
       row.calculatedWarrantyFeeExTax,
-    warranty_fee_matches:
-      row.warrantyFeeMatches,
-
-    raw_data: row.rawData,
-    normalized_data: row.normalizedData,
 
     row_hash: row.rowHash,
 
     validation_status:
       row.validationStatus,
-    validation_issues:
+
+    validation_errors:
       row.validationIssues,
 
     duplicate_status:
       row.duplicateStatus,
-    duplicate_row_id:
+
+    duplicate_of_row_id:
       row.duplicateRowId,
+
+    parse_status: "parsed",
+    import_status: "pending",
+
+    raw_data: row.rawData,
+    normalized_data: {
+      ...row.normalizedData,
+
+      calculated_warranty_fee_ex_tax:
+        row.calculatedWarrantyFeeExTax,
+
+      warranty_fee_matches:
+        row.warrantyFeeMatches,
+
+      target_month:
+        row.targetMonth,
+
+      source_file_id:
+        row.fileId,
+
+      partner_id:
+        row.partnerId,
+    },
   };
 }
 
@@ -226,11 +426,11 @@ export function parseSubmissionExcel(
       context.originalFilename
     );
 
-    const parsedWorkbook = readWorkbook(buffer);
+    const parsedWorkbook =
+      readWorkbook(buffer);
 
-    const detection = detectWorkbookFormat(
-      parsedWorkbook
-    );
+    const detection =
+      detectWorkbookFormat(parsedWorkbook);
 
     if (detection.format !== "springwa") {
       return {
@@ -246,6 +446,7 @@ export function parseSubmissionExcel(
         summary: createEmptySummary(),
 
         workbookWarnings: [],
+
         fatalErrors: [
           "対応済みの春和建業Excelフォーマットを確認できませんでした",
         ],
@@ -321,6 +522,7 @@ export function parseSubmissionExcel(
         springWaResult.targetMonth,
 
       rows: checkedRows,
+
       masterItems:
         springWaResult.masterItems,
 
@@ -353,6 +555,7 @@ export function parseSubmissionExcel(
       summary: createEmptySummary(),
 
       workbookWarnings: [],
+
       fatalErrors: [
         getFatalErrorMessage(error),
       ],

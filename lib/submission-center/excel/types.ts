@@ -11,11 +11,18 @@ export type SubmissionSheetType =
   | "springwa_master"
   | "unknown";
 
-export type SubmissionType = "plan" | "individual";
+export type SubmissionType =
+  | "plan"
+  | "individual";
 
-export type ValidationSeverity = "warning" | "error";
+export type ValidationSeverity =
+  | "warning"
+  | "error";
 
-export type ValidationStatus = "valid" | "warning" | "error";
+export type ValidationStatus =
+  | "valid"
+  | "warning"
+  | "error";
 
 export type DuplicateStatus =
   | "unchecked"
@@ -30,9 +37,21 @@ export type ParseStatus =
   | "warning"
   | "failed";
 
+export type ImportStatus =
+  | "pending"
+  | "ready"
+  | "imported"
+  | "skipped"
+  | "failed";
+
 export type SpringWaPlanCode = "A" | "B";
 
-export type CellPrimitive = string | number | boolean | Date | null;
+export type CellPrimitive =
+  | string
+  | number
+  | boolean
+  | Date
+  | null;
 
 export type RawSubmissionData = Record<
   string,
@@ -153,19 +172,28 @@ export type SubmissionParseResult = {
   fatalErrors: string[];
 };
 
+/**
+ * public.submission_rows へINSERTするデータ型。
+ *
+ * DBの実カラム名に合わせているため、
+ * Parser内部のcamelCase型とは分離して管理する。
+ */
 export type SubmissionRowInsert = {
   batch_id: string;
-  file_id: string | null;
-  partner_id: string;
 
-  source_sheet: string;
-  source_row_number: number;
-  submission_type: SubmissionType;
+  sheet_name: string;
+  row_number: number;
+  row_type: SubmissionType;
 
   customer_name: string | null;
   customer_name_kana: string | null;
   postal_code: string | null;
-  address: string | null;
+
+  address_prefecture: string | null;
+  address_city: string | null;
+  address_detail: string | null;
+  address_full: string | null;
+
   phone: string | null;
   email: string | null;
 
@@ -173,30 +201,32 @@ export type SubmissionRowInsert = {
   warranty_start_date: string | null;
 
   plan_code: SpringWaPlanCode | null;
-  manufacturer_name: string | null;
+  water_heater_type: string | null;
 
-  product_name: string | null;
+  manufacturer: string | null;
   model_number: string | null;
+  equipment_name: string | null;
   quantity: number | null;
 
-  additional_product_name: string | null;
+  additional_equipment: string | null;
   additional_model_number: string | null;
   additional_quantity: number | null;
 
-  warranty_fee_ex_tax: number | null;
-  calculated_warranty_fee_ex_tax: number | null;
-  warranty_fee_matches: boolean | null;
-
-  raw_data: RawSubmissionData;
-  normalized_data: NormalizedSubmissionData;
+  warranty_fee: number | null;
 
   row_hash: string | null;
 
   validation_status: ValidationStatus;
-  validation_issues: ValidationIssue[];
+  validation_errors: ValidationIssue[];
 
   duplicate_status: DuplicateStatus;
-  duplicate_row_id: string | null;
+  duplicate_of_row_id: string | null;
+
+  parse_status: "parsed";
+  import_status: "pending";
+
+  raw_data: RawSubmissionData;
+  normalized_data: NormalizedSubmissionData;
 };
 
 export type DuplicateComparisonRow = {
