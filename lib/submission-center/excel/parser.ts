@@ -280,7 +280,10 @@ export function parsedRowToSubmissionRowInsert(
 
     sheet_name: row.sourceSheet,
     row_number: row.sourceRowNumber,
-    row_type: row.submissionType,
+    row_type:
+  row.submissionType === "individual"
+    ? "single"
+    : "plan",
 
     customer_name: row.customerName,
     customer_name_kana: row.customerNameKana,

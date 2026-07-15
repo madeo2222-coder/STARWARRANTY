@@ -177,7 +177,7 @@ export type SubmissionRowInsert = {
 
   sheet_name: string;
   row_number: number;
-  row_type: SubmissionType;
+  row_type: "plan" | "single";
 
   customer_name: string | null;
   customer_name_kana: string | null;
