@@ -38,9 +38,26 @@ const ALLOWED_MIME_TYPES = [
   "application/octet-stream",
 ];
 
-type AdminSupabaseClient = ReturnType<
-  typeof getAdminClient
->;
+type ProcessingStage =
+  | "initial"
+  | "authentication"
+  | "form_validation"
+  | "file_hash"
+  | "duplicate_batch_check"
+  | "batch_created"
+  | "storage_uploaded"
+  | "file_record_created"
+  | "submission_events_created"
+  | "parsing_started"
+  | "comparison_rows_loaded"
+  | "parser_executed"
+  | "rows_inserting"
+  | "rows_inserted"
+  | "batch_updated"
+  | "parse_event_created"
+  | "completed";
+
+type AdminSupabaseClient = ReturnType<typeof getAdminClient>;
 
 type AuthenticatedActor = {
   supabase: AdminSupabaseClient;
@@ -123,85 +140,52 @@ type DuplicateBatchRow = {
 };
 
 function getAdminClient() {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-  const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl) {
-    throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL が設定されていません"
-    );
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL が設定されていません");
   }
 
   if (!serviceRoleKey) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY が設定されていません"
-    );
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY が設定されていません");
   }
 
-  return createClient(
-    supabaseUrl,
-    serviceRoleKey,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    }
-  );
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
-function normalizeEmail(
-  value: string | null | undefined
-) {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
+function normalizeEmail(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase();
 }
 
-function isHeadquartersAdminEmail(
-  email: string | null | undefined
-) {
-  return HEADQUARTERS_ADMIN_EMAILS.includes(
-    normalizeEmail(email)
-  );
+function isHeadquartersAdminEmail(email: string | null | undefined) {
+  return HEADQUARTERS_ADMIN_EMAILS.includes(normalizeEmail(email));
 }
 
 function getFileExtension(filename: string) {
-  const lastDotIndex =
-    filename.lastIndexOf(".");
+  const lastDotIndex = filename.lastIndexOf(".");
 
   if (lastDotIndex < 0) {
     return "";
   }
 
-  return filename
-    .slice(lastDotIndex + 1)
-    .trim()
-    .toLowerCase();
+  return filename.slice(lastDotIndex + 1).trim().toLowerCase();
 }
 
-function getSafeStorageFilename(
-  originalFilename: string
-) {
-  const extension =
-    getFileExtension(originalFilename);
-
+function getSafeStorageFilename(originalFilename: string) {
+  const extension = getFileExtension(originalFilename);
   const randomName = crypto.randomUUID();
 
-  return extension
-    ? `${randomName}.${extension}`
-    : randomName;
+  return extension ? `${randomName}.${extension}` : randomName;
 }
 
-function createFileHash(
-  fileBuffer: Uint8Array
-) {
-  return createHash("sha256")
-    .update(fileBuffer)
-    .digest("hex");
+function createFileHash(fileBuffer: Uint8Array) {
+  return createHash("sha256").update(fileBuffer).digest("hex");
 }
 
 function isUuid(value: string | null) {
@@ -214,20 +198,40 @@ function isUuid(value: string | null) {
   );
 }
 
-function normalizeTargetMonth(
-  value: FormDataEntryValue | null
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return "不明なエラーが発生しました";
+}
+
+function getErrorStack(error: unknown) {
+  return error instanceof Error ? error.stack || null : null;
+}
+
+function logStage(
+  stage: ProcessingStage,
+  values?: Record<string, unknown>
 ) {
+  console.log("[submission-batches]", {
+    stage,
+    ...values,
+  });
+}
+
+function normalizeTargetMonth(value: FormDataEntryValue | null) {
   const rawValue = String(value || "").trim();
 
   if (!/^\d{4}-\d{2}$/.test(rawValue)) {
-    throw new Error(
-      "対象月を正しく選択してください"
-    );
+    throw new Error("対象月を正しく選択してください");
   }
 
-  const [yearText, monthText] =
-    rawValue.split("-");
-
+  const [yearText, monthText] = rawValue.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
 
@@ -239,9 +243,7 @@ function normalizeTargetMonth(
     month < 1 ||
     month > 12
   ) {
-    throw new Error(
-      "対象月が正しくありません"
-    );
+    throw new Error("対象月が正しくありません");
   }
 
   return {
@@ -252,39 +254,25 @@ function normalizeTargetMonth(
 
 function validateUploadFile(file: File) {
   if (!file.name.trim()) {
-    throw new Error(
-      "ファイル名が取得できませんでした"
-    );
+    throw new Error("ファイル名が取得できませんでした");
   }
 
-  const extension =
-    getFileExtension(file.name);
+  const extension = getFileExtension(file.name);
 
   if (!ALLOWED_EXTENSIONS.includes(extension)) {
-    throw new Error(
-      "Excel（.xlsx / .xls）またはCSVを選択してください"
-    );
+    throw new Error("Excel（.xlsx / .xls）またはCSVを選択してください");
   }
 
   if (file.size <= 0) {
-    throw new Error(
-      "空のファイルは提出できません"
-    );
+    throw new Error("空のファイルは提出できません");
   }
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    throw new Error(
-      "ファイルサイズは10MB以下にしてください"
-    );
+    throw new Error("ファイルサイズは10MB以下にしてください");
   }
 
-  if (
-    file.type &&
-    !ALLOWED_MIME_TYPES.includes(file.type)
-  ) {
-    throw new Error(
-      "選択されたファイル形式には対応していません"
-    );
+  if (file.type && !ALLOWED_MIME_TYPES.includes(file.type)) {
+    throw new Error("選択されたファイル形式には対応していません");
   }
 }
 
@@ -309,17 +297,11 @@ function getPartnerFromRelation(
 async function requireAuthenticatedActor(
   request: Request
 ): Promise<AuthenticatedActor> {
-  const authHeader =
-    request.headers.get("authorization") || "";
-
-  const token = authHeader
-    .replace(/^Bearer\s+/i, "")
-    .trim();
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
   if (!token) {
-    throw new Error(
-      "ログイン情報が取得できませんでした"
-    );
+    throw new Error("ログイン情報が取得できませんでした");
   }
 
   const supabase = getAdminClient();
@@ -330,15 +312,11 @@ async function requireAuthenticatedActor(
   } = await supabase.auth.getUser(token);
 
   if (userError || !user) {
-    throw new Error(
-      "ログイン情報が取得できませんでした"
-    );
+    throw new Error("ログイン情報が取得できませんでした");
   }
 
   const email = normalizeEmail(user.email);
-
-  const isHeadquarters =
-    isHeadquartersAdminEmail(email);
+  const isHeadquarters = isHeadquartersAdminEmail(email);
 
   if (isHeadquarters) {
     return {
@@ -347,15 +325,11 @@ async function requireAuthenticatedActor(
       email,
       isHeadquarters: true,
       partnerId: null,
-      actorLabel:
-        email || "本部担当者",
+      actorLabel: email || "本部担当者",
     };
   }
 
-  const {
-    data: partnerUser,
-    error: partnerUserError,
-  } = await supabase
+  const { data: partnerUser, error: partnerUserError } = await supabase
     .from("partner_users")
     .select(
       `
@@ -374,33 +348,20 @@ async function requireAuthenticatedActor(
     .maybeSingle();
 
   if (partnerUserError) {
-    throw new Error(
-      partnerUserError.message
-    );
+    throw new Error(partnerUserError.message);
   }
 
   if (!partnerUser?.partner_id) {
-    throw new Error(
-      "提出可能な取引先アカウントに紐付いていません"
-    );
+    throw new Error("提出可能な取引先アカウントに紐付いていません");
   }
 
-  const partnerRelation =
-    partnerUser.partners;
-
-  const partner = Array.isArray(
-    partnerRelation
-  )
+  const partnerRelation = partnerUser.partners;
+  const partner = Array.isArray(partnerRelation)
     ? partnerRelation[0]
     : partnerRelation;
 
-  if (
-    !partner ||
-    partner.status !== "active"
-  ) {
-    throw new Error(
-      "この取引先アカウントは現在利用できません"
-    );
+  if (!partner || partner.status !== "active") {
+    throw new Error("この取引先アカウントは現在利用できません");
   }
 
   return {
@@ -408,49 +369,32 @@ async function requireAuthenticatedActor(
     userId: user.id,
     email,
     isHeadquarters: false,
-    partnerId:
-      partnerUser.partner_id,
-    actorLabel:
-      partner.company_name ||
-      email ||
-      "取引先担当者",
+    partnerId: partnerUser.partner_id,
+    actorLabel: partner.company_name || email || "取引先担当者",
   };
 }
 
 async function resolveSubmissionPartnerId(
   actor: AuthenticatedActor,
-  requestedPartnerId:
-    | FormDataEntryValue
-    | null
+  requestedPartnerId: FormDataEntryValue | null
 ) {
   if (!actor.isHeadquarters) {
     if (!actor.partnerId) {
-      throw new Error(
-        "所属する取引先を確認できませんでした"
-      );
+      throw new Error("所属する取引先を確認できませんでした");
     }
 
     return actor.partnerId;
   }
 
-  const partnerId = String(
-    requestedPartnerId || ""
-  ).trim();
+  const partnerId = String(requestedPartnerId || "").trim();
 
   if (!partnerId) {
-    throw new Error(
-      "提出元の代理店・施工店を選択してください"
-    );
+    throw new Error("提出元の代理店・施工店を選択してください");
   }
 
-  const {
-    data: partner,
-    error,
-  } = await actor.supabase
+  const { data: partner, error } = await actor.supabase
     .from("partners")
-    .select(
-      "id, company_name, status"
-    )
+    .select("id, company_name, status")
     .eq("id", partnerId)
     .maybeSingle();
 
@@ -459,15 +403,11 @@ async function resolveSubmissionPartnerId(
   }
 
   if (!partner) {
-    throw new Error(
-      "提出元の代理店・施工店が見つかりません"
-    );
+    throw new Error("提出元の代理店・施工店が見つかりません");
   }
 
   if (partner.status !== "active") {
-    throw new Error(
-      "選択した取引先は現在利用できません"
-    );
+    throw new Error("選択した取引先は現在利用できません");
   }
 
   return partner.id;
@@ -478,10 +418,7 @@ async function findDuplicateBatch(
   partnerId: string,
   fileHash: string
 ): Promise<DuplicateBatchRow | null> {
-  const {
-    data,
-    error,
-  } = await supabase
+  const { data, error } = await supabase
     .from("submission_batches")
     .select("id, batch_no")
     .eq("partner_id", partnerId)
@@ -504,10 +441,7 @@ async function loadDuplicateComparisonRows(
   partnerId: string,
   currentBatchId: string
 ): Promise<DuplicateComparisonRow[]> {
-  const {
-    data: batchData,
-    error: batchError,
-  } = await supabase
+  const { data: batchData, error: batchError } = await supabase
     .from("submission_batches")
     .select("id")
     .eq("partner_id", partnerId)
@@ -521,18 +455,15 @@ async function loadDuplicateComparisonRows(
     throw new Error(batchError.message);
   }
 
-  const batchIds = (
-    (batchData || []) as ExistingBatchIdRow[]
-  ).map((batch) => batch.id);
+  const batchIds = ((batchData || []) as ExistingBatchIdRow[]).map(
+    (batch) => batch.id
+  );
 
   if (batchIds.length === 0) {
     return [];
   }
 
-  const {
-    data: rowData,
-    error: rowError,
-  } = await supabase
+  const { data: rowData, error: rowError } = await supabase
     .from("submission_rows")
     .select(
       `
@@ -554,19 +485,14 @@ async function loadDuplicateComparisonRows(
     throw new Error(rowError.message);
   }
 
-  return (
-    (rowData || []) as ExistingSubmissionRow[]
-  ).map((row) => ({
+  return ((rowData || []) as ExistingSubmissionRow[]).map((row) => ({
     id: row.id,
     partnerId,
     customerName: row.customer_name,
     postalCode: row.postal_code,
     address: row.address_full,
-    warrantyStartDate:
-      row.warranty_start_date,
-    productName:
-      row.equipment_name ||
-      row.water_heater_type,
+    warrantyStartDate: row.warranty_start_date,
+    productName: row.equipment_name || row.water_heater_type,
     modelNumber: row.model_number,
     rowHash: row.row_hash,
   }));
@@ -577,17 +503,7 @@ function sanitizeSubmissionRowInserts(
 ): SubmissionRowInsert[] {
   return inserts.map((insert) => ({
     ...insert,
-
-    /*
-     * 同じExcel内の重複候補は
-     * current:0 のような一時IDになる。
-     *
-     * duplicate_of_row_idはUUIDカラムなので、
-     * 実DB行IDでない場合はnullにする。
-     */
-    duplicate_of_row_id: isUuid(
-      insert.duplicate_of_row_id
-    )
+    duplicate_of_row_id: isUuid(insert.duplicate_of_row_id)
       ? insert.duplicate_of_row_id
       : null,
   }));
@@ -602,10 +518,7 @@ function resolveBatchParseStatus(values: {
     return "warning";
   }
 
-  if (
-    values.warningCount > 0 ||
-    values.workbookWarningCount > 0
-  ) {
+  if (values.warningCount > 0 || values.workbookWarningCount > 0) {
     return "warning";
   }
 
@@ -617,10 +530,7 @@ function resolveBatchDuplicateStatus(values: {
   duplicateCount: number;
   needsReviewCount: number;
 }) {
-  if (
-    values.duplicateBatchId ||
-    values.duplicateCount > 0
-  ) {
+  if (values.duplicateBatchId || values.duplicateCount > 0) {
     return "duplicate";
   }
 
@@ -643,100 +553,99 @@ async function recordSubmissionEvent(
     note: string | null;
   }
 ) {
-  const { error } = await supabase
-    .from("submission_events")
-    .insert({
-      batch_id: values.batchId,
-      event_type: values.eventType,
-      actor_user_id:
-        values.actorUserId,
-      actor_label: values.actorLabel,
-      previous_status:
-        values.previousStatus,
-      next_status:
-        values.nextStatus,
-      note: values.note,
-    });
+  const { error } = await supabase.from("submission_events").insert({
+    batch_id: values.batchId,
+    event_type: values.eventType,
+    actor_user_id: values.actorUserId,
+    actor_label: values.actorLabel,
+    previous_status: values.previousStatus,
+    next_status: values.nextStatus,
+    note: values.note,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
 }
 
-async function markParseFailed(
+async function updateBatchParseFailure(
+  supabase: AdminSupabaseClient,
+  values: {
+    batchId: string;
+    stage: ProcessingStage;
+    errorMessage: string;
+    duplicateBatchId: string | null;
+  }
+) {
+  const fullErrorMessage = [
+    `stage=${values.stage}`,
+    values.errorMessage,
+  ].join(" / ");
+
+  const { error } = await supabase
+    .from("submission_batches")
+    .update({
+      parse_status: "failed",
+      parse_error: fullErrorMessage.slice(0, 5000),
+      parsed_at: new Date().toISOString(),
+      duplicate_status: values.duplicateBatchId
+        ? "duplicate"
+        : "unchecked",
+      duplicate_of_batch_id: values.duplicateBatchId,
+    })
+    .eq("id", values.batchId);
+
+  if (error) {
+    console.error("[submission-batches] parse failure update failed", {
+      batchId: values.batchId,
+      stage: values.stage,
+      error: error.message,
+    });
+  }
+}
+
+async function tryRecordParseFailedEvent(
   supabase: AdminSupabaseClient,
   values: {
     batchId: string;
     actorUserId: string;
     actorLabel: string;
+    stage: ProcessingStage;
     errorMessage: string;
-    duplicateBatchId: string | null;
   }
-) {
-  const duplicateStatus =
-    values.duplicateBatchId
-      ? "duplicate"
-      : "unchecked";
-
-  const {
-    error: updateError,
-  } = await supabase
-    .from("submission_batches")
-    .update({
-      parse_status: "failed",
-      parse_error:
-        values.errorMessage.slice(0, 5000),
-      parsed_at:
-        new Date().toISOString(),
-      duplicate_status:
-        duplicateStatus,
-      duplicate_of_batch_id:
-        values.duplicateBatchId,
-    })
-    .eq("id", values.batchId);
-
-  if (updateError) {
-    throw new Error(updateError.message);
-  }
-
-  await recordSubmissionEvent(
-    supabase,
-    {
-      batchId: values.batchId,
-      eventType: "parse_failed",
-      actorUserId:
-        values.actorUserId,
-      actorLabel:
-        values.actorLabel,
-      previousStatus: "submitted",
-      nextStatus: "submitted",
-      note: values.errorMessage.slice(
-        0,
-        2000
-      ),
-    }
-  );
-}
-
-export async function GET(
-  request: Request
 ) {
   try {
-    const actor =
-      await requireAuthenticatedActor(
-        request
-      );
+    await recordSubmissionEvent(supabase, {
+      batchId: values.batchId,
+      eventType: "parse_failed",
+      actorUserId: values.actorUserId,
+      actorLabel: values.actorLabel,
+      previousStatus: "submitted",
+      nextStatus: "submitted",
+      note: [
+        `stage=${values.stage}`,
+        values.errorMessage,
+      ]
+        .join(" / ")
+        .slice(0, 2000),
+    });
+  } catch (eventError) {
+    console.error("[submission-batches] parse_failed event error", {
+      batchId: values.batchId,
+      stage: values.stage,
+      error: getErrorMessage(eventError),
+    });
+  }
+}
 
+export async function GET(request: Request) {
+  try {
+    const actor = await requireAuthenticatedActor(request);
     const url = new URL(request.url);
 
-    const status = String(
-      url.searchParams.get("status") || ""
-    ).trim();
-
+    const status = String(url.searchParams.get("status") || "").trim();
     const targetMonth = String(
-      url.searchParams.get(
-        "target_month"
-      ) || ""
+      url.searchParams.get("target_month") || ""
     ).trim();
 
     let query = actor.supabase
@@ -787,106 +696,62 @@ export async function GET(
 
     if (!actor.isHeadquarters) {
       if (!actor.partnerId) {
-        throw new Error(
-          "所属する取引先を確認できませんでした"
-        );
+        throw new Error("所属する取引先を確認できませんでした");
       }
 
-      query = query.eq(
-        "partner_id",
-        actor.partnerId
-      );
+      query = query.eq("partner_id", actor.partnerId);
     }
 
     if (status) {
-      query = query.eq(
-        "status",
-        status
-      );
+      query = query.eq("status", status);
     }
 
     if (targetMonth) {
-      const normalized =
-        normalizeTargetMonth(targetMonth);
+      const normalized = normalizeTargetMonth(targetMonth);
 
-      query = query.eq(
-        "target_month",
-        normalized.databaseDate
-      );
+      query = query.eq("target_month", normalized.databaseDate);
     }
 
-    const {
-      data,
-      error,
-    } = await query;
+    const { data, error } = await query;
 
     if (error) {
       throw new Error(error.message);
     }
 
-    const batches = (
-      (data || []) as SubmissionBatchRow[]
-    ).map((batch) => {
-      const partner =
-        getPartnerFromRelation(
-          batch.partners
-        );
+    const batches = ((data || []) as SubmissionBatchRow[]).map((batch) => {
+      const partner = getPartnerFromRelation(batch.partners);
 
       return {
         id: batch.id,
         batch_no: batch.batch_no,
         partner_id: batch.partner_id,
-        partner_name:
-          partner?.company_name ||
-          "取引先未設定",
-        partner_type:
-          partner?.partner_type || null,
-        target_month:
-          batch.target_month,
-        source_type:
-          batch.source_type,
+        partner_name: partner?.company_name || "取引先未設定",
+        partner_type: partner?.partner_type || null,
+        target_month: batch.target_month,
+        source_type: batch.source_type,
         status: batch.status,
-        total_count:
-          batch.total_count,
-        success_count:
-          batch.success_count,
-        error_count:
-          batch.error_count,
-        submitted_at:
-          batch.submitted_at,
-        reviewed_at:
-          batch.reviewed_at,
-        review_note:
-          batch.review_note,
-        revision_no:
-          batch.revision_no,
+        total_count: batch.total_count,
+        success_count: batch.success_count,
+        error_count: batch.error_count,
+        submitted_at: batch.submitted_at,
+        reviewed_at: batch.reviewed_at,
+        review_note: batch.review_note,
+        revision_no: batch.revision_no,
 
-        file_hash:
-          batch.file_hash || null,
-        parse_status:
-          batch.parse_status ||
-          "pending",
-        duplicate_status:
-          batch.duplicate_status ||
-          "unchecked",
-        parsed_at:
-          batch.parsed_at || null,
-        parse_error:
-          batch.parse_error || null,
-        duplicate_of_batch_id:
-          batch.duplicate_of_batch_id ||
-          null,
+        file_hash: batch.file_hash || null,
+        parse_status: batch.parse_status || "pending",
+        duplicate_status: batch.duplicate_status || "unchecked",
+        parsed_at: batch.parsed_at || null,
+        parse_error: batch.parse_error || null,
+        duplicate_of_batch_id: batch.duplicate_of_batch_id || null,
 
-        files:
-          batch.submission_batch_files ||
-          [],
+        files: batch.submission_batch_files || [],
       };
     });
 
     return NextResponse.json({
       success: true,
-      is_headquarters:
-        actor.isHeadquarters,
+      is_headquarters: actor.isHeadquarters,
       batches,
     });
   } catch (error) {
@@ -903,50 +768,50 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: Request
-) {
+export async function POST(request: Request) {
+  let stage: ProcessingStage = "initial";
+
+  let actor: AuthenticatedActor | null = null;
   let createdBatchId = "";
   let uploadedStoragePath = "";
+  let fileRecordCreated = false;
+  let duplicateBatchId: string | null = null;
 
   try {
-    const actor =
-      await requireAuthenticatedActor(
-        request
-      );
+    stage = "authentication";
+    logStage(stage);
 
-    const formData =
-      await request.formData();
+    actor = await requireAuthenticatedActor(request);
 
-    const fileEntry =
-      formData.get("file");
+    stage = "form_validation";
+    logStage(stage, {
+      actorUserId: actor.userId,
+      actorEmail: actor.email,
+    });
+
+    const formData = await request.formData();
+    const fileEntry = formData.get("file");
 
     if (!(fileEntry instanceof File)) {
-      throw new Error(
-        "提出するExcelまたはCSVを選択してください"
-      );
+      throw new Error("提出するExcelまたはCSVを選択してください");
     }
 
     validateUploadFile(fileEntry);
 
-    const targetMonth =
-      normalizeTargetMonth(
-        formData.get("target_month")
-      );
+    const targetMonth = normalizeTargetMonth(
+      formData.get("target_month")
+    );
 
-    const partnerId =
-      await resolveSubmissionPartnerId(
-        actor,
-        formData.get("partner_id")
-      );
+    const partnerId = await resolveSubmissionPartnerId(
+      actor,
+      formData.get("partner_id")
+    );
 
-    const sourceType =
-      actor.isHeadquarters
-        ? String(
-            formData.get("source_type") ||
-              "headquarters_proxy"
-          ).trim()
-        : "partner_portal";
+    const sourceType = actor.isHeadquarters
+      ? String(
+          formData.get("source_type") || "headquarters_proxy"
+        ).trim()
+      : "partner_portal";
 
     const allowedSourceTypes = [
       "partner_portal",
@@ -954,92 +819,90 @@ export async function POST(
       "email_migration",
     ];
 
-    if (
-      !allowedSourceTypes.includes(
-        sourceType
-      )
-    ) {
-      throw new Error(
-        "提出方法が正しくありません"
-      );
+    if (!allowedSourceTypes.includes(sourceType)) {
+      throw new Error("提出方法が正しくありません");
     }
 
     const reviewNote =
-      String(
-        formData.get("note") || ""
-      )
-        .trim()
-        .slice(0, 2000) || null;
+      String(formData.get("note") || "").trim().slice(0, 2000) || null;
 
     const fileBuffer = new Uint8Array(
       await fileEntry.arrayBuffer()
     );
 
-    const fileHash =
-      createFileHash(fileBuffer);
+    stage = "file_hash";
 
-    const duplicateBatch =
-      await findDuplicateBatch(
-        actor.supabase,
-        partnerId,
-        fileHash
-      );
+    const fileHash = createFileHash(fileBuffer);
 
-    const {
-      data: createdBatch,
-      error: batchError,
-    } = await actor.supabase
-      .from("submission_batches")
-      .insert({
-        partner_id: partnerId,
-        target_month:
-          targetMonth.databaseDate,
-        source_type: sourceType,
-        status: "submitted",
-        submitted_by:
-          actor.userId,
-        review_note: reviewNote,
+    logStage(stage, {
+      partnerId,
+      filename: fileEntry.name,
+      size: fileEntry.size,
+      fileHash,
+    });
 
-        file_hash: fileHash,
-        parse_status: "pending",
-        duplicate_status:
-          duplicateBatch
+    stage = "duplicate_batch_check";
+
+    const duplicateBatch = await findDuplicateBatch(
+      actor.supabase,
+      partnerId,
+      fileHash
+    );
+
+    duplicateBatchId = duplicateBatch?.id || null;
+
+    logStage(stage, {
+      duplicateBatchId,
+      duplicateBatchNo: duplicateBatch?.batch_no || null,
+    });
+
+    const { data: createdBatch, error: batchError } =
+      await actor.supabase
+        .from("submission_batches")
+        .insert({
+          partner_id: partnerId,
+          target_month: targetMonth.databaseDate,
+          source_type: sourceType,
+          status: "submitted",
+          submitted_by: actor.userId,
+          review_note: reviewNote,
+
+          file_hash: fileHash,
+          parse_status: "pending",
+          duplicate_status: duplicateBatch
             ? "duplicate"
             : "unchecked",
-        duplicate_of_batch_id:
-          duplicateBatch?.id || null,
-      })
-      .select(
-        `
-          id,
-          batch_no,
-          partner_id,
-          target_month,
-          source_type,
-          status,
-          submitted_at,
-          revision_no
-        `
-      )
-      .single();
+          duplicate_of_batch_id: duplicateBatchId,
+        })
+        .select(
+          `
+            id,
+            batch_no,
+            partner_id,
+            target_month,
+            source_type,
+            status,
+            submitted_at,
+            revision_no
+          `
+        )
+        .single();
 
-    if (
-      batchError ||
-      !createdBatch
-    ) {
+    if (batchError || !createdBatch) {
       throw new Error(
-        batchError?.message ||
-          "提出受付の作成に失敗しました"
+        batchError?.message || "提出受付の作成に失敗しました"
       );
     }
 
-    createdBatchId =
-      createdBatch.id;
+    createdBatchId = createdBatch.id;
+    stage = "batch_created";
 
-    const storageFilename =
-      getSafeStorageFilename(
-        fileEntry.name
-      );
+    logStage(stage, {
+      batchId: createdBatch.id,
+      batchNo: createdBatch.batch_no,
+    });
+
+    const storageFilename = getSafeStorageFilename(fileEntry.name);
 
     uploadedStoragePath = [
       partnerId,
@@ -1048,149 +911,125 @@ export async function POST(
       storageFilename,
     ].join("/");
 
-    const {
-      error: uploadError,
-    } = await actor.supabase.storage
+    const { error: uploadError } = await actor.supabase.storage
       .from(BUCKET_NAME)
-      .upload(
-        uploadedStoragePath,
-        fileBuffer,
-        {
-          contentType:
-            fileEntry.type ||
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          upsert: false,
-        }
-      );
+      .upload(uploadedStoragePath, fileBuffer, {
+        contentType:
+          fileEntry.type ||
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        upsert: false,
+      });
 
     if (uploadError) {
-      throw new Error(
-        uploadError.message
-      );
+      throw new Error(uploadError.message);
     }
 
-    const {
-      data: createdFile,
-      error: fileInsertError,
-    } = await actor.supabase
-      .from(
-        "submission_batch_files"
-      )
-      .insert({
-        batch_id:
-          createdBatch.id,
-        original_filename:
-          fileEntry.name,
-        storage_path:
-          uploadedStoragePath,
-        content_type:
-          fileEntry.type || null,
-        size_bytes:
-          fileEntry.size,
-        uploaded_by:
-          actor.userId,
-      })
-      .select(
-        `
-          id,
-          original_filename,
-          content_type,
-          size_bytes,
-          uploaded_at
-        `
-      )
-      .single();
+    stage = "storage_uploaded";
 
-    if (
-      fileInsertError ||
-      !createdFile
-    ) {
+    logStage(stage, {
+      batchId: createdBatch.id,
+      storagePath: uploadedStoragePath,
+    });
+
+    const { data: createdFile, error: fileInsertError } =
+      await actor.supabase
+        .from("submission_batch_files")
+        .insert({
+          batch_id: createdBatch.id,
+          original_filename: fileEntry.name,
+          storage_path: uploadedStoragePath,
+          content_type: fileEntry.type || null,
+          size_bytes: fileEntry.size,
+          uploaded_by: actor.userId,
+        })
+        .select(
+          `
+            id,
+            original_filename,
+            content_type,
+            size_bytes,
+            uploaded_at
+          `
+        )
+        .single();
+
+    if (fileInsertError || !createdFile) {
       throw new Error(
         fileInsertError?.message ||
           "提出ファイル情報の保存に失敗しました"
       );
     }
 
-    await recordSubmissionEvent(
-      actor.supabase,
-      {
-        batchId:
-          createdBatch.id,
-        eventType: "submitted",
-        actorUserId:
-          actor.userId,
-        actorLabel:
-          actor.actorLabel,
-        previousStatus: null,
-        nextStatus: "submitted",
-        note: reviewNote,
-      }
-    );
+    fileRecordCreated = true;
+    stage = "file_record_created";
 
-    await recordSubmissionEvent(
-      actor.supabase,
-      {
-        batchId:
-          createdBatch.id,
-        eventType:
-          "file_uploaded",
-        actorUserId:
-          actor.userId,
-        actorLabel:
-          actor.actorLabel,
-        previousStatus:
-          "submitted",
-        nextStatus: "submitted",
-        note: fileEntry.name,
-      }
-    );
+    logStage(stage, {
+      batchId: createdBatch.id,
+      fileId: createdFile.id,
+    });
 
-    const extension =
-      getFileExtension(fileEntry.name);
+    await recordSubmissionEvent(actor.supabase, {
+      batchId: createdBatch.id,
+      eventType: "submitted",
+      actorUserId: actor.userId,
+      actorLabel: actor.actorLabel,
+      previousStatus: null,
+      nextStatus: "submitted",
+      note: reviewNote,
+    });
 
-    /*
-     * v1は.xlsxのみ解析する。
-     * .xlsと.csvは従来どおり受付・保存し、
-     * 解析未対応として本部確認へ残す。
-     */
+    await recordSubmissionEvent(actor.supabase, {
+      batchId: createdBatch.id,
+      eventType: "file_uploaded",
+      actorUserId: actor.userId,
+      actorLabel: actor.actorLabel,
+      previousStatus: "submitted",
+      nextStatus: "submitted",
+      note: fileEntry.name,
+    });
+
+    stage = "submission_events_created";
+
+    logStage(stage, {
+      batchId: createdBatch.id,
+    });
+
+    const extension = getFileExtension(fileEntry.name);
+
     if (extension !== "xlsx") {
       const errorMessage =
         "Excel Parser Engine v1は.xlsx形式のみ解析できます";
 
-      await markParseFailed(
-        actor.supabase,
-        {
-          batchId:
-            createdBatch.id,
-          actorUserId:
-            actor.userId,
-          actorLabel:
-            actor.actorLabel,
-          errorMessage,
-          duplicateBatchId:
-            duplicateBatch?.id ||
-            null,
-        }
-      );
+      await updateBatchParseFailure(actor.supabase, {
+        batchId: createdBatch.id,
+        stage,
+        errorMessage,
+        duplicateBatchId,
+      });
+
+      await tryRecordParseFailedEvent(actor.supabase, {
+        batchId: createdBatch.id,
+        actorUserId: actor.userId,
+        actorLabel: actor.actorLabel,
+        stage,
+        errorMessage,
+      });
 
       return NextResponse.json(
         {
           success: true,
           message:
             "加入データを受け付けました。ファイルは本部確認が必要です。",
+          stage,
           batch: {
             ...createdBatch,
             file: createdFile,
             parse_status: "failed",
-            duplicate_status:
-              duplicateBatch
-                ? "duplicate"
-                : "unchecked",
-            duplicate_of_batch_id:
-              duplicateBatch?.id ||
-              null,
-            parse_error:
-              errorMessage,
+            duplicate_status: duplicateBatch
+              ? "duplicate"
+              : "unchecked",
+            duplicate_of_batch_id: duplicateBatchId,
+            parse_error: errorMessage,
           },
           parse: {
             success: false,
@@ -1201,9 +1040,7 @@ export async function POST(
       );
     }
 
-    const {
-      error: parsingUpdateError,
-    } = await actor.supabase
+    const { error: parsingUpdateError } = await actor.supabase
       .from("submission_batches")
       .update({
         parse_status: "parsing",
@@ -1212,95 +1049,100 @@ export async function POST(
       .eq("id", createdBatch.id);
 
     if (parsingUpdateError) {
-      throw new Error(
-        parsingUpdateError.message
-      );
+      throw new Error(parsingUpdateError.message);
     }
 
-    await recordSubmissionEvent(
+    await recordSubmissionEvent(actor.supabase, {
+      batchId: createdBatch.id,
+      eventType: "parsing_started",
+      actorUserId: actor.userId,
+      actorLabel: actor.actorLabel,
+      previousStatus: "submitted",
+      nextStatus: "submitted",
+      note: fileEntry.name,
+    });
+
+    stage = "parsing_started";
+
+    logStage(stage, {
+      batchId: createdBatch.id,
+      filename: fileEntry.name,
+    });
+
+    const comparisonRows = await loadDuplicateComparisonRows(
       actor.supabase,
+      partnerId,
+      createdBatch.id
+    );
+
+    stage = "comparison_rows_loaded";
+
+    logStage(stage, {
+      batchId: createdBatch.id,
+      comparisonRowCount: comparisonRows.length,
+    });
+
+    const parseResult = parseSubmissionExcel(
+      fileBuffer,
       {
-        batchId:
-          createdBatch.id,
-        eventType:
-          "parsing_started",
-        actorUserId:
-          actor.userId,
-        actorLabel:
-          actor.actorLabel,
-        previousStatus:
-          "submitted",
-        nextStatus: "submitted",
-        note: fileEntry.name,
+        batchId: createdBatch.id,
+        fileId: createdFile.id,
+        partnerId,
+        targetMonth: targetMonth.databaseDate,
+        originalFilename: fileEntry.name,
+      },
+      {
+        comparisonRows,
       }
     );
 
-    const comparisonRows =
-      await loadDuplicateComparisonRows(
-        actor.supabase,
-        partnerId,
-        createdBatch.id
-      );
+    stage = "parser_executed";
 
-    const parseResult =
-      parseSubmissionExcel(
-        fileBuffer,
-        {
-          batchId:
-            createdBatch.id,
-          fileId: createdFile.id,
-          partnerId,
-          targetMonth:
-            targetMonth.databaseDate,
-          originalFilename:
-            fileEntry.name,
-        },
-        {
-          comparisonRows,
-        }
-      );
+    logStage(stage, {
+      batchId: createdBatch.id,
+      success: parseResult.success,
+      format: parseResult.format,
+      detection: parseResult.detection,
+      summary: parseResult.summary,
+      workbookWarnings: parseResult.workbookWarnings,
+      fatalErrors: parseResult.fatalErrors,
+    });
 
     if (!parseResult.success) {
       const errorMessage =
-        parseResult.fatalErrors.join(
-          " / "
-        ) ||
+        parseResult.fatalErrors.join(" / ") ||
         "Excelの解析に失敗しました";
 
-      await markParseFailed(
-        actor.supabase,
-        {
-          batchId:
-            createdBatch.id,
-          actorUserId:
-            actor.userId,
-          actorLabel:
-            actor.actorLabel,
-          errorMessage,
-          duplicateBatchId:
-            duplicateBatch?.id ||
-            null,
-        }
-      );
+      await updateBatchParseFailure(actor.supabase, {
+        batchId: createdBatch.id,
+        stage,
+        errorMessage,
+        duplicateBatchId,
+      });
+
+      await tryRecordParseFailedEvent(actor.supabase, {
+        batchId: createdBatch.id,
+        actorUserId: actor.userId,
+        actorLabel: actor.actorLabel,
+        stage,
+        errorMessage,
+      });
 
       return NextResponse.json(
         {
           success: true,
           message:
             "加入データを受け付けました。Excel解析は本部確認が必要です。",
+          stage,
           batch: {
             ...createdBatch,
             file: createdFile,
             parse_status: "failed",
-            duplicate_status:
-              duplicateBatch
-                ? "duplicate"
-                : "unchecked",
-            duplicate_of_batch_id:
-              duplicateBatch?.id ||
-              null,
-            parse_error:
-              errorMessage,
+            duplicate_status: duplicateBatch
+              ? "duplicate"
+              : "unchecked",
+            duplicate_of_batch_id: duplicateBatchId,
+            parse_error: errorMessage,
           },
           parse: parseResult,
         },
@@ -1308,79 +1150,81 @@ export async function POST(
       );
     }
 
-    const rowInserts =
-      sanitizeSubmissionRowInserts(
-        parsedRowsToSubmissionRowInserts(
-          parseResult.rows
-        )
-      );
+    const rowInserts = sanitizeSubmissionRowInserts(
+      parsedRowsToSubmissionRowInserts(parseResult.rows)
+    );
+
+    stage = "rows_inserting";
+
+    logStage(stage, {
+      batchId: createdBatch.id,
+      rowCount: rowInserts.length,
+      firstRow:
+        rowInserts.length > 0
+          ? {
+              sheet_name: rowInserts[0].sheet_name,
+              row_number: rowInserts[0].row_number,
+              row_type: rowInserts[0].row_type,
+              customer_name: rowInserts[0].customer_name,
+              plan_code: rowInserts[0].plan_code,
+              water_heater_type: rowInserts[0].water_heater_type,
+              equipment_name: rowInserts[0].equipment_name,
+              warranty_fee: rowInserts[0].warranty_fee,
+              validation_status: rowInserts[0].validation_status,
+              duplicate_status: rowInserts[0].duplicate_status,
+            }
+          : null,
+    });
 
     if (rowInserts.length > 0) {
-      const {
-        error: rowInsertError,
-      } = await actor.supabase
+      const { error: rowInsertError } = await actor.supabase
         .from("submission_rows")
         .insert(rowInserts);
 
       if (rowInsertError) {
         throw new Error(
-          rowInsertError.message
+          `submission_rows INSERT failed: ${rowInsertError.message}`
         );
       }
     }
 
-    const batchParseStatus =
-      resolveBatchParseStatus({
-        errorCount:
-          parseResult.summary.errorCount,
-        warningCount:
-          parseResult.summary
-            .warningCount,
-        workbookWarningCount:
-          parseResult.workbookWarnings
-            .length,
-      });
+    stage = "rows_inserted";
 
-    const batchDuplicateStatus =
-      resolveBatchDuplicateStatus({
-        duplicateBatchId:
-          duplicateBatch?.id || null,
-        duplicateCount:
-          parseResult.summary
-            .duplicateCount,
-        needsReviewCount:
-          parseResult.summary
-            .needsReviewCount,
-      });
+    logStage(stage, {
+      batchId: createdBatch.id,
+      insertedRowCount: rowInserts.length,
+    });
 
-    const successCount =
-      Math.max(
-        parseResult.summary.totalCount -
-          parseResult.summary.errorCount,
-        0
-      );
+    const batchParseStatus = resolveBatchParseStatus({
+      errorCount: parseResult.summary.errorCount,
+      warningCount: parseResult.summary.warningCount,
+      workbookWarningCount: parseResult.workbookWarnings.length,
+    });
 
-    const parsedAt =
-      new Date().toISOString();
+    const batchDuplicateStatus = resolveBatchDuplicateStatus({
+      duplicateBatchId,
+      duplicateCount: parseResult.summary.duplicateCount,
+      needsReviewCount: parseResult.summary.needsReviewCount,
+    });
 
-    const {
-      error: batchUpdateError,
-    } = await actor.supabase
+    const successCount = Math.max(
+      parseResult.summary.totalCount -
+        parseResult.summary.errorCount,
+      0
+    );
+
+    const parsedAt = new Date().toISOString();
+
+    const { error: batchUpdateError } = await actor.supabase
       .from("submission_batches")
       .update({
-        total_count:
-          parseResult.summary.totalCount,
-        success_count:
-          successCount,
-        error_count:
-          parseResult.summary.errorCount,
+        total_count: parseResult.summary.totalCount,
+        success_count: successCount,
+        error_count: parseResult.summary.errorCount,
 
-        parse_status:
-          batchParseStatus,
-        duplicate_status:
-          batchDuplicateStatus,
-        duplicate_of_batch_id:
-          duplicateBatch?.id || null,
+        parse_status: batchParseStatus,
+        duplicate_status: batchDuplicateStatus,
+        duplicate_of_batch_id: duplicateBatchId,
 
         parsed_at: parsedAt,
         parse_error: null,
@@ -1389,48 +1233,54 @@ export async function POST(
 
     if (batchUpdateError) {
       throw new Error(
-        batchUpdateError.message
+        `submission_batches UPDATE failed: ${batchUpdateError.message}`
       );
     }
 
-    const parseEventNote =
-      JSON.stringify({
-        format:
-          parseResult.format,
-        total_count:
-          parseResult.summary.totalCount,
-        valid_count:
-          parseResult.summary.validCount,
-        warning_count:
-          parseResult.summary.warningCount,
-        error_count:
-          parseResult.summary.errorCount,
-        duplicate_count:
-          parseResult.summary
-            .duplicateCount,
-        needs_review_count:
-          parseResult.summary
-            .needsReviewCount,
-        workbook_warnings:
-          parseResult.workbookWarnings,
-      }).slice(0, 2000);
+    stage = "batch_updated";
 
-    await recordSubmissionEvent(
-      actor.supabase,
-      {
-        batchId:
-          createdBatch.id,
-        eventType: "parsed",
-        actorUserId:
-          actor.userId,
-        actorLabel:
-          actor.actorLabel,
-        previousStatus:
-          "submitted",
-        nextStatus: "submitted",
-        note: parseEventNote,
-      }
-    );
+    logStage(stage, {
+      batchId: createdBatch.id,
+      parseStatus: batchParseStatus,
+      duplicateStatus: batchDuplicateStatus,
+      totalCount: parseResult.summary.totalCount,
+      successCount,
+      errorCount: parseResult.summary.errorCount,
+    });
+
+    const parseEventNote = JSON.stringify({
+      format: parseResult.format,
+      total_count: parseResult.summary.totalCount,
+      valid_count: parseResult.summary.validCount,
+      warning_count: parseResult.summary.warningCount,
+      error_count: parseResult.summary.errorCount,
+      duplicate_count: parseResult.summary.duplicateCount,
+      needs_review_count: parseResult.summary.needsReviewCount,
+      workbook_warnings: parseResult.workbookWarnings,
+    }).slice(0, 2000);
+
+    await recordSubmissionEvent(actor.supabase, {
+      batchId: createdBatch.id,
+      eventType: "parsed",
+      actorUserId: actor.userId,
+      actorLabel: actor.actorLabel,
+      previousStatus: "submitted",
+      nextStatus: "submitted",
+      note: parseEventNote,
+    });
+
+    stage = "parse_event_created";
+
+    logStage(stage, {
+      batchId: createdBatch.id,
+    });
+
+    stage = "completed";
+
+    logStage(stage, {
+      batchId: createdBatch.id,
+      batchNo: createdBatch.batch_no,
+    });
 
     return NextResponse.json(
       {
@@ -1439,75 +1289,129 @@ export async function POST(
           batchParseStatus === "parsed"
             ? "加入データを受け付け、Excel解析が完了しました"
             : "加入データを受け付けました。確認が必要な項目があります。",
+        stage,
         batch: {
           ...createdBatch,
           file: createdFile,
 
           file_hash: fileHash,
-          parse_status:
-            batchParseStatus,
-          duplicate_status:
-            batchDuplicateStatus,
-          duplicate_of_batch_id:
-            duplicateBatch?.id || null,
+          parse_status: batchParseStatus,
+          duplicate_status: batchDuplicateStatus,
+          duplicate_of_batch_id: duplicateBatchId,
 
-          total_count:
-            parseResult.summary.totalCount,
-          success_count:
-            successCount,
-          error_count:
-            parseResult.summary.errorCount,
+          total_count: parseResult.summary.totalCount,
+          success_count: successCount,
+          error_count: parseResult.summary.errorCount,
           parsed_at: parsedAt,
         },
         parse: {
           success: true,
-          format:
-            parseResult.format,
-          target_month:
-            parseResult.targetMonth,
-          summary:
-            parseResult.summary,
-          workbook_warnings:
-            parseResult.workbookWarnings,
-          detection:
-            parseResult.detection,
+          format: parseResult.format,
+          target_month: parseResult.targetMonth,
+          summary: parseResult.summary,
+          workbook_warnings: parseResult.workbookWarnings,
+          detection: parseResult.detection,
         },
       },
       { status: 201 }
     );
   } catch (error) {
-    const supabase =
-      getAdminClient();
+    const errorMessage = getErrorMessage(error);
+    const errorStack = getErrorStack(error);
 
+    console.error("[submission-batches] POST failed", {
+      stage,
+      createdBatchId: createdBatchId || null,
+      uploadedStoragePath: uploadedStoragePath || null,
+      fileRecordCreated,
+      duplicateBatchId,
+      errorMessage,
+      errorStack,
+      rawError: error,
+    });
+
+    const supabase = actor?.supabase || getAdminClient();
+
+    /*
+     * Storage保存後は、受領した元ファイルを消さない。
+     * ParserやDB保存の失敗は、本部確認用として受付を保持する。
+     */
+    if (createdBatchId && uploadedStoragePath && fileRecordCreated) {
+      await updateBatchParseFailure(supabase, {
+        batchId: createdBatchId,
+        stage,
+        errorMessage,
+        duplicateBatchId,
+      });
+
+      if (actor) {
+        await tryRecordParseFailedEvent(supabase, {
+          batchId: createdBatchId,
+          actorUserId: actor.userId,
+          actorLabel: actor.actorLabel,
+          stage,
+          errorMessage,
+        });
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          message:
+            "加入データは受け付けましたが、Excel解析でエラーが発生しました。本部確認が必要です。",
+          stage,
+          batch: {
+            id: createdBatchId,
+            parse_status: "failed",
+            parse_error: `stage=${stage} / ${errorMessage}`,
+            duplicate_status: duplicateBatchId
+              ? "duplicate"
+              : "unchecked",
+            duplicate_of_batch_id: duplicateBatchId,
+          },
+          debug: {
+            stage,
+            error: errorMessage,
+          },
+        },
+        { status: 201 }
+      );
+    }
+
+    /*
+     * ファイル情報がDBへ保存される前の失敗だけロールバックする。
+     */
     if (uploadedStoragePath) {
-      const {
-        error: removeError,
-      } = await supabase.storage
+      const { error: removeError } = await supabase.storage
         .from(BUCKET_NAME)
-        .remove([
-          uploadedStoragePath,
-        ]);
+        .remove([uploadedStoragePath]);
 
       if (removeError) {
         console.error(
-          "submission_center rollback storage error:",
-          removeError
+          "[submission-batches] rollback storage failed",
+          {
+            stage,
+            storagePath: uploadedStoragePath,
+            error: removeError.message,
+          }
         );
       }
     }
 
     if (createdBatchId) {
-      const {
-        error: deleteError,
-      } = await supabase
+      const { error: deleteError } = await supabase
         .from("submission_batches")
         .delete()
         .eq("id", createdBatchId);
 
       if (deleteError) {
         console.error(
-          "submission_center rollback batch error:",
-          deleteError
+          "[submission-batches] rollback batch failed",
+          {
+            stage,
+            batchId: createdBatchId,
+            error: deleteError.message,
+          }
         );
       }
     }
@@ -1515,10 +1419,8 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "加入データの提出に失敗しました",
+        stage,
+        error: errorMessage,
       },
       { status: 400 }
     );
