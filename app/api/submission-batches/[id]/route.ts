@@ -14,6 +14,39 @@ const HEADQUARTERS_ADMIN_EMAILS = [
   "t.hiraga@st-w.jp",
 ];
 
+type WorkflowStatus =
+  | "submitted"
+  | "reviewing"
+  | "returned"
+  | "approved"
+  | "processing"
+  | "warranty_created"
+  | "printed"
+  | "mailed"
+  | "completed";
+
+const workflowTransitions: Record<
+  WorkflowStatus,
+  readonly WorkflowStatus[]
+> = {
+  submitted: ["reviewing"],
+  reviewing: ["approved", "returned"],
+  returned: ["reviewing"],
+  approved: ["processing"],
+  processing: ["warranty_created"],
+  warranty_created: ["printed"],
+  printed: ["mailed"],
+  mailed: ["completed"],
+  completed: [],
+};
+
+function isWorkflowStatus(value: unknown): value is WorkflowStatus {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(workflowTransitions, value)
+  );
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -62,6 +95,8 @@ async function requireAuthenticatedActor(request: Request) {
   if (HEADQUARTERS_ADMIN_EMAILS.includes(email)) {
     return {
       supabase,
+      userId: user.id,
+      actorLabel: email || "本部担当者",
       isHeadquarters: true,
       partnerId: null,
     };
@@ -75,6 +110,7 @@ async function requireAuthenticatedActor(request: Request) {
         is_active,
         partners (
           id,
+          company_name,
           status
         )
       `
@@ -98,6 +134,8 @@ async function requireAuthenticatedActor(request: Request) {
 
   return {
     supabase,
+    userId: user.id,
+    actorLabel: partner.company_name || email || "提出元担当者",
     isHeadquarters: false,
     partnerId: partnerUser.partner_id,
   };
@@ -296,6 +334,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
+      can_update: actor.isHeadquarters,
       batch: {
         id: batch.id,
         batch_no: batch.batch_no,
@@ -330,6 +369,163 @@ export async function GET(
           error instanceof Error
             ? error.message
             : "受付詳細の取得に失敗しました",
+      },
+      { status: 403 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const actor = await requireAuthenticatedActor(request);
+
+    if (!actor.isHeadquarters) {
+      return NextResponse.json(
+        { success: false, error: "本部担当者のみ状態を更新できます" },
+        { status: 403 }
+      );
+    }
+
+    const { id } = await params;
+    const batchId = id.trim();
+
+    if (!batchId) {
+      return NextResponse.json(
+        { success: false, error: "受付IDがありません" },
+        { status: 400 }
+      );
+    }
+
+    const body = (await request.json()) as {
+      status?: unknown;
+      note?: unknown;
+    };
+    const nextStatus = body.status;
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+
+    if (!isWorkflowStatus(nextStatus)) {
+      return NextResponse.json(
+        { success: false, error: "指定された状態は利用できません" },
+        { status: 400 }
+      );
+    }
+
+    if (nextStatus === "returned" && !note) {
+      return NextResponse.json(
+        { success: false, error: "差戻し理由を入力してください" },
+        { status: 400 }
+      );
+    }
+
+    const { data: currentBatch, error: currentBatchError } =
+      await actor.supabase
+        .from("submission_batches")
+        .select("id, status")
+        .eq("id", batchId)
+        .maybeSingle();
+
+    if (currentBatchError) {
+      return NextResponse.json(
+        { success: false, error: currentBatchError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!currentBatch) {
+      return NextResponse.json(
+        { success: false, error: "受付情報が見つかりません" },
+        { status: 404 }
+      );
+    }
+
+    if (!isWorkflowStatus(currentBatch.status)) {
+      return NextResponse.json(
+        { success: false, error: "現在の状態を処理できません" },
+        { status: 400 }
+      );
+    }
+
+    const previousStatus = currentBatch.status;
+    const allowedNextStatuses = workflowTransitions[previousStatus];
+
+    if (!allowedNextStatuses.includes(nextStatus)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `${previousStatus} から ${nextStatus} へは変更できません`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date().toISOString();
+    const { data: updatedBatch, error: updateError } = await actor.supabase
+      .from("submission_batches")
+      .update({
+        status: nextStatus,
+        reviewed_by: actor.userId,
+        reviewed_at: now,
+        review_note: note || null,
+        updated_at: now,
+      })
+      .eq("id", batchId)
+      .eq("status", previousStatus)
+      .select(
+        "id, batch_no, status, reviewed_by, reviewed_at, review_note, updated_at"
+      )
+      .maybeSingle();
+
+    if (updateError) {
+      return NextResponse.json(
+        { success: false, error: updateError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!updatedBatch) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "状態が他の操作で更新されました。再読み込みしてください",
+        },
+        { status: 409 }
+      );
+    }
+
+    const { error: eventError } = await actor.supabase
+      .from("submission_events")
+      .insert({
+        batch_id: batchId,
+        event_type: "status_changed",
+        actor_user_id: actor.userId,
+        actor_label: actor.actorLabel,
+        previous_status: previousStatus,
+        next_status: nextStatus,
+        note: note || null,
+      });
+
+    if (eventError) {
+      return NextResponse.json(
+        { success: false, error: eventError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      batch: updatedBatch,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "状態の更新に失敗しました",
       },
       { status: 403 }
     );

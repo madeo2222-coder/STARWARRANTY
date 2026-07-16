@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type SubmissionFile = {
@@ -65,9 +65,22 @@ type SubmissionEvent = {
 type DetailResponse = {
   success: boolean;
   error?: string;
+  can_update?: boolean;
   batch?: SubmissionBatch;
   rows?: SubmissionRow[];
   events?: SubmissionEvent[];
+};
+
+const workflowTransitions: Record<string, string[]> = {
+  submitted: ["reviewing"],
+  reviewing: ["approved", "returned"],
+  returned: ["reviewing"],
+  approved: ["processing"],
+  processing: ["warranty_created"],
+  warranty_created: ["printed"],
+  printed: ["mailed"],
+  mailed: ["completed"],
+  completed: [],
 };
 
 const statusLabels: Record<string, string> = {
@@ -180,66 +193,121 @@ export default function AgencySubmissionDetailPage({
   const [events, setEvents] = useState<SubmissionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [canUpdate, setCanUpdate] = useState(false);
+  const [nextStatus, setNextStatus] = useState("");
+  const [note, setNote] = useState("");
+  const [updating, setUpdating] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const getAccessToken = useCallback(async () => {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-    async function loadDetail() {
-      setLoading(true);
-      setErrorMessage("");
-
-      try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
-        if (sessionError || !session?.access_token) {
-          throw new Error("ログイン情報が取得できませんでした");
-        }
-
-        const response = await fetch(`/api/submission-batches/${id}`, {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: "no-store",
-        });
-
-        const json = (await response.json()) as DetailResponse;
-
-        if (!response.ok || !json.success || !json.batch) {
-          throw new Error(json.error || "受付詳細の取得に失敗しました");
-        }
-
-        if (!cancelled) {
-          setBatch(json.batch);
-          setRows(json.rows || []);
-          setEvents(json.events || []);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "受付詳細の取得に失敗しました"
-          );
-          setBatch(null);
-          setRows([]);
-          setEvents([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+    if (sessionError || !session?.access_token) {
+      throw new Error("ログイン情報が取得できませんでした");
     }
 
-    void loadDetail();
+    return session.access_token;
+  }, [supabase]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [id, supabase]);
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`/api/submission-batches/${id}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        cache: "no-store",
+      });
+
+      const json = (await response.json()) as DetailResponse;
+
+      if (!response.ok || !json.success || !json.batch) {
+        throw new Error(json.error || "受付詳細の取得に失敗しました");
+      }
+
+      setBatch(json.batch);
+      setRows(json.rows || []);
+      setEvents(json.events || []);
+      setCanUpdate(Boolean(json.can_update));
+      setNextStatus(workflowTransitions[json.batch.status]?.[0] || "");
+      setNote("");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "受付詳細の取得に失敗しました"
+      );
+      setBatch(null);
+      setRows([]);
+      setEvents([]);
+      setCanUpdate(false);
+      setNextStatus("");
+    } finally {
+      setLoading(false);
+    }
+  }, [getAccessToken, id]);
+
+  useEffect(() => {
+    void loadDetail();
+  }, [loadDetail]);
+
+  const allowedNextStatuses = batch
+    ? workflowTransitions[batch.status] || []
+    : [];
+
+  async function handleStatusUpdate() {
+    if (!batch || !canUpdate || !nextStatus) {
+      return;
+    }
+
+    if (nextStatus === "returned" && !note.trim()) {
+      setErrorMessage("差戻し理由を入力してください");
+      return;
+    }
+
+    setUpdating(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`/api/submission-batches/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: nextStatus,
+          note: note.trim(),
+        }),
+      });
+
+      const json = (await response.json()) as {
+        success: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !json.success) {
+        throw new Error(json.error || "状態の更新に失敗しました");
+      }
+
+      setSuccessMessage("状態を更新しました");
+      await loadDetail();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "状態の更新に失敗しました"
+      );
+    } finally {
+      setUpdating(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -251,7 +319,7 @@ export default function AgencySubmissionDetailPage({
     );
   }
 
-  if (errorMessage || !batch) {
+  if (!batch) {
     return (
       <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
         <Link
@@ -286,6 +354,18 @@ export default function AgencySubmissionDetailPage({
           提出一覧へ戻る
         </Link>
       </div>
+
+      {errorMessage ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {successMessage}
+        </div>
+      ) : null}
 
       <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
         <div>
@@ -326,6 +406,89 @@ export default function AgencySubmissionDetailPage({
             </div>
           </div>
         ) : null}
+      </section>
+
+      <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-lg font-bold">状態変更</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            現在の状態から許可されている次の状態へ進めます。
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-gray-50 p-4">
+          <div className="text-xs text-gray-500">現在状態</div>
+          <div className="mt-2">
+            <StatusBadge value={batch.status} />
+          </div>
+        </div>
+
+        {canUpdate ? (
+          allowedNextStatuses.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  変更後の状態
+                </label>
+                <select
+                  value={nextStatus}
+                  onChange={(event) => setNextStatus(event.target.value)}
+                  disabled={updating}
+                  className="w-full rounded-lg border bg-white px-3 py-2"
+                >
+                  {allowedNextStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">
+                  備考
+                  {nextStatus === "returned" ? (
+                    <span className="ml-2 text-red-600">必須</span>
+                  ) : null}
+                </label>
+                <textarea
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  disabled={updating}
+                  className="min-h-[100px] w-full rounded-lg border px-3 py-2"
+                  placeholder={
+                    nextStatus === "returned"
+                      ? "差戻し理由を入力してください"
+                      : "必要に応じて備考を入力してください"
+                  }
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => void handleStatusUpdate()}
+                  disabled={
+                    updating ||
+                    !nextStatus ||
+                    (nextStatus === "returned" && !note.trim())
+                  }
+                  className="rounded-lg bg-black px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {updating ? "更新中..." : "状態を更新"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
+              この受付は最終状態です。
+            </div>
+          )
+        ) : (
+          <div className="rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
+            状態変更は本部担当者のみ実行できます。
+          </div>
+        )}
       </section>
 
       <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
