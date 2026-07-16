@@ -513,12 +513,15 @@ function resolveBatchParseStatus(values: {
   errorCount: number;
   warningCount: number;
   workbookWarningCount: number;
-}) {
+}): "parsed" | "warning" {
   if (values.errorCount > 0) {
     return "warning";
   }
 
-  if (values.warningCount > 0 || values.workbookWarningCount > 0) {
+  if (
+    values.warningCount > 0 ||
+    values.workbookWarningCount > 0
+  ) {
     return "warning";
   }
 
