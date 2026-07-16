@@ -639,7 +639,12 @@ export default function HeadquartersAgencySubmissionsPage() {
                   return (
                     <tr key={batch.id}>
                       <td className="whitespace-nowrap px-4 py-3 font-medium">
-                        {batch.batch_no}
+                        <Link
+                          href={`/headquarters/agency-submissions/${batch.id}`}
+                          className="text-blue-600 underline-offset-4 hover:underline"
+                        >
+                          {batch.batch_no}
+                        </Link>
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3">
