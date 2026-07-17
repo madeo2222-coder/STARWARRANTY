@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  generateSubmissionDocuments,
+  type SubmissionDocumentRow,
+} from "@/lib/submission-center/document-generator";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -526,6 +530,139 @@ export async function PATCH(
           error instanceof Error
             ? error.message
             : "状態の更新に失敗しました",
+      },
+      { status: 403 }
+    );
+  }
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const actor = await requireAuthenticatedActor(request);
+    const { id } = await params;
+    const batchId = id.trim();
+
+    if (!batchId) {
+      return NextResponse.json(
+        { success: false, error: "受付IDがありません" },
+        { status: 400 }
+      );
+    }
+
+    let batchQuery = actor.supabase
+      .from("submission_batches")
+      .select(
+        `
+          id,
+          batch_no,
+          partner_id,
+          target_month,
+          status,
+          partners (
+            company_name
+          )
+        `
+      )
+      .eq("id", batchId);
+
+    if (!actor.isHeadquarters) {
+      if (!actor.partnerId) {
+        throw new Error("所属する提出元を確認できませんでした");
+      }
+
+      batchQuery = batchQuery.eq("partner_id", actor.partnerId);
+    }
+
+    const { data: batchData, error: batchError } =
+      await batchQuery.maybeSingle();
+
+    if (batchError) {
+      throw new Error(batchError.message);
+    }
+
+    if (!batchData) {
+      return NextResponse.json(
+        { success: false, error: "受付情報が見つかりません" },
+        { status: 404 }
+      );
+    }
+
+    if (batchData.status !== "approved") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "受付完了の案件だけ保証書・請求書データを生成できます",
+        },
+        { status: 400 }
+      );
+    }
+
+    const { data: rows, error: rowsError } = await actor.supabase
+      .from("submission_rows")
+      .select(
+        `
+          id,
+          sheet_name,
+          row_number,
+          customer_name,
+          customer_name_kana,
+          postal_code,
+          address_full,
+          phone,
+          email,
+          application_date,
+          warranty_start_date,
+          plan_code,
+          manufacturer,
+          model_number,
+          equipment_name,
+          quantity,
+          additional_equipment,
+          additional_model_number,
+          additional_quantity,
+          warranty_fee,
+          validation_status,
+          duplicate_status
+        `
+      )
+      .eq("batch_id", batchId)
+      .order("sheet_name", { ascending: true })
+      .order("row_number", { ascending: true });
+
+    if (rowsError) {
+      throw new Error(rowsError.message);
+    }
+
+    const partnerRelation = batchData.partners;
+    const partner = Array.isArray(partnerRelation)
+      ? partnerRelation[0]
+      : partnerRelation;
+    const generation = generateSubmissionDocuments(
+      {
+        id: batchData.id,
+        batch_no: batchData.batch_no,
+        partner_id: batchData.partner_id,
+        partner_name: partner?.company_name || "提出元未設定",
+        target_month: batchData.target_month,
+      },
+      (rows || []) as SubmissionDocumentRow[]
+    );
+
+    return NextResponse.json({
+      success: true,
+      generation,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "保証書・請求書データの生成に失敗しました",
       },
       { status: 403 }
     );

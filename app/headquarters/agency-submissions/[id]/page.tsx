@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import type { SubmissionDocumentGeneration } from "@/lib/submission-center/document-generator";
 
 type SubmissionFile = {
   id: string;
@@ -198,6 +199,9 @@ export default function AgencySubmissionDetailPage({
   const [nextStatus, setNextStatus] = useState("");
   const [note, setNote] = useState("");
   const [updating, setUpdating] = useState(false);
+  const [generation, setGeneration] =
+    useState<SubmissionDocumentGeneration | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const getAccessToken = useCallback(async () => {
     const {
@@ -237,6 +241,7 @@ export default function AgencySubmissionDetailPage({
       setCanUpdate(Boolean(json.can_update));
       setNextStatus(workflowTransitions[json.batch.status]?.[0] || "");
       setNote("");
+      setGeneration(null);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -248,6 +253,7 @@ export default function AgencySubmissionDetailPage({
       setEvents([]);
       setCanUpdate(false);
       setNextStatus("");
+      setGeneration(null);
     } finally {
       setLoading(false);
     }
@@ -306,6 +312,49 @@ export default function AgencySubmissionDetailPage({
       );
     } finally {
       setUpdating(false);
+    }
+  }
+
+  async function handleDocumentGeneration() {
+    if (!batch || batch.status !== "approved") {
+      return;
+    }
+
+    setGenerating(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`/api/submission-batches/${id}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const json = (await response.json()) as {
+        success: boolean;
+        error?: string;
+        generation?: SubmissionDocumentGeneration;
+      };
+
+      if (!response.ok || !json.success || !json.generation) {
+        throw new Error(
+          json.error || "保証書・請求書データの生成に失敗しました"
+        );
+      }
+
+      setGeneration(json.generation);
+      setSuccessMessage("保証書・請求書データを生成しました");
+    } catch (error) {
+      setGeneration(null);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "保証書・請求書データの生成に失敗しました"
+      );
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -407,6 +456,202 @@ export default function AgencySubmissionDetailPage({
           </div>
         ) : null}
       </section>
+
+      {batch.status === "approved" ? (
+        <section className="space-y-5 rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold">
+                保証書・請求書 Generator Engine v1
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                submission_rowsからPDF生成前の保証書・請求書データを組み立てます。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleDocumentGeneration()}
+              disabled={generating}
+              className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {generating ? "生成中..." : "保証書・請求書を生成"}
+            </button>
+          </div>
+
+          {generation ? (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <DetailItem label="保証書ドラフト">
+                  {generation.summary.row_count}件
+                </DetailItem>
+                <DetailItem label="生成可能">
+                  {generation.summary.warranty_ready_count}件
+                </DetailItem>
+                <DetailItem label="要確認">
+                  {generation.summary.warranty_needs_review_count}件
+                </DetailItem>
+                <DetailItem label="請求合計">
+                  {formatYen(generation.invoice.total_amount)}
+                </DetailItem>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border">
+                <div className="border-b bg-gray-50 px-4 py-3">
+                  <h3 className="font-semibold">保証書データ</h3>
+                </div>
+                {generation.warranty_documents.length === 0 ? (
+                  <div className="p-4 text-sm text-gray-500">
+                    生成対象のsubmission_rowsがありません。
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[1100px] text-left text-sm">
+                      <thead className="bg-gray-50 text-gray-600">
+                        <tr>
+                          <th className="px-4 py-3">ドラフト参照番号</th>
+                          <th className="px-4 py-3">顧客名</th>
+                          <th className="px-4 py-3">住所</th>
+                          <th className="px-4 py-3">保証開始日</th>
+                          <th className="px-4 py-3">プラン</th>
+                          <th className="px-4 py-3">機器</th>
+                          <th className="px-4 py-3 text-right">保証料（税抜）</th>
+                          <th className="px-4 py-3">生成判定</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {generation.warranty_documents.map((document) => (
+                          <tr key={document.source.row_id}>
+                            <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
+                              {document.draft_reference}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3">
+                              {document.customer.name || "-"}
+                            </td>
+                            <td className="min-w-[240px] px-4 py-3">
+                              {document.customer.address || "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3">
+                              {document.warranty.start_date || "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3">
+                              {document.warranty.plan_code || "-"}
+                            </td>
+                            <td className="min-w-[240px] px-4 py-3">
+                              {document.products
+                                .map((product) =>
+                                  [
+                                    product.equipment_name,
+                                    product.manufacturer,
+                                    product.model_number,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" / ")
+                                )
+                                .join("、") || "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right">
+                              {formatYen(document.warranty_fee_ex_tax)}
+                            </td>
+                            <td className="min-w-[220px] px-4 py-3">
+                              <div
+                                className={
+                                  document.generation_status === "ready"
+                                    ? "text-green-700"
+                                    : "text-yellow-700"
+                                }
+                              >
+                                {document.generation_status === "ready"
+                                  ? "生成可能"
+                                  : "要確認"}
+                              </div>
+                              {document.issues.length > 0 ? (
+                                <div className="mt-1 text-xs text-gray-500">
+                                  {document.issues.join("、")}
+                                </div>
+                              ) : null}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-4">
+                <div>
+                  <h3 className="font-semibold">請求書データ</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {generation.invoice.draft_reference} / 請求先：
+                    {generation.invoice.bill_to.company_name}
+                  </p>
+                </div>
+
+                {generation.invoice.warnings.map((warning) => (
+                  <div
+                    key={warning}
+                    className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800"
+                  >
+                    {warning}
+                  </div>
+                ))}
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-[800px] text-left text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-4 py-3">明細名</th>
+                        <th className="px-4 py-3">説明</th>
+                        <th className="px-4 py-3 text-right">数量</th>
+                        <th className="px-4 py-3 text-right">単価</th>
+                        <th className="px-4 py-3 text-right">金額</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {generation.invoice.items.map((item) => (
+                        <tr key={item.source_row_id}>
+                          <td className="px-4 py-3">{item.item_name}</td>
+                          <td className="px-4 py-3 text-gray-600">
+                            {item.description || "-"}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {item.quantity}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {formatYen(item.unit_price)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium">
+                            {formatYen(item.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="ml-auto w-full max-w-sm space-y-2 rounded-xl bg-gray-50 p-4 text-sm">
+                  <div className="flex justify-between">
+                    <span>小計</span>
+                    <span>{formatYen(generation.invoice.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>消費税 10%</span>
+                    <span>{formatYen(generation.invoice.tax_amount)}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 text-base font-bold">
+                    <span>合計</span>
+                    <span>{formatYen(generation.invoice.total_amount)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
+              生成結果はまだありません。生成してもDBには保存されません。
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
         <div>
