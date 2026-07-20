@@ -12,6 +12,7 @@ import {
   autoRegisterSubmissionBatch,
   AutoRegisterError,
 } from "@/lib/submission-center/auto-register";
+import { runAutoRegisterPreflight } from "@/lib/submission-center/auto-register-preflight";
 import {
   certificateNumbersMatch,
   inspectWarrantyFulfillment,
@@ -346,13 +347,25 @@ export async function GET(
       "mailed",
       "completed",
     ];
-    const warrantyFulfillment =
+    const autoRegisterStatuses = [
+      "approved",
+      "processing",
+      "warranty_created",
+    ];
+    const [warrantyFulfillment, autoRegisterPreflight] = await Promise.all([
       actor.isHeadquarters && fulfillmentStatuses.includes(batch.status)
-        ? await inspectWarrantyFulfillment({
+        ? inspectWarrantyFulfillment({
             supabase: actor.supabase,
             batchId,
           })
-        : undefined;
+        : Promise.resolve(undefined),
+      actor.isHeadquarters && autoRegisterStatuses.includes(batch.status)
+        ? runAutoRegisterPreflight({
+            supabase: actor.supabase,
+            batchId,
+          }).then((result) => result.preflight)
+        : Promise.resolve(undefined),
+    ]);
 
     return NextResponse.json({
       success: true,
@@ -384,6 +397,9 @@ export async function GET(
       events: eventsResult.data || [],
       ...(warrantyFulfillment
         ? { warranty_fulfillment: warrantyFulfillment }
+        : {}),
+      ...(autoRegisterPreflight
+        ? { auto_register_preflight: autoRegisterPreflight }
         : {}),
     });
   } catch (error) {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { SubmissionDocumentGeneration } from "@/lib/submission-center/document-generator";
+import type { AutoRegisterPreflight } from "@/lib/submission-center/auto-register-preflight";
 
 type SubmissionFile = {
   id: string;
@@ -71,6 +72,7 @@ type DetailResponse = {
   rows?: SubmissionRow[];
   events?: SubmissionEvent[];
   warranty_fulfillment?: WarrantyFulfillment;
+  auto_register_preflight?: AutoRegisterPreflight;
 };
 
 type WarrantyFulfillment = {
@@ -238,6 +240,8 @@ export default function AgencySubmissionDetailPage({
   const [autoRegistering, setAutoRegistering] = useState(false);
   const [autoRegisterResult, setAutoRegisterResult] =
     useState<AutoRegisterResult | null>(null);
+  const [autoRegisterPreflight, setAutoRegisterPreflight] =
+    useState<AutoRegisterPreflight | null>(null);
   const [warrantyFulfillment, setWarrantyFulfillment] =
     useState<WarrantyFulfillment | null>(null);
   const [printConfirmedNumbers, setPrintConfirmedNumbers] = useState<string[]>(
@@ -282,6 +286,7 @@ export default function AgencySubmissionDetailPage({
       setRows(json.rows || []);
       setEvents(json.events || []);
       setWarrantyFulfillment(json.warranty_fulfillment || null);
+      setAutoRegisterPreflight(json.auto_register_preflight || null);
       setPrintConfirmedNumbers([]);
       setCanUpdate(Boolean(json.can_update));
       setNextStatus(workflowTransitions[json.batch.status]?.[0] || "");
@@ -297,6 +302,7 @@ export default function AgencySubmissionDetailPage({
       setRows([]);
       setEvents([]);
       setWarrantyFulfillment(null);
+      setAutoRegisterPreflight(null);
       setPrintConfirmedNumbers([]);
       setCanUpdate(false);
       setNextStatus("");
@@ -502,6 +508,7 @@ export default function AgencySubmissionDetailPage({
     if (
       !batch ||
       !canUpdate ||
+      !autoRegisterPreflight?.ready ||
       !["approved", "processing", "warranty_created"].includes(batch.status)
     ) {
       return;
@@ -999,7 +1006,7 @@ export default function AgencySubmissionDetailPage({
             <button
               type="button"
               onClick={() => void handleAutoRegister()}
-              disabled={autoRegistering}
+              disabled={autoRegistering || !autoRegisterPreflight?.ready}
               className="rounded-lg bg-blue-800 px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
             >
               {autoRegistering
@@ -1011,6 +1018,178 @@ export default function AgencySubmissionDetailPage({
                     : "自動登録を実行"}
             </button>
           </div>
+
+          {autoRegisterPreflight ? (
+            <div className="space-y-4 rounded-xl border border-blue-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold">自動登録の事前確認</h3>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${
+                        autoRegisterPreflight.ready
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {autoRegisterPreflight.ready
+                        ? "自動登録可能"
+                        : "要修正・要確認"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    確認日時：{formatDateTime(autoRegisterPreflight.checked_at)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadDetail()}
+                  disabled={loading || autoRegistering}
+                  className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-800 disabled:opacity-50"
+                >
+                  事前確認を再実行
+                </button>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <DetailItem label="期待する保証書">
+                  {autoRegisterPreflight.expected_certificate_count}件
+                </DetailItem>
+                <DetailItem label="期待する請求書">
+                  {autoRegisterPreflight.expected_invoice_count}件
+                </DetailItem>
+                <DetailItem label="エラー / 警告">
+                  {autoRegisterPreflight.summary.error_count}件 / {" "}
+                  {autoRegisterPreflight.summary.warning_count}件
+                </DetailItem>
+                <DetailItem label="正常 / 未確認">
+                  {autoRegisterPreflight.summary.passed_count}件 / {" "}
+                  {autoRegisterPreflight.summary.unverified_count}件
+                </DetailItem>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl border p-4">
+                  <div className="text-xs text-gray-500">解決済み請求先</div>
+                  {autoRegisterPreflight.resolved.billing_customer ? (
+                    <div className="mt-2 text-sm">
+                      <div className="font-medium text-gray-900">
+                        {autoRegisterPreflight.resolved.billing_customer.company_name ||
+                          "-"}
+                      </div>
+                      <div className="mt-1 text-gray-600">
+                        担当者：
+                        {autoRegisterPreflight.resolved.billing_customer
+                          .contact_name || "未設定"}
+                        ・メール：
+                        {autoRegisterPreflight.resolved.billing_customer
+                          .email_configured
+                          ? "設定済み"
+                          : "未設定"}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-sm text-red-700">未解決</div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border p-4">
+                  <div className="text-xs text-gray-500">解決済み保証商品</div>
+                  {autoRegisterPreflight.resolved.products.length > 0 ? (
+                    <div className="mt-2 max-h-48 space-y-2 overflow-y-auto text-sm">
+                      {autoRegisterPreflight.resolved.products.map((product) => (
+                        <div
+                          key={`${product.row_id}-${product.item_index}`}
+                          className="rounded-lg bg-gray-50 px-3 py-2"
+                        >
+                          <div className="font-medium text-gray-900">
+                            {product.product_name || "未解決"}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {product.sheet_name} {product.row_number}行目・
+                            {product.requested_name ||
+                              product.requested_plan_code ||
+                              "指定なし"}
+                            {product.product_code
+                              ? ` → ${product.product_code}`
+                              : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-sm text-red-700">未解決</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {autoRegisterPreflight.checks.map((check, index) => {
+                  const colors =
+                    check.level === "error"
+                      ? "border-red-200 bg-red-50 text-red-800"
+                      : check.level === "warning"
+                        ? "border-yellow-200 bg-yellow-50 text-yellow-800"
+                        : check.level === "unverified"
+                          ? "border-gray-300 bg-gray-50 text-gray-700"
+                          : "border-green-200 bg-green-50 text-green-800";
+                  const label =
+                    check.level === "error"
+                      ? "エラー"
+                      : check.level === "warning"
+                        ? "警告"
+                        : check.level === "unverified"
+                          ? "未確認"
+                          : "正常";
+                  return (
+                    <div
+                      key={`${check.code}-${check.row_id || "batch"}-${index}`}
+                      className={`rounded-xl border p-4 ${colors}`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-medium">
+                          {label}
+                        </span>
+                        <span className="font-medium">{check.title}</span>
+                        <span className="font-mono text-xs opacity-70">
+                          {check.code}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm">{check.message}</p>
+                      {check.sheet_name || check.row_number ? (
+                        <p className="mt-2 text-xs">
+                          対象：{check.sheet_name || "-"} / {" "}
+                          {check.row_number ? `${check.row_number}行目` : "-"}
+                          {check.field ? ` / ${check.field}` : ""}
+                          {check.current_value !== undefined
+                            ? ` / 現在値: ${String(check.current_value ?? "未設定")}`
+                            : ""}
+                        </p>
+                      ) : null}
+                      {check.related ? (
+                        <p className="mt-2 text-xs">
+                          重複元：{check.related.batch_no || "受付番号不明"} / {" "}
+                          {check.related.sheet_name || "-"} / {" "}
+                          {check.related.row_number
+                            ? `${check.related.row_number}行目`
+                            : "-"}
+                        </p>
+                      ) : null}
+                      {check.resolution ? (
+                        <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-xs">
+                          対応方法：{check.resolution}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+              事前確認結果を取得できません。再読み込みしてください。
+            </div>
+          )}
 
           {autoRegisterResult ? (
             <div className="grid gap-3 rounded-xl border border-blue-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
