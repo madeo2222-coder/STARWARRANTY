@@ -4,6 +4,7 @@ import {
   type SubmissionDocumentRow,
   type WarrantyDocumentDraft,
 } from "@/lib/submission-center/document-generator";
+import { resolvePlanProducts } from "@/lib/submission-center/plan-product-rules";
 import type { CreateWarrantyCertificateInput } from "@/lib/warranty/register-certificate";
 import type { CreateWarrantyInvoiceInput } from "@/lib/invoice/register-warranty-invoice";
 
@@ -44,6 +45,7 @@ export type AutoRegisterPreflight = {
   };
   checks: AutoRegisterPreflightCheck[];
   resolved: {
+    expected_product_count: number;
     partner_name: string | null;
     billing_customer: {
       id: string;
@@ -93,6 +95,7 @@ type WarrantyProduct = {
   product_code: string | null;
   product_name: string;
   is_active: boolean | null;
+  sort_order: number | null;
 };
 
 type WarrantyCustomer = {
@@ -206,10 +209,17 @@ function makePreflight(
 
 function issueField(issue: string) {
   if (issue.startsWith("顧客名")) return "customer_name";
+  if (issue.startsWith("郵便番号")) return "postal_code";
   if (issue.startsWith("住所")) return "address_full";
   if (issue.startsWith("保証開始日")) return "warranty_start_date";
+  if (issue.startsWith("プランコード")) return "plan_code";
+  if (issue.startsWith("給湯器種類")) return "water_heater_type";
   if (issue.startsWith("メーカー")) return "manufacturer";
   if (issue.startsWith("型番")) return "model_number";
+  if (issue.startsWith("保証加入機器")) return "equipment_name";
+  if (issue.startsWith("加入機器の台数")) return "quantity";
+  if (issue.startsWith("追加機器")) return "additional_quantity";
+  if (issue.startsWith("追加台数")) return "additional_equipment";
   if (issue.startsWith("保証料")) return "warranty_fee";
   if (issue.startsWith("validation_status")) return "validation_status";
   if (issue.startsWith("duplicate_status")) return "duplicate_status";
@@ -235,35 +245,21 @@ function rowValue(row: SubmissionPreflightRow, field: string | undefined) {
     : null;
 }
 
-function productCandidates(
-  document: WarrantyDocumentDraft,
-  itemIndex: number,
+function singleProductCandidates(
+  product: WarrantyDocumentDraft["products"][number],
   products: WarrantyProduct[],
   activeOnly: boolean
 ) {
   const available = activeOnly
     ? products.filter((candidate) => candidate.is_active === true)
     : products;
-  const product = document.products[itemIndex];
   const equipmentKey = normalizedKey(product.equipment_name);
-  let matches = equipmentKey
+  const matches = equipmentKey
     ? available.filter(
         (candidate) => normalizedKey(candidate.product_name) === equipmentKey
       )
     : [];
-  let resolution: "product_name" | "product_code" | null = matches.length
-    ? "product_name"
-    : null;
-
-  if (matches.length === 0 && itemIndex === 0 && document.warranty.plan_code) {
-    const planKey = normalizedKey(document.warranty.plan_code);
-    matches = available.filter(
-      (candidate) => normalizedKey(candidate.product_code) === planKey
-    );
-    resolution = matches.length ? "product_code" : null;
-  }
-
-  return { matches, resolution };
+  return { matches, resolution: matches.length ? "product_name" as const : null };
 }
 
 function invoiceAmounts(input: CreateWarrantyInvoiceInput) {
@@ -637,7 +633,12 @@ async function buildBasePlan(
       values: {
         expected_certificate_count: 0,
         expected_invoice_count: 0,
-        resolved: { partner_name: null, billing_customer: null, products: [] },
+        resolved: {
+          expected_product_count: 0,
+          partner_name: null,
+          billing_customer: null,
+          products: [],
+        },
       },
     };
   }
@@ -682,7 +683,7 @@ async function buildBasePlan(
       .order("row_number", { ascending: true }),
     supabase
       .from("warranty_products")
-      .select("id, product_code, product_name, is_active"),
+      .select("id, product_code, product_name, is_active, sort_order"),
     supabase
       .from("submission_events")
       .select("id, previous_status, next_status")
@@ -754,7 +755,12 @@ async function buildBasePlan(
       values: {
         expected_certificate_count: 0,
         expected_invoice_count: 0,
-        resolved: { partner_name: partnerName, billing_customer: null, products: [] },
+        resolved: {
+          expected_product_count: 0,
+          partner_name: partnerName,
+          billing_customer: null,
+          products: [],
+        },
       },
     };
   }
@@ -959,65 +965,165 @@ async function buildBasePlan(
   }
 
   const resolvedIdsByDocument = new Map<string, string[]>();
+  const productResolutionSucceeded = new Map<string, boolean>();
+  const rowById = new Map(rows.map((row) => [row.id, row]));
   for (const document of generation.warranty_documents) {
+    const row = rowById.get(document.source.row_id);
     const ids: string[] = [];
-    document.products.forEach((product, itemIndex) => {
-      const active = productCandidates(document, itemIndex, products, true);
-      const all = productCandidates(document, itemIndex, products, false);
-      const match = active.matches.length === 1 ? active.matches[0] : null;
-      resolvedProducts.push({
+    if (!row) {
+      checks.push({
+        code: "ROW_NOT_FOUND",
+        level: "error",
+        title: "受付行を確認できません",
+        message: `${document.draft_reference}の元行を確認できません。`,
         row_id: document.source.row_id,
         sheet_name: document.source.sheet_name,
         row_number: document.source.row_number,
-        draft_reference: document.draft_reference,
-        item_index: itemIndex,
-        requested_name: clean(product.equipment_name),
-        requested_plan_code: clean(document.warranty.plan_code),
-        product_id: match?.id || null,
-        product_code: match?.product_code || null,
-        product_name: match?.product_name || null,
-        resolution: match ? active.resolution : null,
+        resolution: "受付行を再取得して事前確認を実行してください。",
       });
+      productResolutionSucceeded.set(document.draft_reference, false);
+      resolvedIdsByDocument.set(document.draft_reference, []);
+      continue;
+    }
 
-      if (active.matches.length === 1) {
-        ids.push(active.matches[0].id);
-        if (includePreflightChecks) {
+    if (row.row_type === "plan") {
+      const expansion = resolvePlanProducts({
+        planCode: row.plan_code,
+        waterHeaterType: row.water_heater_type,
+        additionalEquipment: row.additional_equipment,
+        additionalQuantity: row.additional_quantity,
+        products,
+      });
+      for (const error of expansion.errors) {
+        const title =
+          error.code === "PRODUCT_INACTIVE"
+            ? "保証商品が無効です"
+            : error.code === "PRODUCT_AMBIGUOUS"
+              ? "保証商品を一意に特定できません"
+              : error.code === "PLAN_CODE_REQUIRED" ||
+                  error.code === "PLAN_CODE_INVALID"
+                ? "プランコードを確認できません"
+                : error.code === "WATER_HEATER_TYPE_REQUIRED"
+                  ? "給湯器種類を確認できません"
+                  : "保証商品を解決できません";
           checks.push({
-            code: "PRODUCT_RESOLVED",
-            level: "passed",
-            title: "保証商品を解決しました",
-            message: `${document.draft_reference}: ${active.matches[0].product_name}`,
+            code: error.code,
+            level: "error",
+            title,
+            message: `${document.draft_reference}: ${error.message}`,
             row_id: document.source.row_id,
             sheet_name: document.source.sheet_name,
             row_number: document.source.row_number,
+            field: error.field,
+            current_value: error.currentValue,
+            resolution:
+              error.code === "PRODUCT_INACTIVE"
+                ? "既存商品マスタの有効状態を確認してください。"
+                : "元Excelの入力値または既存商品マスタを確認してください。",
           });
-        }
-      } else {
-        const inactiveOnly = active.matches.length === 0 && all.matches.length === 1 && all.matches[0].is_active === false;
-        checks.push({
-          code: inactiveOnly
-            ? "PRODUCT_INACTIVE"
-            : active.matches.length > 1
-              ? "PRODUCT_AMBIGUOUS"
-              : "PRODUCT_NOT_FOUND",
-          level: "error",
-          title: inactiveOnly
-            ? "保証商品が無効です"
-            : active.matches.length > 1
-              ? "保証商品を一意に特定できません"
-              : "保証商品が見つかりません",
-          message: `${document.draft_reference}の商品「${clean(product.equipment_name) || clean(document.warranty.plan_code) || "未設定"}」を解決できません。`,
+      }
+      expansion.targets.forEach((target, itemIndex) => {
+        const resolved = expansion.resolved.find(
+          (entry) => entry.target.productCode === target.productCode
+        );
+        resolvedProducts.push({
           row_id: document.source.row_id,
           sheet_name: document.source.sheet_name,
           row_number: document.source.row_number,
-          field: clean(product.equipment_name) ? "equipment_name" : "plan_code",
-          current_value: clean(product.equipment_name) || clean(document.warranty.plan_code),
-          resolution: inactiveOnly
-            ? "保証商品マスタの有効状態を確認してください。"
-            : "商品名または商品コードが一意に一致するようマスタを確認してください。",
+          draft_reference: document.draft_reference,
+          item_index: itemIndex,
+          requested_name: target.requestedValue,
+          requested_plan_code: clean(row.plan_code),
+          product_id: resolved?.product.id || null,
+          product_code: target.productCode,
+          product_name: resolved?.product.product_name || null,
+          resolution: resolved ? "product_code" : null,
         });
-      }
-    });
+        if (resolved) {
+          ids.push(resolved.product.id);
+          if (includePreflightChecks) {
+            checks.push({
+              code: "PRODUCT_RESOLVED",
+              level: "passed",
+              title: "保証商品を解決しました",
+              message: `${document.draft_reference}: ${resolved.product.product_name}（${target.productCode}）`,
+              row_id: document.source.row_id,
+              sheet_name: document.source.sheet_name,
+              row_number: document.source.row_number,
+            });
+          }
+        }
+      });
+      productResolutionSucceeded.set(
+        document.draft_reference,
+        expansion.errors.length === 0 &&
+          expansion.targets.length > 0 &&
+          expansion.resolved.length === expansion.targets.length
+      );
+    } else {
+      let singleResolved = document.products.length > 0;
+      document.products.forEach((product, itemIndex) => {
+        const active = singleProductCandidates(product, products, true);
+        const all = singleProductCandidates(product, products, false);
+        const match = active.matches.length === 1 ? active.matches[0] : null;
+        resolvedProducts.push({
+          row_id: document.source.row_id,
+          sheet_name: document.source.sheet_name,
+          row_number: document.source.row_number,
+          draft_reference: document.draft_reference,
+          item_index: itemIndex,
+          requested_name: clean(product.equipment_name),
+          requested_plan_code: null,
+          product_id: match?.id || null,
+          product_code: match?.product_code || null,
+          product_name: match?.product_name || null,
+          resolution: match ? "product_name" : null,
+        });
+        if (active.matches.length === 1) {
+          ids.push(active.matches[0].id);
+          if (includePreflightChecks) {
+            checks.push({
+              code: "PRODUCT_RESOLVED",
+              level: "passed",
+              title: "保証商品を解決しました",
+              message: `${document.draft_reference}: ${active.matches[0].product_name}`,
+              row_id: document.source.row_id,
+              sheet_name: document.source.sheet_name,
+              row_number: document.source.row_number,
+            });
+          }
+        } else {
+          singleResolved = false;
+          const inactiveOnly =
+            active.matches.length === 0 &&
+            all.matches.length === 1 &&
+            all.matches[0].is_active === false;
+          checks.push({
+            code: inactiveOnly
+              ? "PRODUCT_INACTIVE"
+              : active.matches.length > 1
+                ? "PRODUCT_AMBIGUOUS"
+                : "PRODUCT_NOT_FOUND",
+            level: "error",
+            title: inactiveOnly
+              ? "保証商品が無効です"
+              : active.matches.length > 1
+                ? "保証商品を一意に特定できません"
+                : "保証商品が見つかりません",
+            message: `${document.draft_reference}の商品「${clean(product.equipment_name) || "未設定"}」を解決できません。`,
+            row_id: document.source.row_id,
+            sheet_name: document.source.sheet_name,
+            row_number: document.source.row_number,
+            field: "equipment_name",
+            current_value: clean(product.equipment_name),
+            resolution: inactiveOnly
+              ? "保証商品マスタの有効状態を確認してください。"
+              : "商品名が一意に完全一致するよう入力値と商品マスタを確認してください。",
+          });
+        }
+      });
+      productResolutionSucceeded.set(document.draft_reference, singleResolved);
+    }
     resolvedIdsByDocument.set(document.draft_reference, [...new Set(ids)]);
   }
 
@@ -1027,10 +1133,7 @@ async function buildBasePlan(
   const allProductsResolved = generation.warranty_documents.every(
     (document) =>
       (resolvedIdsByDocument.get(document.draft_reference)?.length || 0) > 0 &&
-      document.products.every((_, index) => {
-        const result = productCandidates(document, index, products, true);
-        return result.matches.length === 1;
-      })
+      productResolutionSucceeded.get(document.draft_reference) === true
   );
 
   let plan: Omit<AutoRegisterRegistrationPlan, "inspection"> | null = null;
@@ -1085,6 +1188,7 @@ async function buildBasePlan(
       expected_certificate_count: expectedCertificateCount,
       expected_invoice_count: expectedInvoiceCount,
       resolved: {
+        expected_product_count: resolvedProducts.length,
         partner_name: partnerName,
         billing_customer: resolvedCustomer,
         products: resolvedProducts,

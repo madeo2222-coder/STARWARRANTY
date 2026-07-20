@@ -1094,7 +1094,12 @@ export default function AgencySubmissionDetailPage({
                 </div>
 
                 <div className="rounded-xl border p-4">
-                  <div className="text-xs text-gray-500">解決済み保証商品</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-gray-500">解決済み保証商品</div>
+                    <div className="text-xs font-medium text-gray-700">
+                      期待 {autoRegisterPreflight.resolved.expected_product_count}件
+                    </div>
+                  </div>
                   {autoRegisterPreflight.resolved.products.length > 0 ? (
                     <div className="mt-2 max-h-48 space-y-2 overflow-y-auto text-sm">
                       {autoRegisterPreflight.resolved.products.map((product) => (
