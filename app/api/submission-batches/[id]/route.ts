@@ -12,19 +12,19 @@ import {
   autoRegisterSubmissionBatch,
   AutoRegisterError,
 } from "@/lib/submission-center/auto-register";
+import {
+  certificateNumbersMatch,
+  inspectWarrantyFulfillment,
+} from "@/lib/submission-center/warranty-fulfillment";
+import {
+  isHeadquartersEmail,
+  normalizeEmail,
+} from "@/lib/auth/headquarters";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const BUCKET_NAME = "submission_center";
-
-const HEADQUARTERS_ADMIN_EMAILS = [
-  "madeo8888@gmail.com",
-  "y.shimizu@st-w.jp",
-  "s.hidaka@st-w.jp",
-  "n.fukuda@st-w.jp",
-  "t.hiraga@st-w.jp",
-];
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -78,10 +78,6 @@ function autoRegisterErrorStatus(error: AutoRegisterError) {
   }
 }
 
-function normalizeEmail(value: string | null | undefined) {
-  return String(value || "").trim().toLowerCase();
-}
-
 async function requireAuthenticatedActor(request: Request) {
   const authHeader = request.headers.get("authorization") || "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
@@ -103,7 +99,7 @@ async function requireAuthenticatedActor(request: Request) {
 
   const email = normalizeEmail(user.email);
 
-  if (HEADQUARTERS_ADMIN_EMAILS.includes(email)) {
+  if (isHeadquartersEmail(email)) {
     return {
       supabase,
       userId: user.id,
@@ -343,6 +339,20 @@ export async function GET(
       })
     );
 
+    const fulfillmentStatuses = [
+      "warranty_created",
+      "printed",
+      "mailed",
+      "completed",
+    ];
+    const warrantyFulfillment =
+      actor.isHeadquarters && fulfillmentStatuses.includes(batch.status)
+        ? await inspectWarrantyFulfillment({
+            supabase: actor.supabase,
+            batchId,
+          })
+        : undefined;
+
     return NextResponse.json({
       success: true,
       can_update: actor.isHeadquarters,
@@ -371,6 +381,9 @@ export async function GET(
       },
       rows: rowsResult.data || [],
       events: eventsResult.data || [],
+      ...(warrantyFulfillment
+        ? { warranty_fulfillment: warrantyFulfillment }
+        : {}),
     });
   } catch (error) {
     return NextResponse.json(
@@ -413,8 +426,55 @@ export async function PATCH(
     const body = (await request.json()) as {
       status?: unknown;
       note?: unknown;
+      print_confirmation?: {
+        certificate_numbers?: unknown;
+      };
     };
-    const note = typeof body.note === "string" ? body.note.trim() : "";
+    let note = typeof body.note === "string" ? body.note.trim() : "";
+
+    if (body.status === "printed") {
+      const fulfillment = await inspectWarrantyFulfillment({
+        supabase: actor.supabase,
+        batchId,
+        requireStatus: "warranty_created",
+      });
+      if (!fulfillment.ready || fulfillment.expected_count < 1) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "受付と保証書の整合性を確認できないため印刷済みにできません",
+            warranty_fulfillment: fulfillment,
+          },
+          { status: 409 }
+        );
+      }
+
+      const expectedNumbers = fulfillment.certificates.map(
+        (certificate) => certificate.certificate_number
+      );
+      if (
+        !certificateNumbersMatch(
+          body.print_confirmation?.certificate_numbers,
+          expectedNumbers
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "印刷確認された保証書番号がサーバー側の対象一覧と一致しません",
+          },
+          { status: 409 }
+        );
+      }
+
+      const confirmationNote = [
+        `印刷確認件数: ${expectedNumbers.length}件`,
+        `対象保証書番号: ${expectedNumbers.join("、")}`,
+        "本部担当者による手動確認",
+      ].join("\n");
+      note = note ? `${confirmationNote}\n${note}` : confirmationNote;
+    }
+
     const transition = await transitionSubmissionBatchStatus({
       supabase: actor.supabase,
       batchId,

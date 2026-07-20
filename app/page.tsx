@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import { createClient as createServerClient } from "@/lib/supabase/server";
+import { isHeadquartersEmail } from "@/lib/auth/headquarters";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +95,14 @@ function isToday(value: string | null) {
 }
 
 export default async function HomePage() {
+  const authSupabase = await createServerClient();
+  const {
+    data: { user },
+  } = await authSupabase.auth.getUser();
+  const visibleMainCards = isHeadquartersEmail(user?.email)
+    ? mainCards
+    : mainCards.filter((card) => card.href !== "/warranty-certificates");
+
   let repairRows: RepairRequestRow[] = [];
   let repairErrorMessage = "";
 
@@ -527,7 +537,7 @@ const overdueRate =
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {mainCards.map((card) => (
+        {visibleMainCards.map((card) => (
           <Link
             key={card.href}
             href={card.href}

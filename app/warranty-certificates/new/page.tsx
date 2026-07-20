@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 type WarrantyProduct = {
   id: string;
@@ -58,8 +59,16 @@ export default function NewWarrantyCertificatePage() {
     setErrorMessage("");
 
     try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        throw new Error("ログイン情報が取得できませんでした");
+      }
       const res = await fetch("/api/warranty-certificates", {
         method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
         cache: "no-store",
       });
 
@@ -130,10 +139,19 @@ export default function NewWarrantyCertificatePage() {
         throw new Error("保証対象機器を1つ以上選択してください");
       }
 
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        throw new Error("ログイン情報が取得できませんでした");
+      }
+
       const res = await fetch("/api/warranty-certificates", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           certificate_no: certificateNo.trim(),

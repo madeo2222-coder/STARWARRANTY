@@ -20,6 +20,10 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/support-chat/") ||
     pathname.startsWith("/api/ai-support-inquiries");
 
+  const isBearerProtectedPdfApi = pathname.startsWith(
+    "/api/generate-warranty-pdf"
+  );
+
   const isPublicPath =
     pathname === "/login" ||
     pathname.startsWith("/invite") ||
@@ -27,12 +31,11 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/favicon.ico") ||
     pathname.startsWith("/repair-status") ||
     isRepairPublicPath ||
-    isAiSupportPublicPath ||
-    pathname.startsWith("/api/generate-warranty-pdf");
+    isAiSupportPublicPath;
 
   const isLoggedIn = hasSupabaseSessionCookie(request);
 
-  if (!isLoggedIn && !isPublicPath) {
+  if (!isLoggedIn && !isPublicPath && !isBearerProtectedPdfApi) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

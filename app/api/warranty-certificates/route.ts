@@ -5,6 +5,10 @@ import {
   WarrantyCertificateRegistrationError,
   type WarrantyCertificateItemInput,
 } from "@/lib/warranty/register-certificate";
+import {
+  HeadquartersAuthError,
+  requireHeadquartersBearer,
+} from "@/lib/auth/headquarters";
 
 type CreateWarrantyCertificateBody = {
   certificate_no?: string;
@@ -40,9 +44,10 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = getAdminClient();
+    await requireHeadquartersBearer(request, supabase);
 
     const { data, error } = await supabase
       .from("warranty_products")
@@ -62,6 +67,12 @@ export async function GET() {
       products: data || [],
     });
   } catch (error) {
+    if (error instanceof HeadquartersAuthError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       {
         success: false,
@@ -75,6 +86,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const supabase = getAdminClient();
+    await requireHeadquartersBearer(req, supabase);
     const body = (await req.json()) as CreateWarrantyCertificateBody;
 
     if (!body.certificate_no?.trim()) {
@@ -136,6 +148,12 @@ export async function POST(req: Request) {
       certificate,
     });
   } catch (error) {
+    if (error instanceof HeadquartersAuthError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       {
         success: false,

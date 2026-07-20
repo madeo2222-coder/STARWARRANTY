@@ -70,6 +70,22 @@ type DetailResponse = {
   batch?: SubmissionBatch;
   rows?: SubmissionRow[];
   events?: SubmissionEvent[];
+  warranty_fulfillment?: WarrantyFulfillment;
+};
+
+type WarrantyFulfillment = {
+  ready: boolean;
+  expected_count: number;
+  matched_count: number;
+  certificates: {
+    id: string;
+    certificate_number: string;
+    customer_name: string;
+    postal_code: string | null;
+    address: string;
+    product_names: string[];
+  }[];
+  errors: string[];
 };
 
 type AutoRegisterResult = {
@@ -222,6 +238,13 @@ export default function AgencySubmissionDetailPage({
   const [autoRegistering, setAutoRegistering] = useState(false);
   const [autoRegisterResult, setAutoRegisterResult] =
     useState<AutoRegisterResult | null>(null);
+  const [warrantyFulfillment, setWarrantyFulfillment] =
+    useState<WarrantyFulfillment | null>(null);
+  const [printConfirmedNumbers, setPrintConfirmedNumbers] = useState<string[]>(
+    []
+  );
+  const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
+  const [confirmingPrinted, setConfirmingPrinted] = useState(false);
 
   const getAccessToken = useCallback(async () => {
     const {
@@ -258,6 +281,8 @@ export default function AgencySubmissionDetailPage({
       setBatch(json.batch);
       setRows(json.rows || []);
       setEvents(json.events || []);
+      setWarrantyFulfillment(json.warranty_fulfillment || null);
+      setPrintConfirmedNumbers([]);
       setCanUpdate(Boolean(json.can_update));
       setNextStatus(workflowTransitions[json.batch.status]?.[0] || "");
       setNote("");
@@ -271,6 +296,8 @@ export default function AgencySubmissionDetailPage({
       setBatch(null);
       setRows([]);
       setEvents([]);
+      setWarrantyFulfillment(null);
+      setPrintConfirmedNumbers([]);
       setCanUpdate(false);
       setNextStatus("");
       setGeneration(null);
@@ -332,6 +359,99 @@ export default function AgencySubmissionDetailPage({
       );
     } finally {
       setUpdating(false);
+    }
+  }
+
+  function togglePrintConfirmation(certificateNumber: string) {
+    setPrintConfirmedNumbers((current) =>
+      current.includes(certificateNumber)
+        ? current.filter((value) => value !== certificateNumber)
+        : [...current, certificateNumber]
+    );
+  }
+
+  async function handleOpenWarrantyPdf(certificateId: string) {
+    if (pdfLoadingId) return;
+    setPdfLoadingId(certificateId);
+    setErrorMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(
+        `/api/generate-warranty-pdf?id=${encodeURIComponent(certificateId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!response.ok) {
+        const json = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(json?.error || "保証書PDFの取得に失敗しました");
+      }
+
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "保証書PDFの取得に失敗しました"
+      );
+    } finally {
+      setPdfLoadingId(null);
+    }
+  }
+
+  async function handleConfirmAllPrinted() {
+    if (
+      !batch ||
+      !canUpdate ||
+      batch.status !== "warranty_created" ||
+      !warrantyFulfillment?.ready ||
+      warrantyFulfillment.expected_count < 1 ||
+      printConfirmedNumbers.length !== warrantyFulfillment.expected_count ||
+      confirmingPrinted
+    ) {
+      return;
+    }
+
+    setConfirmingPrinted(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`/api/submission-batches/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: "printed",
+          print_confirmation: {
+            certificate_numbers: printConfirmedNumbers,
+          },
+        }),
+      });
+      const json = (await response.json()) as {
+        success: boolean;
+        error?: string;
+      };
+      if (!response.ok || !json.success) {
+        throw new Error(json.error || "印刷済みへの更新に失敗しました");
+      }
+
+      await loadDetail();
+      setSuccessMessage("全保証書の印刷確認を記録し、印刷済みに更新しました");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "印刷済みへの更新に失敗しました"
+      );
+    } finally {
+      setConfirmingPrinted(false);
     }
   }
 
@@ -490,6 +610,133 @@ export default function AgencySubmissionDetailPage({
         <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
           {successMessage}
         </div>
+      ) : null}
+
+      {canUpdate && batch.status === "warranty_created" ? (
+        <section className="space-y-5 rounded-2xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+          <div>
+            <h2 className="text-lg font-bold">保証書PDF・印刷確認</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              PDFを確認し、印刷した保証書へ手動でチェックを付けてください。
+            </p>
+          </div>
+
+          {warrantyFulfillment ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <DetailItem label="印刷対象">
+                  {warrantyFulfillment.expected_count}件
+                </DetailItem>
+                <DetailItem label="整合性確認済み">
+                  {warrantyFulfillment.matched_count}件
+                </DetailItem>
+                <DetailItem label="印刷確認">
+                  {printConfirmedNumbers.length} / {warrantyFulfillment.expected_count}件
+                </DetailItem>
+              </div>
+
+              {warrantyFulfillment.errors.length > 0 ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <div className="font-semibold">保証書の整合性エラー</div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {warrantyFulfillment.errors.map((error) => (
+                      <li key={error}>{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                {warrantyFulfillment.certificates.map((certificate) => {
+                  const checked = printConfirmedNumbers.includes(
+                    certificate.certificate_number
+                  );
+                  return (
+                    <div
+                      key={certificate.id}
+                      className="rounded-xl border bg-white p-4"
+                    >
+                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          <DetailItem label="保証書番号">
+                            {certificate.certificate_number}
+                          </DetailItem>
+                          <DetailItem label="顧客名">
+                            {certificate.customer_name}
+                          </DetailItem>
+                          <DetailItem label="郵便番号">
+                            {certificate.postal_code || "-"}
+                          </DetailItem>
+                          <div className="sm:col-span-2 lg:col-span-3">
+                            <div className="text-xs text-gray-500">住所</div>
+                            <div className="mt-1 text-sm font-medium">
+                              {certificate.address || "-"}
+                            </div>
+                          </div>
+                          <div className="sm:col-span-2 lg:col-span-3">
+                            <div className="text-xs text-gray-500">商品名</div>
+                            <div className="mt-1 text-sm font-medium">
+                              {certificate.product_names.join("、") || "-"}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex min-w-44 flex-col gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleOpenWarrantyPdf(certificate.id)
+                            }
+                            disabled={pdfLoadingId !== null}
+                            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {pdfLoadingId === certificate.id
+                              ? "PDF取得中..."
+                              : "PDFを開く"}
+                          </button>
+                          <label className="flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                togglePrintConfirmation(
+                                  certificate.certificate_number
+                                )
+                              }
+                              disabled={!warrantyFulfillment.ready}
+                            />
+                            印刷を確認済み
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleConfirmAllPrinted()}
+                disabled={
+                  confirmingPrinted ||
+                  !warrantyFulfillment.ready ||
+                  warrantyFulfillment.expected_count < 1 ||
+                  printConfirmedNumbers.length !==
+                    warrantyFulfillment.expected_count
+                }
+                className="rounded-lg bg-indigo-700 px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {confirmingPrinted
+                  ? "更新中..."
+                  : "全件印刷済みにする"}
+              </button>
+            </>
+          ) : (
+            <div className="rounded-xl border bg-white p-4 text-sm text-gray-600">
+              印刷対象情報を取得できませんでした。再読み込みしてください。
+            </div>
+          )}
+        </section>
       ) : null}
 
       <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
@@ -854,12 +1101,18 @@ export default function AgencySubmissionDetailPage({
                   disabled={
                     updating ||
                     !nextStatus ||
+                    nextStatus === "printed" ||
                     (nextStatus === "returned" && !note.trim())
                   }
                   className="rounded-lg bg-black px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
                 >
                   {updating ? "更新中..." : "状態を更新"}
                 </button>
+                {nextStatus === "printed" ? (
+                  <p className="mt-2 text-sm text-indigo-700">
+                    印刷済みへの更新は、上の保証書PDF・印刷確認から実行してください。
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : (

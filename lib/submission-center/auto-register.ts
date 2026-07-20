@@ -100,6 +100,11 @@ type RegistrationPlan = {
   invoice: CreateWarrantyInvoiceInput;
 };
 
+export type WarrantyFulfillmentExpectation = {
+  batch: Pick<BatchData, "id" | "batch_no" | "status">;
+  certificates: ExpectedCertificate[];
+};
+
 function clean(value: unknown) {
   const normalized = String(value || "").trim();
   return normalized || null;
@@ -404,6 +409,21 @@ async function buildRegistrationPlan(
   };
 
   return { batch, certificates, invoice };
+}
+
+export async function buildWarrantyFulfillmentExpectation(
+  supabase: SupabaseClient,
+  batchId: string
+): Promise<WarrantyFulfillmentExpectation> {
+  const plan = await buildRegistrationPlan(supabase, batchId);
+  return {
+    batch: {
+      id: plan.batch.id,
+      batch_no: plan.batch.batch_no,
+      status: plan.batch.status,
+    },
+    certificates: plan.certificates,
+  };
 }
 
 function certificateHeaderMatches(

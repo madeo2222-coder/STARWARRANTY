@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import * as QRCode from "qrcode";
+import WarrantyPdfButton from "./WarrantyPdfButton";
 export const dynamic = "force-dynamic";
 
 type WarrantyCertificateDetail = {
@@ -157,8 +158,6 @@ export default async function WarrantyCertificateDetailPage({
 
   const appBaseUrl = getAppBaseUrl();
   const publicRepairFormUrl = `${appBaseUrl}/repair-request-form?token=${certificate.repair_form_token}`;
-  const printableWarrantyUrl = `/api/generate-warranty-pdf?id=${certificate.id}`;
-
   const qrCodeDataUrl = await QRCode.toDataURL(publicRepairFormUrl, {
     width: 220,
     margin: 1,
@@ -176,14 +175,7 @@ export default async function WarrantyCertificateDetailPage({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <a
-            href={printableWarrantyUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
-          >
-            保証書印刷表示
-          </a>
+          <WarrantyPdfButton certificateId={certificate.id} />
           <a
             href={publicRepairFormUrl}
             target="_blank"

@@ -1,7 +1,11 @@
 "use client";
 
 import "./globals.css";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { isHeadquartersEmail } from "@/lib/auth/headquarters";
 
 export default function RootLayout({
   children,
@@ -9,6 +13,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [isHeadquarters, setIsHeadquarters] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (active) {
+        setIsHeadquarters(isHeadquartersEmail(data.user?.email));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const shouldHideNav =
     pathname === "/login" ||
@@ -26,33 +44,35 @@ export default function RootLayout({
         {!shouldHideNav && (
           <div className="p-4 border-b bg-white">
             <div className="flex flex-wrap gap-2">
-              <a href="/" className="btn">
+              <Link href="/" className="btn">
                 ホーム
-              </a>
-              <a href="/warranty-certificates" className="btn">
-                保証書管理
-              </a>
-              <a href="/repair-requests" className="btn">
+              </Link>
+              {isHeadquarters ? (
+                <Link href="/warranty-certificates" className="btn">
+                  保証書管理
+                </Link>
+              ) : null}
+              <Link href="/repair-requests" className="btn">
                 修理受付管理
-              </a>
-              <a href="/warranty-invoices" className="btn">
+              </Link>
+              <Link href="/warranty-invoices" className="btn">
                 請求書管理
-              </a>
-              <a href="/ai-support-inquiries" className="btn">
+              </Link>
+              <Link href="/ai-support-inquiries" className="btn">
                 AI一次受付
-              </a>
-              <a href="/ai-support-faqs" className="btn">
+              </Link>
+              <Link href="/ai-support-faqs" className="btn">
                 FAQ住宅設備
-              </a>
-              <a href="/ai-support-faqs/appliance" className="btn">
+              </Link>
+              <Link href="/ai-support-faqs/appliance" className="btn">
                 FAQ家電
-              </a>
-              <a href="/ai-support-faqs/solar" className="btn">
+              </Link>
+              <Link href="/ai-support-faqs/solar" className="btn">
                 FAQ太陽光
-              </a>
-              <a href="/headquarters" className="btn">
+              </Link>
+              <Link href="/headquarters" className="btn">
                 本部管理
-              </a>
+              </Link>
             </div>
           </div>
         )}
