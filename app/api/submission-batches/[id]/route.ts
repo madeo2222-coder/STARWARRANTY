@@ -56,6 +56,7 @@ function workflowErrorStatus(error: WorkflowTransitionError) {
     case "BATCH_NOT_FOUND":
       return 404;
     case "CONCURRENT_UPDATE":
+    case "SOURCE_NOT_ALLOWED":
       return 409;
     default:
       return 500;
@@ -481,6 +482,8 @@ export async function PATCH(
       nextStatus: body.status,
       actorUserId: actor.userId,
       actorLabel: actor.actorLabel,
+      source:
+        body.status === "printed" ? "print_fulfillment" : "manual",
       note,
     });
 

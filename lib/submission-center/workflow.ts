@@ -11,6 +11,11 @@ export type WorkflowStatus =
   | "mailed"
   | "completed";
 
+export type WorkflowTransitionSource =
+  | "manual"
+  | "auto_register"
+  | "print_fulfillment";
+
 export const submissionWorkflowTransitions: Record<
   WorkflowStatus,
   readonly WorkflowStatus[]
@@ -49,6 +54,7 @@ export type WorkflowTransitionErrorCode =
   | "INVALID_NEXT_STATUS"
   | "NOTE_REQUIRED"
   | "TRANSITION_NOT_ALLOWED"
+  | "SOURCE_NOT_ALLOWED"
   | "BATCH_UPDATE_FAILED"
   | "CONCURRENT_UPDATE"
   | "EVENT_SAVE_FAILED";
@@ -93,6 +99,7 @@ export async function transitionSubmissionBatchStatus(input: {
   nextStatus: unknown;
   actorUserId: string;
   actorLabel: string;
+  source: WorkflowTransitionSource;
   note?: string | null;
 }): Promise<WorkflowTransitionResult> {
   const note = typeof input.note === "string" ? input.note.trim() : "";
@@ -146,6 +153,29 @@ export async function transitionSubmissionBatchStatus(input: {
     throw new WorkflowTransitionError(
       "TRANSITION_NOT_ALLOWED",
       `${previousStatus} から ${nextStatus} へは変更できません`,
+      { previousStatus, nextStatus }
+    );
+  }
+
+  const requiredSource: WorkflowTransitionSource =
+    previousStatus === "approved" && nextStatus === "processing"
+      ? "auto_register"
+      : previousStatus === "processing" && nextStatus === "warranty_created"
+        ? "auto_register"
+        : previousStatus === "warranty_created" && nextStatus === "printed"
+          ? "print_fulfillment"
+          : "manual";
+
+  if (input.source !== requiredSource) {
+    const message =
+      requiredSource === "auto_register"
+        ? "この状態変更は自動登録処理からのみ実行できます。"
+        : requiredSource === "print_fulfillment"
+          ? "この状態変更は印刷確認処理からのみ実行できます。"
+          : "この状態変更は通常の状態変更処理からのみ実行できます。";
+    throw new WorkflowTransitionError(
+      "SOURCE_NOT_ALLOWED",
+      message,
       { previousStatus, nextStatus }
     );
   }

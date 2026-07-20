@@ -109,9 +109,9 @@ const workflowTransitions: Record<string, string[]> = {
   submitted: ["reviewing"],
   reviewing: ["approved", "returned"],
   returned: ["reviewing"],
-  approved: ["processing"],
-  processing: ["warranty_created"],
-  warranty_created: ["printed"],
+  approved: [],
+  processing: [],
+  warranty_created: [],
   printed: ["mailed"],
   mailed: ["completed"],
   completed: [],
@@ -1117,7 +1117,11 @@ export default function AgencySubmissionDetailPage({
             </div>
           ) : (
             <div className="rounded-xl border bg-gray-50 p-4 text-sm text-gray-600">
-              この受付は最終状態です。
+              {["approved", "processing", "warranty_created"].includes(
+                batch.status
+              )
+                ? "次の状態への更新は、上の専用処理から実行してください。"
+                : "この受付は最終状態です。"}
             </div>
           )
         ) : (

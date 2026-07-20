@@ -771,6 +771,7 @@ export async function autoRegisterSubmissionBatch(input: {
       nextStatus: "processing",
       actorUserId: input.actorUserId,
       actorLabel: input.actorLabel,
+      source: "auto_register",
       note: "Auto Register Engine v1を開始",
     });
 
@@ -807,6 +808,7 @@ export async function autoRegisterSubmissionBatch(input: {
     nextStatus: "warranty_created",
     actorUserId: input.actorUserId,
     actorLabel: input.actorLabel,
+    source: "auto_register",
     note: "保証書・請求書の登録と再確認が完了",
   });
 
