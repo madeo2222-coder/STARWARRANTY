@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { createWarrantyInvoice } from "@/lib/invoice/register-warranty-invoice";
 
 type InvoiceItem = {
   item_name: string;
@@ -183,58 +184,17 @@ export default function NewWarrantyInvoicePage() {
         throw new Error("明細名が未入力の行があります");
       }
 
-      const itemRows = items.map((item, index) => ({
-        item_name: item.item_name.trim(),
-        description: item.description.trim() || null,
-        quantity: Number(item.quantity || 0),
-        unit_price: Number(item.unit_price || 0),
-        amount: Number(item.quantity || 0) * Number(item.unit_price || 0),
-        sort_order: index,
-      }));
-
-      const realSubtotal = itemRows.reduce(
-        (sum, item) => sum + Number(item.amount || 0),
-        0
-      );
-      const realTaxAmount = Math.floor(realSubtotal * taxRate);
-      const realTotalAmount = realSubtotal + realTaxAmount;
-
-      const { data: invoice, error: invoiceError } = await supabase
-        .from("warranty_invoices")
-        .insert({
-          invoice_no: invoiceNo,
-          invoice_date: invoiceDate || null,
-          payment_due_date: paymentDueDate || null,
-          subject: subject.trim() || null,
-          bill_to_company_name: billToCompanyName.trim() || null,
-          bill_to_name: billToName.trim() || null,
-          bill_to_email: billToEmail.trim(),
-          subtotal: realSubtotal,
-          tax_rate: taxRate,
-          tax_amount: realTaxAmount,
-          total_amount: realTotalAmount,
-          status: "draft",
-          note: note.trim() || null,
-        })
-        .select("id")
-        .single();
-
-      if (invoiceError || !invoice) {
-        throw new Error(invoiceError?.message || "請求書の作成に失敗しました");
-      }
-
-      const insertItemRows = itemRows.map((item) => ({
-        ...item,
-        invoice_id: invoice.id,
-      }));
-
-      const { error: itemsError } = await supabase
-        .from("warranty_invoice_items")
-        .insert(insertItemRows);
-
-      if (itemsError) {
-        throw new Error(itemsError.message);
-      }
+      await createWarrantyInvoice(supabase, {
+        invoice_no: invoiceNo,
+        invoice_date: invoiceDate || null,
+        payment_due_date: paymentDueDate || null,
+        subject: subject.trim() || null,
+        bill_to_company_name: billToCompanyName.trim() || null,
+        bill_to_name: billToName.trim() || null,
+        bill_to_email: billToEmail.trim(),
+        note: note.trim() || null,
+        items,
+      });
 
       router.push("/warranty-invoices");
       router.refresh();

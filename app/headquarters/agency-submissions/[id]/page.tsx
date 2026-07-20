@@ -72,6 +72,23 @@ type DetailResponse = {
   events?: SubmissionEvent[];
 };
 
+type AutoRegisterResult = {
+  status: "completed" | "already_completed";
+  batch_status: "warranty_created";
+  certificates: {
+    total: number;
+    created: number;
+    reused: number;
+    certificate_numbers: string[];
+  };
+  invoice: {
+    created: boolean;
+    reused: boolean;
+    invoice_id: string;
+    invoice_no: string;
+  };
+};
+
 const workflowTransitions: Record<string, string[]> = {
   submitted: ["reviewing"],
   reviewing: ["approved", "returned"],
@@ -202,6 +219,9 @@ export default function AgencySubmissionDetailPage({
   const [generation, setGeneration] =
     useState<SubmissionDocumentGeneration | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [autoRegistering, setAutoRegistering] = useState(false);
+  const [autoRegisterResult, setAutoRegisterResult] =
+    useState<AutoRegisterResult | null>(null);
 
   const getAccessToken = useCallback(async () => {
     const {
@@ -355,6 +375,62 @@ export default function AgencySubmissionDetailPage({
       );
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleAutoRegister() {
+    if (
+      !batch ||
+      !canUpdate ||
+      !["approved", "processing", "warranty_created"].includes(batch.status)
+    ) {
+      return;
+    }
+
+    setAutoRegistering(true);
+    setAutoRegisterResult(null);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`/api/submission-batches/${id}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const json = (await response.json()) as {
+        success: boolean;
+        error?: string;
+        code?: string;
+        result?: AutoRegisterResult;
+      };
+
+      if (!response.ok || !json.success || !json.result) {
+        const codeLabel = json.code ? `[${json.code}] ` : "";
+        throw new Error(
+          `${codeLabel}${
+            json.error || "保証書・請求書の自動登録に失敗しました"
+          }`
+        );
+      }
+
+      await loadDetail();
+      setAutoRegisterResult(json.result);
+      setSuccessMessage(
+        json.result.status === "already_completed"
+          ? "自動登録済みの内容を再確認しました"
+          : "保証書・請求書の自動登録が完了しました"
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "保証書・請求書の自動登録に失敗しました"
+      );
+    } finally {
+      setAutoRegistering(false);
     }
   }
 
@@ -650,6 +726,68 @@ export default function AgencySubmissionDetailPage({
               生成結果はまだありません。生成してもDBには保存されません。
             </div>
           )}
+        </section>
+      ) : null}
+
+      {canUpdate &&
+      ["approved", "processing", "warranty_created"].includes(batch.status) ? (
+        <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold">Auto Register Engine v1</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                事前検証後、既存の保証書・請求書機能へ登録し、全件再確認します。
+              </p>
+              {batch.status === "processing" ? (
+                <p className="mt-2 text-sm font-medium text-yellow-800">
+                  処理中のため、Workflowイベントと既存登録を確認して再開します。
+                </p>
+              ) : null}
+              {batch.status === "warranty_created" ? (
+                <p className="mt-2 text-sm font-medium text-green-800">
+                  完了済みデータと2つのWorkflowイベントを再確認します。
+                </p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleAutoRegister()}
+              disabled={autoRegistering}
+              className="rounded-lg bg-blue-800 px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {autoRegistering
+                ? "確認・登録中..."
+                : batch.status === "processing"
+                  ? "自動登録を再開"
+                  : batch.status === "warranty_created"
+                    ? "登録内容を再確認"
+                    : "自動登録を実行"}
+            </button>
+          </div>
+
+          {autoRegisterResult ? (
+            <div className="grid gap-3 rounded-xl border border-blue-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+              <DetailItem label="保証書合計">
+                {autoRegisterResult.certificates.total}件
+              </DetailItem>
+              <DetailItem label="今回作成">
+                {autoRegisterResult.certificates.created}件
+              </DetailItem>
+              <DetailItem label="既存再利用">
+                {autoRegisterResult.certificates.reused}件
+              </DetailItem>
+              <DetailItem label="請求書">
+                {autoRegisterResult.invoice.invoice_no}
+                {autoRegisterResult.invoice.reused ? "（再利用）" : "（作成）"}
+              </DetailItem>
+              <div className="sm:col-span-2 lg:col-span-4">
+                <div className="text-xs text-gray-500">保証書番号</div>
+                <div className="mt-2 break-words font-mono text-xs text-gray-800">
+                  {autoRegisterResult.certificates.certificate_numbers.join("、")}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

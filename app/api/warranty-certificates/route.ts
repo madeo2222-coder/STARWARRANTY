@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-type CertificateItemInput = {
-  product_id: string;
-  is_enabled: boolean;
-};
+import {
+  createWarrantyCertificate,
+  WarrantyCertificateRegistrationError,
+  type WarrantyCertificateItemInput,
+} from "@/lib/warranty/register-certificate";
 
 type CreateWarrantyCertificateBody = {
   certificate_no?: string;
@@ -20,7 +20,7 @@ type CreateWarrantyCertificateBody = {
   introducer_name?: string | null;
   seller_name?: string | null;
   note?: string | null;
-  items?: CertificateItemInput[];
+  items?: WarrantyCertificateItemInput[];
 };
 
 export const dynamic = "force-dynamic";
@@ -114,56 +114,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: certificate, error: certificateError } = await supabase
-      .from("warranty_certificates")
-      .insert({
-        certificate_no: body.certificate_no.trim(),
-        customer_name: body.customer_name.trim(),
-        customer_name_kana: body.customer_name_kana?.trim() || null,
-        postal_code: body.postal_code?.trim() || null,
-        address1: body.address1?.trim() || null,
-        address2: body.address2?.trim() || null,
-        address3: body.address3?.trim() || null,
-        property_name: body.property_name?.trim() || null,
-        property_room: body.property_room?.trim() || null,
-        start_date: body.start_date,
-        introducer_name: body.introducer_name?.trim() || null,
-        seller_name: body.seller_name?.trim() || null,
-        note: body.note?.trim() || null,
-        status: "active",
-      })
-      .select("id, certificate_no")
-      .single();
-
-    if (certificateError || !certificate) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: certificateError?.message || "保証書ヘッダ保存に失敗しました",
-        },
-        { status: 500 }
-      );
-    }
-
-    const itemRows = body.items.map((item) => ({
-      certificate_id: certificate.id,
-      product_id: item.product_id,
-      is_enabled: item.is_enabled,
-    }));
-
-    const { error: itemsError } = await supabase
-      .from("warranty_certificate_items")
-      .insert(itemRows);
-
-    if (itemsError) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: itemsError.message,
-        },
-        { status: 500 }
-      );
-    }
+    const certificate = await createWarrantyCertificate(supabase, {
+      certificate_no: body.certificate_no,
+      customer_name: body.customer_name,
+      customer_name_kana: body.customer_name_kana,
+      postal_code: body.postal_code,
+      address1: body.address1,
+      address2: body.address2,
+      address3: body.address3,
+      property_name: body.property_name,
+      property_room: body.property_room,
+      start_date: body.start_date,
+      introducer_name: body.introducer_name,
+      seller_name: body.seller_name,
+      note: body.note,
+      items: body.items,
+    });
 
     return NextResponse.json({
       success: true,
@@ -175,7 +141,13 @@ export async function POST(req: Request) {
         success: false,
         error: error instanceof Error ? error.message : "保存に失敗しました",
       },
-      { status: 500 }
+      {
+        status:
+          error instanceof WarrantyCertificateRegistrationError &&
+          error.kind === "validation"
+            ? 400
+            : 500,
+      }
     );
   }
 }

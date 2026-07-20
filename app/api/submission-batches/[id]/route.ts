@@ -4,6 +4,14 @@ import {
   generateSubmissionDocuments,
   type SubmissionDocumentRow,
 } from "@/lib/submission-center/document-generator";
+import {
+  transitionSubmissionBatchStatus,
+  WorkflowTransitionError,
+} from "@/lib/submission-center/workflow";
+import {
+  autoRegisterSubmissionBatch,
+  AutoRegisterError,
+} from "@/lib/submission-center/auto-register";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,39 +25,6 @@ const HEADQUARTERS_ADMIN_EMAILS = [
   "n.fukuda@st-w.jp",
   "t.hiraga@st-w.jp",
 ];
-
-type WorkflowStatus =
-  | "submitted"
-  | "reviewing"
-  | "returned"
-  | "approved"
-  | "processing"
-  | "warranty_created"
-  | "printed"
-  | "mailed"
-  | "completed";
-
-const workflowTransitions: Record<
-  WorkflowStatus,
-  readonly WorkflowStatus[]
-> = {
-  submitted: ["reviewing"],
-  reviewing: ["approved", "returned"],
-  returned: ["reviewing"],
-  approved: ["processing"],
-  processing: ["warranty_created"],
-  warranty_created: ["printed"],
-  printed: ["mailed"],
-  mailed: ["completed"],
-  completed: [],
-};
-
-function isWorkflowStatus(value: unknown): value is WorkflowStatus {
-  return (
-    typeof value === "string" &&
-    Object.prototype.hasOwnProperty.call(workflowTransitions, value)
-  );
-}
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -69,6 +44,38 @@ function getAdminClient() {
       autoRefreshToken: false,
     },
   });
+}
+
+function workflowErrorStatus(error: WorkflowTransitionError) {
+  switch (error.code) {
+    case "INVALID_NEXT_STATUS":
+    case "NOTE_REQUIRED":
+    case "INVALID_CURRENT_STATUS":
+    case "TRANSITION_NOT_ALLOWED":
+      return 400;
+    case "BATCH_NOT_FOUND":
+      return 404;
+    case "CONCURRENT_UPDATE":
+      return 409;
+    default:
+      return 500;
+  }
+}
+
+function autoRegisterErrorStatus(error: AutoRegisterError) {
+  switch (error.code) {
+    case "BATCH_NOT_FOUND":
+      return 404;
+    case "PRECONDITION_FAILED":
+      return 400;
+    case "WORKFLOW_EVENT_INCONSISTENT":
+    case "PARTIAL_REGISTRATION":
+    case "CONTENT_MISMATCH":
+    case "UNSUPPORTED_STATUS":
+      return 409;
+    default:
+      return 500;
+  }
 }
 
 function normalizeEmail(value: string | null | undefined) {
@@ -407,122 +414,28 @@ export async function PATCH(
       status?: unknown;
       note?: unknown;
     };
-    const nextStatus = body.status;
     const note = typeof body.note === "string" ? body.note.trim() : "";
-
-    if (!isWorkflowStatus(nextStatus)) {
-      return NextResponse.json(
-        { success: false, error: "指定された状態は利用できません" },
-        { status: 400 }
-      );
-    }
-
-    if (nextStatus === "returned" && !note) {
-      return NextResponse.json(
-        { success: false, error: "差戻し理由を入力してください" },
-        { status: 400 }
-      );
-    }
-
-    const { data: currentBatch, error: currentBatchError } =
-      await actor.supabase
-        .from("submission_batches")
-        .select("id, status")
-        .eq("id", batchId)
-        .maybeSingle();
-
-    if (currentBatchError) {
-      return NextResponse.json(
-        { success: false, error: currentBatchError.message },
-        { status: 500 }
-      );
-    }
-
-    if (!currentBatch) {
-      return NextResponse.json(
-        { success: false, error: "受付情報が見つかりません" },
-        { status: 404 }
-      );
-    }
-
-    if (!isWorkflowStatus(currentBatch.status)) {
-      return NextResponse.json(
-        { success: false, error: "現在の状態を処理できません" },
-        { status: 400 }
-      );
-    }
-
-    const previousStatus = currentBatch.status;
-    const allowedNextStatuses = workflowTransitions[previousStatus];
-
-    if (!allowedNextStatuses.includes(nextStatus)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `${previousStatus} から ${nextStatus} へは変更できません`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const now = new Date().toISOString();
-    const { data: updatedBatch, error: updateError } = await actor.supabase
-      .from("submission_batches")
-      .update({
-        status: nextStatus,
-        reviewed_by: actor.userId,
-        reviewed_at: now,
-        review_note: note || null,
-        updated_at: now,
-      })
-      .eq("id", batchId)
-      .eq("status", previousStatus)
-      .select(
-        "id, batch_no, status, reviewed_by, reviewed_at, review_note, updated_at"
-      )
-      .maybeSingle();
-
-    if (updateError) {
-      return NextResponse.json(
-        { success: false, error: updateError.message },
-        { status: 500 }
-      );
-    }
-
-    if (!updatedBatch) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "状態が他の操作で更新されました。再読み込みしてください",
-        },
-        { status: 409 }
-      );
-    }
-
-    const { error: eventError } = await actor.supabase
-      .from("submission_events")
-      .insert({
-        batch_id: batchId,
-        event_type: "status_changed",
-        actor_user_id: actor.userId,
-        actor_label: actor.actorLabel,
-        previous_status: previousStatus,
-        next_status: nextStatus,
-        note: note || null,
-      });
-
-    if (eventError) {
-      return NextResponse.json(
-        { success: false, error: eventError.message },
-        { status: 500 }
-      );
-    }
+    const transition = await transitionSubmissionBatchStatus({
+      supabase: actor.supabase,
+      batchId,
+      nextStatus: body.status,
+      actorUserId: actor.userId,
+      actorLabel: actor.actorLabel,
+      note,
+    });
 
     return NextResponse.json({
       success: true,
-      batch: updatedBatch,
+      batch: transition.updatedBatch,
     });
   } catch (error) {
+    if (error instanceof WorkflowTransitionError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: workflowErrorStatus(error) }
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
@@ -532,6 +445,69 @@ export async function PATCH(
             : "状態の更新に失敗しました",
       },
       { status: 403 }
+    );
+  }
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const actor = await requireAuthenticatedActor(request);
+
+    if (!actor.isHeadquarters) {
+      return NextResponse.json(
+        { success: false, error: "本部担当者のみ自動登録できます" },
+        { status: 403 }
+      );
+    }
+
+    const { id } = await params;
+    const batchId = id.trim();
+    if (!batchId) {
+      return NextResponse.json(
+        { success: false, error: "受付IDがありません" },
+        { status: 400 }
+      );
+    }
+
+    const result = await autoRegisterSubmissionBatch({
+      supabase: actor.supabase,
+      batchId,
+      actorUserId: actor.userId,
+      actorLabel: actor.actorLabel,
+    });
+
+    return NextResponse.json({ success: true, result });
+  } catch (error) {
+    if (error instanceof WorkflowTransitionError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          code: error.code,
+          status_updated: error.statusUpdated,
+        },
+        { status: workflowErrorStatus(error) }
+      );
+    }
+    if (error instanceof AutoRegisterError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: autoRegisterErrorStatus(error) }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "保証書・請求書の自動登録に失敗しました",
+      },
+      { status: 500 }
     );
   }
 }
