@@ -22,9 +22,18 @@ import {
   type DuplicateReviewDecision,
 } from "@/lib/submission-center/duplicate-review";
 import {
+  certificateIdsMatch,
   certificateNumbersMatch,
   inspectWarrantyFulfillment,
 } from "@/lib/submission-center/warranty-fulfillment";
+import {
+  isWarrantyMailMethod,
+  loadWarrantyFulfillmentManagement,
+  markWarrantyCertificatesMailed,
+  markWarrantyCertificatesPrinted,
+  trackingRequiredMailMethods,
+  WarrantyMailingError,
+} from "@/lib/submission-center/warranty-mailing";
 import {
   isHeadquartersEmail,
   normalizeEmail,
@@ -107,6 +116,28 @@ function duplicateReviewErrorStatus(error: DuplicateReviewError) {
     case "DUPLICATE_REVIEW_CONCURRENT_UPDATE":
     case "DUPLICATE_REVIEW_COMPLETED_BUT_UNRESOLVED":
     case "NO_REGISTERABLE_ROWS":
+      return 409;
+    default:
+      return 500;
+  }
+}
+
+function warrantyMailingErrorStatus(error: WarrantyMailingError) {
+  switch (error.code) {
+    case "FULFILLMENT_BATCH_NOT_FOUND":
+    case "FULFILLMENT_CERTIFICATE_NOT_FOUND":
+      return 404;
+    case "FULFILLMENT_PRINT_COUNT_INVALID":
+    case "FULFILLMENT_RECIPIENT_INCOMPLETE":
+    case "FULFILLMENT_MAIL_METHOD_INVALID":
+    case "FULFILLMENT_TRACKING_REQUIRED":
+      return 400;
+    case "FULFILLMENT_STATUS_CHANGED":
+    case "FULFILLMENT_CERTIFICATE_MISMATCH":
+    case "FULFILLMENT_ALREADY_PRINTED":
+    case "FULFILLMENT_NOT_ALL_PRINTED":
+    case "FULFILLMENT_ALREADY_MAILED":
+    case "FULFILLMENT_CONCURRENT_UPDATE":
       return 409;
     default:
       return 500;
@@ -402,7 +433,7 @@ export async function GET(
       "processing",
       "warranty_created",
     ];
-    const [warrantyFulfillment, autoRegisterPreflight, duplicateReviews] = await Promise.all([
+    const [warrantyInspection, autoRegisterPreflight, duplicateReviews] = await Promise.all([
       actor.isHeadquarters && fulfillmentStatuses.includes(batch.status)
         ? inspectWarrantyFulfillment({
             supabase: actor.supabase,
@@ -422,6 +453,13 @@ export async function GET(
           })
         : Promise.resolve(undefined),
     ]);
+    const warrantyFulfillment = warrantyInspection
+      ? await loadWarrantyFulfillmentManagement({
+          supabase: actor.supabase,
+          batchId,
+          inspection: warrantyInspection,
+        })
+      : undefined;
 
     return NextResponse.json({
       success: true,
@@ -460,6 +498,12 @@ export async function GET(
         : {}),
     });
   } catch (error) {
+    if (error instanceof WarrantyMailingError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: warrantyMailingErrorStatus(error) }
+      );
+    }
     return NextResponse.json(
       {
         success: false,
@@ -502,18 +546,183 @@ export async function PATCH(
       row_id?: unknown;
       status?: unknown;
       note?: unknown;
-      print_confirmation?: {
-        certificate_numbers?: unknown;
-      };
+      certificate_ids?: unknown;
+      certificate_numbers?: unknown;
+      print_count?: unknown;
+      mail_items?: unknown;
     };
-    let note = typeof body.note === "string" ? body.note.trim() : "";
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    const action = typeof body.action === "string" ? body.action : "";
+
+    if (action === "confirm_warranty_printed") {
+      const fulfillment = await inspectWarrantyFulfillment({
+        supabase: actor.supabase,
+        batchId,
+        requireStatus: "warranty_created",
+      });
+      if (!fulfillment.ready || fulfillment.expected_count < 1) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "FULFILLMENT_CERTIFICATE_MISMATCH",
+            error: "受付と保証書の整合性を確認できないため印刷済みにできません。",
+            warranty_fulfillment: fulfillment,
+          },
+          { status: 409 }
+        );
+      }
+      const expectedIds = fulfillment.certificates.map(
+        (certificate) => certificate.id
+      );
+      if (!certificateIdsMatch(body.certificate_ids, expectedIds)) {
+        throw new WarrantyMailingError(
+          "FULFILLMENT_CERTIFICATE_MISMATCH",
+          "印刷確認された保証書がサーバー側の対象一覧と一致しません。"
+        );
+      }
+      const expectedNumbers = fulfillment.certificates.map(
+        (certificate) => certificate.certificate_number
+      );
+      if (!certificateNumbersMatch(body.certificate_numbers, expectedNumbers)) {
+        throw new WarrantyMailingError(
+          "FULFILLMENT_CERTIFICATE_MISMATCH",
+          "印刷確認された保証書番号がサーバー側の対象一覧と一致しません。"
+        );
+      }
+      const printCount = Number(body.print_count);
+      if (!Number.isInteger(printCount) || printCount < 1) {
+        throw new WarrantyMailingError(
+          "FULFILLMENT_PRINT_COUNT_INVALID",
+          "印刷枚数は1以上の整数で指定してください。"
+        );
+      }
+      const result = await markWarrantyCertificatesPrinted({
+        supabase: actor.supabase,
+        batchId,
+        certificateIds: expectedIds,
+        printCount,
+        printNote: note,
+        actorUserId: actor.userId,
+        actorLabel: actor.actorLabel,
+      });
+      return NextResponse.json({ success: true, fulfillment: result });
+    }
+
+    if (action === "confirm_warranty_mailed") {
+      const fulfillment = await inspectWarrantyFulfillment({
+        supabase: actor.supabase,
+        batchId,
+      });
+      if (!fulfillment.ready || fulfillment.expected_count < 1) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "FULFILLMENT_CERTIFICATE_MISMATCH",
+            error: "受付と保証書の整合性を確認できないため郵送済みにできません。",
+            warranty_fulfillment: fulfillment,
+          },
+          { status: 409 }
+        );
+      }
+      const expectedIds = fulfillment.certificates.map(
+        (certificate) => certificate.id
+      );
+      const submittedMailItems = Array.isArray(body.mail_items)
+        ? body.mail_items
+        : [];
+      const submittedIds = submittedMailItems.map((item) =>
+        item && typeof item === "object" && "certificate_id" in item
+          ? (item as { certificate_id?: unknown }).certificate_id
+          : null
+      );
+      if (!certificateIdsMatch(submittedIds, expectedIds)) {
+        throw new WarrantyMailingError(
+          "FULFILLMENT_CERTIFICATE_MISMATCH",
+          "郵送確認された保証書がサーバー側の対象一覧と一致しません。"
+        );
+      }
+      const expectedNumbers = fulfillment.certificates.map(
+        (certificate) => certificate.certificate_number
+      );
+      const submittedNumbers = submittedMailItems.map((item) =>
+        item && typeof item === "object" && "certificate_number" in item
+          ? (item as { certificate_number?: unknown }).certificate_number
+          : null
+      );
+      if (!certificateNumbersMatch(submittedNumbers, expectedNumbers)) {
+        throw new WarrantyMailingError(
+          "FULFILLMENT_CERTIFICATE_MISMATCH",
+          "郵送確認された保証書番号がサーバー側の対象一覧と一致しません。"
+        );
+      }
+      const mailItems = expectedIds.map((certificateId) => {
+        const rawItem = submittedMailItems.find(
+          (item) =>
+            item &&
+            typeof item === "object" &&
+            "certificate_id" in item &&
+            (item as { certificate_id?: unknown }).certificate_id ===
+              certificateId
+        ) as
+          | {
+              mail_method?: unknown;
+              tracking_number?: unknown;
+              certificate_number?: unknown;
+            }
+          | undefined;
+        if (!isWarrantyMailMethod(rawItem?.mail_method)) {
+          throw new WarrantyMailingError(
+            "FULFILLMENT_MAIL_METHOD_INVALID",
+            "郵送方法が正しくありません。"
+          );
+        }
+        const expectedCertificate = fulfillment.certificates.find(
+          (certificate) => certificate.id === certificateId
+        );
+        if (
+          rawItem.certificate_number !==
+          expectedCertificate?.certificate_number
+        ) {
+          throw new WarrantyMailingError(
+            "FULFILLMENT_CERTIFICATE_MISMATCH",
+            "保証書IDと保証書番号の組み合わせが一致しません。"
+          );
+        }
+        const trackingNumber =
+          typeof rawItem.tracking_number === "string"
+            ? rawItem.tracking_number.trim()
+            : "";
+        if (
+          trackingRequiredMailMethods.has(rawItem.mail_method) &&
+          !trackingNumber
+        ) {
+          throw new WarrantyMailingError(
+            "FULFILLMENT_TRACKING_REQUIRED",
+            "選択した郵送方法では追跡番号が必要です。"
+          );
+        }
+        return {
+          certificateId,
+          mailMethod: rawItem.mail_method,
+          trackingNumber,
+        };
+      });
+      const result = await markWarrantyCertificatesMailed({
+        supabase: actor.supabase,
+        batchId,
+        mailItems,
+        mailNote: note,
+        actorUserId: actor.userId,
+        actorLabel: actor.actorLabel,
+      });
+      return NextResponse.json({ success: true, fulfillment: result });
+    }
 
     if (body.action !== undefined) {
       const decisions: Record<string, DuplicateReviewDecision> = {
         review_duplicate_as_separate: "separate",
         exclude_duplicate_row: "exclude",
       };
-      const action = typeof body.action === "string" ? body.action : "";
       const decision = decisions[action];
       if (!decision) {
         throw new DuplicateReviewError(
@@ -554,47 +763,13 @@ export async function PATCH(
       });
     }
 
-    if (body.status === "printed") {
-      const fulfillment = await inspectWarrantyFulfillment({
-        supabase: actor.supabase,
-        batchId,
-        requireStatus: "warranty_created",
-      });
-      if (!fulfillment.ready || fulfillment.expected_count < 1) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "受付と保証書の整合性を確認できないため印刷済みにできません",
-            warranty_fulfillment: fulfillment,
-          },
-          { status: 409 }
-        );
-      }
-
-      const expectedNumbers = fulfillment.certificates.map(
-        (certificate) => certificate.certificate_number
+    if (body.status === "printed" || body.status === "mailed") {
+      throw new WarrantyMailingError(
+        "FULFILLMENT_STATUS_CHANGED",
+        body.status === "printed"
+          ? "印刷済みへの更新は専用の印刷確認処理から実行してください。"
+          : "郵送済みへの更新は専用の郵送確認処理から実行してください。"
       );
-      if (
-        !certificateNumbersMatch(
-          body.print_confirmation?.certificate_numbers,
-          expectedNumbers
-        )
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "印刷確認された保証書番号がサーバー側の対象一覧と一致しません",
-          },
-          { status: 409 }
-        );
-      }
-
-      const confirmationNote = [
-        `印刷確認件数: ${expectedNumbers.length}件`,
-        `対象保証書番号: ${expectedNumbers.join("、")}`,
-        "本部担当者による手動確認",
-      ].join("\n");
-      note = note ? `${confirmationNote}\n${note}` : confirmationNote;
     }
 
     const transition = await transitionSubmissionBatchStatus({
@@ -603,8 +778,7 @@ export async function PATCH(
       nextStatus: body.status,
       actorUserId: actor.userId,
       actorLabel: actor.actorLabel,
-      source:
-        body.status === "printed" ? "print_fulfillment" : "manual",
+      source: "manual",
       note,
     });
 
@@ -613,6 +787,12 @@ export async function PATCH(
       batch: transition.updatedBatch,
     });
   } catch (error) {
+    if (error instanceof WarrantyMailingError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: warrantyMailingErrorStatus(error) }
+      );
+    }
     if (error instanceof DuplicateReviewError) {
       return NextResponse.json(
         { success: false, error: error.message, code: error.code },

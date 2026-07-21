@@ -218,3 +218,7 @@ export function certificateNumbersMatch(
     JSON.stringify([...normalized].sort()) === JSON.stringify([...expected].sort())
   );
 }
+
+export function certificateIdsMatch(actual: unknown, expected: string[]) {
+  return certificateNumbersMatch(actual, expected);
+}

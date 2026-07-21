@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import { requireHeadquartersPage } from "@/lib/auth/headquarters-server";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,8 @@ function enabledItemCount(items: WarrantyCertificateItemRow[] | undefined) {
 }
 
 export default async function WarrantyCertificatesPage() {
+  await requireHeadquartersPage();
+
   let rows: WarrantyCertificateRow[] = [];
   let errorMessage = "";
 

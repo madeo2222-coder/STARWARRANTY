@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import * as QRCode from "qrcode";
 import WarrantyPdfButton from "./WarrantyPdfButton";
+import { requireHeadquartersPage } from "@/lib/auth/headquarters-server";
 export const dynamic = "force-dynamic";
 
 type WarrantyCertificateDetail = {
@@ -90,6 +91,8 @@ export default async function WarrantyCertificateDetailPage({
 }: {
   searchParams: Promise<{ id?: string }>;
 }) {
+  await requireHeadquartersPage();
+
   const { id } = await searchParams;
 
   if (!id) {

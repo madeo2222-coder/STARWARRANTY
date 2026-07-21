@@ -14,7 +14,8 @@ export type WorkflowStatus =
 export type WorkflowTransitionSource =
   | "manual"
   | "auto_register"
-  | "print_fulfillment";
+  | "print_fulfillment"
+  | "mail_fulfillment";
 
 export const submissionWorkflowTransitions: Record<
   WorkflowStatus,
@@ -164,6 +165,8 @@ export async function transitionSubmissionBatchStatus(input: {
         ? "auto_register"
         : previousStatus === "warranty_created" && nextStatus === "printed"
           ? "print_fulfillment"
+          : previousStatus === "printed" && nextStatus === "mailed"
+            ? "mail_fulfillment"
           : "manual";
 
   if (input.source !== requiredSource) {
@@ -172,6 +175,8 @@ export async function transitionSubmissionBatchStatus(input: {
         ? "この状態変更は自動登録処理からのみ実行できます。"
         : requiredSource === "print_fulfillment"
           ? "この状態変更は印刷確認処理からのみ実行できます。"
+          : requiredSource === "mail_fulfillment"
+            ? "この状態変更は郵送確認処理からのみ実行できます。"
           : "この状態変更は通常の状態変更処理からのみ実行できます。";
     throw new WorkflowTransitionError(
       "SOURCE_NOT_ALLOWED",
