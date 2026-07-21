@@ -139,7 +139,7 @@ export type AutoRegisterRegistrationPlan = {
   batch: BatchData;
   billing_customer_id: string;
   certificates: CreateWarrantyCertificateInput[];
-  invoice: CreateWarrantyInvoiceInput;
+  invoice: CreateWarrantyInvoiceInput & { invoice_date: string };
   inspection: {
     certificates: AutoRegisterCertificateInspection[];
     invoice: AutoRegisterInvoiceInspection;
@@ -196,8 +196,40 @@ function normalizeCertificateItems(
     );
 }
 
-function deterministicInvoiceDate(targetMonth: string) {
-  return /^\d{4}-\d{2}$/.test(targetMonth) ? `${targetMonth}-01` : null;
+function deterministicInvoiceDate(targetMonth: unknown) {
+  const normalized = String(targetMonth ?? "").trim();
+  const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(normalized);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = match[3] === undefined ? 1 : Number(match[3]);
+  if (year < 1 || month < 1 || month > 12) {
+    return null;
+  }
+
+  const isLeapYear = year % 400 === 0 || (year % 4 === 0 && year % 100 !== 0);
+  const daysInMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  if (day < 1 || day > daysInMonth[month - 1]) {
+    return null;
+  }
+
+  return `${match[1]}-${match[2]}-01`;
 }
 
 function makePreflight(
@@ -250,8 +282,8 @@ function issueField(issue: string) {
   if (issue.startsWith("型番")) return "model_number";
   if (issue.startsWith("保証加入機器")) return "equipment_name";
   if (issue.startsWith("加入機器の台数")) return "quantity";
-  if (issue.startsWith("追加機器")) return "additional_quantity";
-  if (issue.startsWith("追加台数")) return "additional_equipment";
+if (issue.startsWith("追加機器")) return "additional_equipment";
+if (issue.startsWith("追加台数")) return "additional_quantity";
   if (issue.startsWith("保証料")) return "warranty_fee";
   if (issue.startsWith("validation_status")) return "validation_status";
   if (issue.startsWith("duplicate_status")) return "duplicate_status";
@@ -1250,6 +1282,16 @@ async function buildBasePlan(
       (resolvedIdsByDocument.get(document.draft_reference)?.length || 0) > 0 &&
       productResolutionSucceeded.get(document.draft_reference) === true
   );
+  const invoiceDate = deterministicInvoiceDate(batch.target_month);
+  if (!invoiceDate) {
+    checks.push({
+      code: "INVOICE_DATE_INVALID",
+      level: "error",
+      title: "請求日を確定できません",
+      message: "請求日を確定できません。対象月の形式を確認してください。",
+      resolution: "受付の対象月を有効な年月日として確認してください。",
+    });
+  }
 
   let plan: Omit<AutoRegisterRegistrationPlan, "inspection"> | null = null;
   if (
@@ -1257,7 +1299,8 @@ async function buildBasePlan(
     partnerName &&
     customer &&
     generation.warranty_documents.every((document) => document.generation_status === "ready") &&
-    allProductsResolved
+    allProductsResolved &&
+    invoiceDate
   ) {
     const certificates = generation.warranty_documents.map((document) => ({
       certificate_no: document.draft_reference,
@@ -1277,9 +1320,9 @@ async function buildBasePlan(
         (productId) => ({ product_id: productId, is_enabled: true })
       ),
     }));
-    const invoice: CreateWarrantyInvoiceInput = {
+    const invoice: AutoRegisterRegistrationPlan["invoice"] = {
       invoice_no: generation.invoice.draft_reference,
-      invoice_date: deterministicInvoiceDate(batch.target_month),
+      invoice_date: invoiceDate,
       payment_due_date: null,
       subject: generation.invoice.subject,
       bill_to_company_name: customer.company_name || partnerName,
