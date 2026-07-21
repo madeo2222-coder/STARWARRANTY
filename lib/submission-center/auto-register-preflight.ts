@@ -5,6 +5,11 @@ import {
   type WarrantyDocumentDraft,
 } from "@/lib/submission-center/document-generator";
 import { resolvePlanProducts } from "@/lib/submission-center/plan-product-rules";
+import {
+  resolveBillingCustomer,
+  type BillingCustomer,
+  type BillingPartnerSource,
+} from "@/lib/submission-center/billing-customer-resolver";
 import type { CreateWarrantyCertificateInput } from "@/lib/warranty/register-certificate";
 import type { CreateWarrantyInvoiceInput } from "@/lib/invoice/register-warranty-invoice";
 
@@ -48,10 +53,12 @@ export type AutoRegisterPreflight = {
     expected_product_count: number;
     partner_name: string | null;
     billing_customer: {
-      id: string;
+      id: string | null;
       company_name: string | null;
       contact_name: string | null;
       email_configured: boolean;
+      resolution: "existing_exact" | "existing_normalized" | "auto_create";
+      auto_create_on_register: boolean;
     } | null;
     products: {
       row_id: string;
@@ -76,8 +83,8 @@ type BatchData = {
   target_month: string;
   status: string;
   partners:
-    | { company_name: string }
-    | { company_name: string }[]
+    | BillingPartnerSource
+    | BillingPartnerSource[]
     | null;
 };
 
@@ -96,13 +103,6 @@ type WarrantyProduct = {
   product_name: string;
   is_active: boolean | null;
   sort_order: number | null;
-};
-
-type WarrantyCustomer = {
-  id: string;
-  company_name: string | null;
-  contact_name: string | null;
-  email: string | null;
 };
 
 type TransitionEvent = {
@@ -133,6 +133,7 @@ export type AutoRegisterInvoiceInspection = {
 
 export type AutoRegisterRegistrationPlan = {
   batch: BatchData;
+  billing_customer_id: string;
   certificates: CreateWarrantyCertificateInput[];
   invoice: CreateWarrantyInvoiceInput;
   inspection: {
@@ -613,7 +614,17 @@ async function buildBasePlan(
         partner_id,
         target_month,
         status,
-        partners (company_name)
+        partners (
+          id,
+          company_name,
+          representative_name,
+          contact_name,
+          email,
+          phone,
+          postal_code,
+          address1,
+          address2
+        )
       `
     )
     .eq("id", batchId)
@@ -897,62 +908,110 @@ async function buildBasePlan(
     });
   }
 
-  let customers: WarrantyCustomer[] = [];
+  let customer: BillingCustomer | null = null;
   if (partnerName) {
-    const customerResult = await supabase
-      .from("warranty_customers")
-      .select("id, company_name, contact_name, email")
-      .eq("company_name", partnerName);
-    if (customerResult.error) {
-      checks.push({
-        code: "QUERY_FAILED",
-        level: "error",
-        title: "請求先を取得できません",
-        message: customerResult.error.message,
-        resolution: "通信状態を確認して再実行してください。",
+    try {
+      const customerResolution = await resolveBillingCustomer({
+        supabase,
+        source: partner as BillingPartnerSource,
       });
-    } else {
-      customers = (customerResult.data || []) as WarrantyCustomer[];
-      if (customers.length === 0) {
-        checks.push({
-          code: "CUSTOMER_NOT_FOUND",
-          level: "error",
-          title: "請求先が見つかりません",
-          message: `会社名「${partnerName}」と完全一致する請求先がありません。`,
-          resolution: "請求先マスタの会社名を確認してください。",
-        });
-      } else if (customers.length > 1) {
-        checks.push({
-          code: "CUSTOMER_AMBIGUOUS",
-          level: "error",
-          title: "請求先を一意に特定できません",
-          message: `会社名「${partnerName}」と一致する請求先が${customers.length}件あります。`,
-          resolution: "請求先マスタの重複を確認してください。",
-        });
-      } else if (!clean(customers[0].email)) {
-        checks.push({
-          code: "CUSTOMER_EMAIL_REQUIRED",
-          level: "error",
-          title: "請求先メールが未設定です",
-          message: `${partnerName}の請求先メールが設定されていません。`,
-          resolution: "請求先マスタへメールアドレスを設定してください。",
-        });
-      } else {
+      if (customerResolution.state === "resolved") {
+        customer = customerResolution.customer;
         resolvedCustomer = {
-          id: customers[0].id,
-          company_name: customers[0].company_name,
-          contact_name: customers[0].contact_name,
-          email_configured: true,
+          id: customer.id,
+          company_name: customer.company_name,
+          contact_name: customer.contact_name,
+          email_configured: Boolean(clean(customer.email)),
+          resolution:
+            customerResolution.match === "exact"
+              ? "existing_exact"
+              : "existing_normalized",
+          auto_create_on_register: false,
         };
         if (includePreflightChecks) {
           checks.push({
             code: "CUSTOMER_RESOLVED",
             level: "passed",
-            title: "請求先を解決しました",
-            message: `${customers[0].company_name}${clean(customers[0].contact_name) ? ` / ${clean(customers[0].contact_name)}` : ""}`,
+            title: "既存請求先を使用します",
+            message: `${customer.company_name || partnerName}${clean(customer.contact_name) ? ` / ${clean(customer.contact_name)}` : ""}（${customerResolution.match === "exact" ? "会社名完全一致" : "正規化会社名完全一致"}）`,
           });
         }
+      } else if (customerResolution.state === "auto_create_available") {
+        resolvedCustomer = {
+          id: null,
+          company_name: customerResolution.candidate.company_name,
+          contact_name: customerResolution.candidate.contact_name,
+          email_configured: Boolean(customerResolution.candidate.email),
+          resolution: "auto_create",
+          auto_create_on_register: true,
+        };
+        if (includePreflightChecks) {
+          checks.push({
+            code: "CUSTOMER_NOT_FOUND",
+            level: "warning",
+            title: "既存請求先が見つかりません",
+            message: `会社名「${partnerName}」に完全一致または正規化一致する既存請求先はありません。`,
+          });
+          checks.push({
+            code: "CUSTOMER_AUTO_CREATE_AVAILABLE",
+            level: "warning",
+            title: "請求先顧客を自動作成します",
+            message: `${customerResolution.candidate.company_name}${customerResolution.candidate.contact_name ? ` / ${customerResolution.candidate.contact_name}` : ""}。メール設定済みです。自動登録実行時に作成されます。`,
+          });
+        }
+      } else {
+        const displayCustomer =
+          customerResolution.code === "CUSTOMER_AMBIGUOUS"
+            ? null
+            : customerResolution.customer || customerResolution.candidate;
+        resolvedCustomer = displayCustomer
+          ? {
+              id:
+                "id" in displayCustomer && typeof displayCustomer.id === "string"
+                  ? displayCustomer.id
+                  : null,
+              company_name: displayCustomer.company_name,
+              contact_name: displayCustomer.contact_name,
+              email_configured: Boolean(clean(displayCustomer.email)),
+              resolution:
+                customerResolution.customer && customerResolution.match === "exact"
+                  ? "existing_exact"
+                  : customerResolution.customer
+                    ? "existing_normalized"
+                    : "auto_create",
+              auto_create_on_register: false,
+            }
+          : null;
+        if (customerResolution.count === 0 && includePreflightChecks) {
+          checks.push({
+            code: "CUSTOMER_NOT_FOUND",
+            level: "warning",
+            title: "既存請求先が見つかりません",
+            message: `会社名「${partnerName}」に一致する既存請求先はありません。`,
+          });
+        }
+        checks.push({
+          code: customerResolution.code,
+          level: "error",
+          title:
+            customerResolution.code === "CUSTOMER_AMBIGUOUS"
+              ? "同一候補の請求先が複数あります"
+              : "請求先メールアドレスがありません",
+          message: customerResolution.message,
+          resolution:
+            customerResolution.code === "CUSTOMER_AMBIGUOUS"
+              ? "既存請求先を手動確認してください。自動選択・作成は行いません。"
+              : "代理店情報または既存請求先のメールアドレスを修正してください。",
+        });
       }
+    } catch (error) {
+      checks.push({
+        code: "QUERY_FAILED",
+        level: "error",
+        title: "請求先を取得できません",
+        message: error instanceof Error ? error.message : "請求先の取得に失敗しました。",
+        resolution: "通信状態を確認して再実行してください。",
+      });
     }
   } else {
     checks.push({
@@ -1127,9 +1186,6 @@ async function buildBasePlan(
     resolvedIdsByDocument.set(document.draft_reference, [...new Set(ids)]);
   }
 
-  const customer = customers.length === 1 && clean(customers[0].email)
-    ? customers[0]
-    : null;
   const allProductsResolved = generation.warranty_documents.every(
     (document) =>
       (resolvedIdsByDocument.get(document.draft_reference)?.length || 0) > 0 &&
@@ -1167,7 +1223,7 @@ async function buildBasePlan(
       invoice_date: deterministicInvoiceDate(batch.target_month),
       payment_due_date: null,
       subject: generation.invoice.subject,
-      bill_to_company_name: partnerName,
+      bill_to_company_name: customer.company_name || partnerName,
       bill_to_name: clean(customer.contact_name),
       bill_to_email: customer.email || "",
       note: `Submission Center ${batch.batch_no}`,
@@ -1178,7 +1234,12 @@ async function buildBasePlan(
         unit_price: item.unit_price,
       })),
     };
-    plan = { batch, certificates, invoice };
+    plan = {
+      batch,
+      billing_customer_id: customer.id,
+      certificates,
+      invoice,
+    };
   }
 
   return {

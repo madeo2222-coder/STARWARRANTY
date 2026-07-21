@@ -9,6 +9,12 @@ import {
 import { transitionSubmissionBatchStatus } from "@/lib/submission-center/workflow";
 import { createWarrantyCertificate } from "@/lib/warranty/register-certificate";
 import { createWarrantyInvoice } from "@/lib/invoice/register-warranty-invoice";
+import {
+  BillingCustomerResolutionError,
+  ensureBillingCustomerForBatch,
+  verifyBillingCustomerForInvoice,
+  type BillingCustomerErrorCode,
+} from "@/lib/submission-center/billing-customer-resolver";
 
 export { buildWarrantyFulfillmentExpectation };
 
@@ -20,7 +26,8 @@ export type AutoRegisterErrorCode =
   | "WORKFLOW_EVENT_INCONSISTENT"
   | "PARTIAL_REGISTRATION"
   | "CONTENT_MISMATCH"
-  | "REGISTRATION_FAILED";
+  | "REGISTRATION_FAILED"
+  | BillingCustomerErrorCode;
 
 export class AutoRegisterError extends Error {
   readonly code: AutoRegisterErrorCode;
@@ -65,6 +72,13 @@ function errorCodeForCheck(
       return "PARTIAL_REGISTRATION";
     case "CONTENT_MISMATCH":
       return "CONTENT_MISMATCH";
+    case "CUSTOMER_NOT_FOUND":
+    case "CUSTOMER_AMBIGUOUS":
+    case "CUSTOMER_EMAIL_REQUIRED":
+    case "CUSTOMER_CREATE_FAILED":
+    case "CUSTOMER_CREATE_CONFLICT":
+    case "CUSTOMER_CREATED_BUT_UNRESOLVED":
+      return check.code;
     default:
       return "PRECONDITION_FAILED";
   }
@@ -96,6 +110,34 @@ async function refreshPlan(
   return requireReadyPlan(
     await runAutoRegisterPreflight({ supabase, batchId })
   );
+}
+
+async function prepareInitialPlan(
+  supabase: SupabaseClient,
+  batchId: string
+) {
+  const initial = await runAutoRegisterPreflight({ supabase, batchId });
+  const autoCreateAvailable = initial.preflight.checks.some(
+    (check) => check.code === "CUSTOMER_AUTO_CREATE_AVAILABLE"
+  );
+
+  if (initial.registrationPlan) {
+    return requireReadyPlan(initial);
+  }
+  if (!initial.preflight.ready || !autoCreateAvailable) {
+    return requireReadyPlan(initial);
+  }
+
+  try {
+    await ensureBillingCustomerForBatch({ supabase, batchId });
+  } catch (error) {
+    if (error instanceof BillingCustomerResolutionError) {
+      throw new AutoRegisterError(error.code, error.message);
+    }
+    throw error;
+  }
+
+  return refreshPlan(supabase, batchId);
 }
 
 async function createAndVerifyCertificate(input: {
@@ -139,9 +181,15 @@ async function createAndVerifyCertificate(input: {
 async function createAndVerifyInvoice(input: {
   supabase: SupabaseClient;
   batchId: string;
+  billingCustomerId: string;
   expected: AutoRegisterRegistrationPlan["invoice"];
 }) {
   try {
+    await verifyBillingCustomerForInvoice({
+      supabase: input.supabase,
+      customerId: input.billingCustomerId,
+      invoice: input.expected,
+    });
     await createWarrantyInvoice(input.supabase, input.expected);
   } catch (error) {
     const checked = await runAutoRegisterPreflight({
@@ -154,6 +202,9 @@ async function createAndVerifyInvoice(input: {
     const failure = firstBlockingCheck(checked);
     if (failure) {
       throw new AutoRegisterError(errorCodeForCheck(failure), failure.message);
+    }
+    if (error instanceof BillingCustomerResolutionError) {
+      throw new AutoRegisterError(error.code, error.message);
     }
     throw new AutoRegisterError(
       "REGISTRATION_FAILED",
@@ -177,7 +228,7 @@ export async function autoRegisterSubmissionBatch(input: {
   actorUserId: string;
   actorLabel: string;
 }): Promise<AutoRegisterResult> {
-  let plan = await refreshPlan(input.supabase, input.batchId);
+  let plan = await prepareInitialPlan(input.supabase, input.batchId);
 
   if (plan.batch.status === "warranty_created") {
     return {
@@ -236,6 +287,7 @@ export async function autoRegisterSubmissionBatch(input: {
     invoiceInspection = await createAndVerifyInvoice({
       supabase: input.supabase,
       batchId: input.batchId,
+      billingCustomerId: plan.billing_customer_id,
       expected: plan.invoice,
     });
     invoiceCreated = true;

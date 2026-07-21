@@ -1070,7 +1070,12 @@ export default function AgencySubmissionDetailPage({
 
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border p-4">
-                  <div className="text-xs text-gray-500">解決済み請求先</div>
+                  <div className="text-xs text-gray-500">
+                    {autoRegisterPreflight.resolved.billing_customer
+                      ?.resolution === "auto_create"
+                      ? "作成予定の請求先"
+                      : "解決済み請求先"}
+                  </div>
                   {autoRegisterPreflight.resolved.billing_customer ? (
                     <div className="mt-2 text-sm">
                       <div className="font-medium text-gray-900">
@@ -1087,6 +1092,21 @@ export default function AgencySubmissionDetailPage({
                           ? "設定済み"
                           : "未設定"}
                       </div>
+                      {autoRegisterPreflight.resolved.billing_customer
+                        .auto_create_on_register ? (
+                        <div className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                          既存請求先がないため、自動登録実行時に提出元代理店情報から作成します。
+                        </div>
+                      ) : autoRegisterPreflight.resolved.billing_customer
+                          .resolution === "auto_create" ? (
+                        <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">
+                          メール未設定のため自動作成できません。代理店情報を修正してください。
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-green-700">
+                          既存請求先を使用します。
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="mt-2 text-sm text-red-700">未解決</div>

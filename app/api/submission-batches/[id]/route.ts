@@ -69,11 +69,16 @@ function autoRegisterErrorStatus(error: AutoRegisterError) {
     case "BATCH_NOT_FOUND":
       return 404;
     case "PRECONDITION_FAILED":
+    case "CUSTOMER_NOT_FOUND":
+    case "CUSTOMER_EMAIL_REQUIRED":
       return 400;
     case "WORKFLOW_EVENT_INCONSISTENT":
     case "PARTIAL_REGISTRATION":
     case "CONTENT_MISMATCH":
     case "UNSUPPORTED_STATUS":
+    case "CUSTOMER_AMBIGUOUS":
+    case "CUSTOMER_CREATE_CONFLICT":
+    case "CUSTOMER_CREATED_BUT_UNRESOLVED":
       return 409;
     default:
       return 500;
