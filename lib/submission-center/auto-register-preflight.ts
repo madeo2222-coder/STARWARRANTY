@@ -176,14 +176,24 @@ function sameNumber(actual: unknown, expected: unknown) {
   return Number(actual || 0) === Number(expected || 0);
 }
 
-function stableSortItems<T extends { product_id: string; is_enabled: boolean }>(
-  items: T[]
-) {
-  return [...items].sort((a, b) =>
-    `${a.product_id}:${a.is_enabled}`.localeCompare(
-      `${b.product_id}:${b.is_enabled}`
-    )
-  );
+type ComparableCertificateItem = {
+  product_id: string;
+  is_enabled: boolean;
+};
+
+function normalizeCertificateItems(
+  items: Array<{ product_id: string; is_enabled: boolean }>
+): ComparableCertificateItem[] {
+  return items
+    .map((item) => ({
+      product_id: item.product_id,
+      is_enabled: item.is_enabled,
+    }))
+    .sort(
+      (a, b) =>
+        a.product_id.localeCompare(b.product_id) ||
+        Number(a.is_enabled) - Number(b.is_enabled)
+    );
 }
 
 function deterministicInvoiceDate(targetMonth: string) {
@@ -396,8 +406,10 @@ async function inspectCertificate(
     return { state: "invalid", id: actual.id };
   }
 
-  const actualItems = stableSortItems(actual.warranty_certificate_items || []);
-  const expectedItems = stableSortItems(expected.items);
+  const actualItems = normalizeCertificateItems(
+    actual.warranty_certificate_items || []
+  );
+  const expectedItems = normalizeCertificateItems(expected.items);
   if (actualItems.length !== expectedItems.length) {
     checks.push({
       code: "PARTIAL_REGISTRATION",
@@ -408,7 +420,17 @@ async function inspectCertificate(
     });
     return { state: "invalid", id: actual.id };
   }
-  if (JSON.stringify(actualItems) !== JSON.stringify(expectedItems)) {
+  const itemsMatch =
+    actualItems.length === expectedItems.length &&
+    actualItems.every((actualItem, index) => {
+      const expectedItem = expectedItems[index];
+      return (
+        expectedItem !== undefined &&
+        actualItem.product_id === expectedItem.product_id &&
+        actualItem.is_enabled === expectedItem.is_enabled
+      );
+    });
+  if (!itemsMatch) {
     checks.push({
       code: "CONTENT_MISMATCH",
       level: "error",
