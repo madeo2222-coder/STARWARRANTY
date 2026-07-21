@@ -15,6 +15,10 @@ import {
   verifyBillingCustomerForInvoice,
   type BillingCustomerErrorCode,
 } from "@/lib/submission-center/billing-customer-resolver";
+import {
+  AUTO_REGISTER_COMPLETED_NOTE,
+  AUTO_REGISTER_STARTED_NOTE,
+} from "@/lib/submission-center/workflow-cycle";
 
 export { buildWarrantyFulfillmentExpectation };
 
@@ -120,9 +124,8 @@ async function prepareInitialPlan(
   batchId: string
 ) {
   const initial = await runAutoRegisterPreflight({ supabase, batchId });
-  const autoCreateAvailable = initial.preflight.checks.some(
-    (check) => check.code === "CUSTOMER_AUTO_CREATE_AVAILABLE"
-  );
+  const autoCreateAvailable =
+    initial.preflight.customer_auto_create_available;
 
   if (initial.registrationPlan) {
     return requireReadyPlan(initial);
@@ -140,7 +143,16 @@ async function prepareInitialPlan(
     throw error;
   }
 
-  return refreshPlan(supabase, batchId);
+  const refreshed = await runAutoRegisterPreflight({ supabase, batchId });
+  if (!refreshed.registrationPlan) {
+    const failure = firstBlockingCheck(refreshed);
+    throw new AutoRegisterError(
+      failure ? errorCodeForCheck(failure) : "PRECONDITION_FAILED",
+      failure?.message ||
+        "請求先作成後も登録Planを構築できませんでした。状態は変更していません。"
+    );
+  }
+  return requireReadyPlan(refreshed);
 }
 
 async function createAndVerifyCertificate(input: {
@@ -262,7 +274,7 @@ export async function autoRegisterSubmissionBatch(input: {
       actorUserId: input.actorUserId,
       actorLabel: input.actorLabel,
       source: "auto_register",
-      note: "Auto Register Engine v1を開始",
+      note: AUTO_REGISTER_STARTED_NOTE,
     });
     plan = await refreshPlan(input.supabase, input.batchId);
   }
@@ -316,7 +328,7 @@ export async function autoRegisterSubmissionBatch(input: {
     actorUserId: input.actorUserId,
     actorLabel: input.actorLabel,
     source: "auto_register",
-    note: "保証書・請求書の登録と再確認が完了",
+    note: AUTO_REGISTER_COMPLETED_NOTE,
   });
 
   return {

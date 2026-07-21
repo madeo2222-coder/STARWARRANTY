@@ -13,6 +13,12 @@ import {
 import { filterRegisterableSubmissionRows } from "@/lib/submission-center/duplicate-review";
 import type { CreateWarrantyCertificateInput } from "@/lib/warranty/register-certificate";
 import type { CreateWarrantyInvoiceInput } from "@/lib/invoice/register-warranty-invoice";
+import {
+  analyzeWorkflowCycle,
+  type WorkflowCycleAnalysis,
+  type WorkflowCycleEvent,
+  type WorkflowCycleStatus,
+} from "@/lib/submission-center/workflow-cycle";
 
 export type AutoRegisterPreflightLevel =
   | "error"
@@ -40,6 +46,8 @@ export type AutoRegisterPreflightCheck = {
 
 export type AutoRegisterPreflight = {
   ready: boolean;
+  registration_ready: boolean;
+  customer_auto_create_available: boolean;
   checked_at: string;
   expected_certificate_count: number;
   expected_invoice_count: number;
@@ -75,6 +83,7 @@ export type AutoRegisterPreflight = {
       resolution: "product_name" | "product_code" | null;
     }[];
   };
+  workflow_cycle: WorkflowCycleAnalysis | null;
 };
 
 type BatchData = {
@@ -104,12 +113,6 @@ type WarrantyProduct = {
   product_name: string;
   is_active: boolean | null;
   sort_order: number | null;
-};
-
-type TransitionEvent = {
-  id: string;
-  previous_status: string | null;
-  next_status: string | null;
 };
 
 type DuplicateSource = {
@@ -189,7 +192,21 @@ function deterministicInvoiceDate(targetMonth: string) {
 
 function makePreflight(
   checks: AutoRegisterPreflightCheck[],
-  values: Omit<AutoRegisterPreflight, "ready" | "checked_at" | "summary" | "checks">
+  values: Omit<
+    AutoRegisterPreflight,
+    | "ready"
+    | "registration_ready"
+    | "customer_auto_create_available"
+    | "checked_at"
+    | "summary"
+    | "checks"
+    | "workflow_cycle"
+  >,
+  options: {
+    registrationReady: boolean;
+    customerAutoCreateAvailable: boolean;
+    workflowCycle: WorkflowCycleAnalysis | null;
+  }
 ): AutoRegisterPreflight {
   const count = (level: AutoRegisterPreflightLevel) =>
     checks.filter((check) => check.level === level).length;
@@ -197,8 +214,11 @@ function makePreflight(
 
   return {
     ready: errorCount === 0 && count("unverified") === 0,
+    registration_ready: options.registrationReady,
+    customer_auto_create_available: options.customerAutoCreateAvailable,
     checked_at: new Date().toISOString(),
     ...values,
+    workflow_cycle: options.workflowCycle,
     summary: {
       error_count: errorCount,
       warning_count: count("warning"),
@@ -551,47 +571,27 @@ async function inspectInvoice(
 
 function workflowCheck(
   status: string,
-  events: TransitionEvent[],
+  events: WorkflowCycleEvent[],
   checks: AutoRegisterPreflightCheck[]
 ) {
-  const approvedToProcessing = events.filter(
-    (event) =>
-      event.previous_status === "approved" && event.next_status === "processing"
-  ).length;
-  const processingToWarrantyCreated = events.filter(
-    (event) =>
-      event.previous_status === "processing" &&
-      event.next_status === "warranty_created"
-  ).length;
-
-  let valid = true;
-  let message = "Workflow statusと履歴は整合しています。";
-  if (status === "approved") {
-    valid = approvedToProcessing === 0 && processingToWarrantyCreated === 0;
-    message = valid
-      ? message
-      : "statusとstatus_changedイベントが一致しません。";
-  } else if (status === "processing") {
-    valid = approvedToProcessing === 1 && processingToWarrantyCreated === 0;
-    message = valid
-      ? message
-      : "processingの再開に必要なapproved→processingイベントが1件ではありません。";
-  } else if (status === "warranty_created") {
-    valid = approvedToProcessing === 1 && processingToWarrantyCreated === 1;
-    message = valid
-      ? message
-      : "warranty_createdに必要なWorkflowイベントが揃っていません。";
+  if (!(["approved", "processing", "warranty_created"] as string[]).includes(status)) {
+    return null;
   }
+  const analysis = analyzeWorkflowCycle({
+    status: status as WorkflowCycleStatus,
+    events,
+  });
 
   checks.push({
-    code: valid ? "WORKFLOW_EVENT_VALID" : "WORKFLOW_EVENT_INCONSISTENT",
-    level: valid ? "passed" : "error",
-    title: valid ? "Workflow履歴は正常です" : "Workflow履歴が不整合です",
-    message,
-    resolution: valid
+    code: analysis.code,
+    level: analysis.valid ? "passed" : "error",
+    title: analysis.valid ? "Workflow履歴は正常です" : "Workflow履歴が不整合です",
+    message: analysis.message,
+    resolution: analysis.valid
       ? undefined
       : "自動補完せず、statusとstatus_changed履歴を調査してください。",
   });
+  return analysis;
 }
 
 async function buildBasePlan(
@@ -605,6 +605,7 @@ async function buildBasePlan(
   let partnerName: string | null = null;
   let expectedCertificateCount = 0;
   let expectedInvoiceCount = 0;
+  let workflowCycle: WorkflowCycleAnalysis | null = null;
 
   const { data: batchData, error: batchError } = await supabase
     .from("submission_batches")
@@ -642,6 +643,7 @@ async function buildBasePlan(
     return {
       checks,
       plan: null,
+      workflowCycle,
       values: {
         expected_certificate_count: 0,
         expected_invoice_count: 0,
@@ -698,9 +700,12 @@ async function buildBasePlan(
       .select("id, product_code, product_name, is_active, sort_order"),
     supabase
       .from("submission_events")
-      .select("id, previous_status, next_status")
+      .select(
+        "id, event_type, previous_status, next_status, actor_label, note, created_at"
+      )
       .eq("batch_id", batchId)
-      .eq("event_type", "status_changed"),
+      .eq("event_type", "status_changed")
+      .order("created_at", { ascending: true }),
     supabase
       .from("submission_duplicate_reviews")
       .select("row_id, decision")
@@ -735,7 +740,11 @@ async function buildBasePlan(
       resolution: "通信状態を確認して再実行してください。",
     });
   } else if (includePreflightChecks) {
-    workflowCheck(batch.status, (eventsResult.data || []) as TransitionEvent[], checks);
+    workflowCycle = workflowCheck(
+      batch.status,
+      (eventsResult.data || []) as WorkflowCycleEvent[],
+      checks
+    );
   }
   if (duplicateReviewsResult.error) {
     checks.push({
@@ -778,6 +787,7 @@ async function buildBasePlan(
     return {
       checks,
       plan: null,
+      workflowCycle,
       values: {
         expected_certificate_count: 0,
         expected_invoice_count: 0,
@@ -1272,6 +1282,7 @@ async function buildBasePlan(
   return {
     checks,
     plan,
+    workflowCycle,
     values: {
       expected_certificate_count: expectedCertificateCount,
       expected_invoice_count: expectedInvoiceCount,
@@ -1290,9 +1301,16 @@ export async function runAutoRegisterPreflight(input: {
   batchId: string;
 }): Promise<AutoRegisterPreflightResult> {
   const base = await buildBasePlan(input.supabase, input.batchId, true);
+  const customerAutoCreateAvailable = base.checks.some(
+    (check) => check.code === "CUSTOMER_AUTO_CREATE_AVAILABLE"
+  );
   if (!base.plan) {
     return {
-      preflight: makePreflight(base.checks, base.values),
+      preflight: makePreflight(base.checks, base.values, {
+        registrationReady: false,
+        customerAutoCreateAvailable,
+        workflowCycle: base.workflowCycle,
+      }),
       registrationPlan: null,
     };
   }
@@ -1315,6 +1333,22 @@ export async function runAutoRegisterPreflight(input: {
     requireComplete,
     base.checks
   );
+  if (
+    base.plan.batch.status === "approved" &&
+    base.workflowCycle?.repair &&
+    (certificateInspections.some((inspection) => inspection.state !== "missing") ||
+      invoiceInspection.state !== "missing")
+  ) {
+    base.checks.push({
+      code: "CONTENT_MISMATCH",
+      level: "error",
+      title: "手動修復後の登録データが残っています",
+      message:
+        "手動修復後のapproved受付に保証書または請求書が存在します。",
+      resolution:
+        "自動削除・上書きせず、修復内容と既存登録を確認してください。",
+    });
+  }
   const registrationPlan: AutoRegisterRegistrationPlan = {
     ...base.plan,
     inspection: {
@@ -1324,7 +1358,11 @@ export async function runAutoRegisterPreflight(input: {
   };
 
   return {
-    preflight: makePreflight(base.checks, base.values),
+    preflight: makePreflight(base.checks, base.values, {
+      registrationReady: true,
+      customerAutoCreateAvailable,
+      workflowCycle: base.workflowCycle,
+    }),
     registrationPlan,
   };
 }

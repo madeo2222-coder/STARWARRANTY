@@ -1105,7 +1105,11 @@ export default function AgencySubmissionDetailPage({
                       }`}
                     >
                       {autoRegisterPreflight.ready
-                        ? "自動登録可能"
+                        ? autoRegisterPreflight.registration_ready
+                          ? "登録準備完了"
+                          : autoRegisterPreflight.customer_auto_create_available
+                            ? "請求先自動作成後に登録可能"
+                            : "操作開始可能"
                         : "要修正・要確認"}
                     </span>
                   </div>
@@ -1123,6 +1127,34 @@ export default function AgencySubmissionDetailPage({
                 </button>
               </div>
 
+              {autoRegisterPreflight.workflow_cycle?.repair ? (
+                <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 text-sm text-purple-950">
+                  <div className="font-semibold">手動修復済み</div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      修復日時：
+                      {formatDateTime(
+                        autoRegisterPreflight.workflow_cycle.repair.repaired_at
+                      )}
+                    </div>
+                    <div>
+                      状態：
+                      {autoRegisterPreflight.workflow_cycle.repair
+                        .previous_status || "-"}
+                      {" → "}
+                      {autoRegisterPreflight.workflow_cycle.repair.next_status}
+                    </div>
+                    <div className="sm:col-span-2">
+                      修復理由：
+                      {autoRegisterPreflight.workflow_cycle.repair.reason}
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs font-medium text-purple-800">
+                    この修復時点より後のstatus_changedイベントを、現在のWorkflowサイクルとして判定しています。
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <DetailItem label="期待する保証書">
                   {autoRegisterPreflight.expected_certificate_count}件
@@ -1138,6 +1170,14 @@ export default function AgencySubmissionDetailPage({
                   {autoRegisterPreflight.summary.passed_count}件 / {" "}
                   {autoRegisterPreflight.summary.unverified_count}件
                 </DetailItem>
+              </div>
+
+              <div className="rounded-xl border bg-gray-50 p-3 text-sm text-gray-700">
+                {autoRegisterPreflight.registration_ready
+                  ? "登録Planは構築済みです。PUTでは最新Preflightを再実行してからWorkflowを開始します。"
+                  : autoRegisterPreflight.customer_auto_create_available
+                    ? "現在は請求先自動作成待ちです。PUTで請求先を作成後、Preflightを再実行し、登録Planを構築できた場合だけWorkflowを開始します。"
+                    : "登録Planは未構築です。エラーまたは未確認項目を解消してください。"}
               </div>
 
               <div className="grid gap-3 lg:grid-cols-2">
