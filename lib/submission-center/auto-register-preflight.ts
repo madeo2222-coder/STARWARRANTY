@@ -10,6 +10,7 @@ import {
   type BillingCustomer,
   type BillingPartnerSource,
 } from "@/lib/submission-center/billing-customer-resolver";
+import { filterRegisterableSubmissionRows } from "@/lib/submission-center/duplicate-review";
 import type { CreateWarrantyCertificateInput } from "@/lib/warranty/register-certificate";
 import type { CreateWarrantyInvoiceInput } from "@/lib/invoice/register-warranty-invoice";
 
@@ -675,7 +676,7 @@ async function buildBasePlan(
     });
   }
 
-  const [rowsResult, productsResult, eventsResult] = await Promise.all([
+  const [rowsResult, productsResult, eventsResult, duplicateReviewsResult] = await Promise.all([
     supabase
       .from("submission_rows")
       .select(
@@ -700,6 +701,11 @@ async function buildBasePlan(
       .select("id, previous_status, next_status")
       .eq("batch_id", batchId)
       .eq("event_type", "status_changed"),
+    supabase
+      .from("submission_duplicate_reviews")
+      .select("row_id, decision")
+      .eq("batch_id", batchId)
+      .eq("decision", "exclude"),
   ]);
 
   if (rowsResult.error) {
@@ -731,6 +737,15 @@ async function buildBasePlan(
   } else if (includePreflightChecks) {
     workflowCheck(batch.status, (eventsResult.data || []) as TransitionEvent[], checks);
   }
+  if (duplicateReviewsResult.error) {
+    checks.push({
+      code: "QUERY_FAILED",
+      level: "error",
+      title: "重複判断履歴を取得できません",
+      message: duplicateReviewsResult.error.message,
+      resolution: "migration適用状態と通信状態を確認してください。",
+    });
+  }
 
   if (
     includePreflightChecks &&
@@ -752,7 +767,7 @@ async function buildBasePlan(
     });
   }
 
-  if (rowsResult.error || productsResult.error) {
+  if (rowsResult.error || productsResult.error || duplicateReviewsResult.error) {
     checks.push({
       code: "DEPENDENT_CHECKS_UNVERIFIED",
       level: "unverified",
@@ -776,11 +791,23 @@ async function buildBasePlan(
     };
   }
 
-  const rows = (rowsResult.data || []) as SubmissionPreflightRow[];
+  const allRows = (rowsResult.data || []) as SubmissionPreflightRow[];
+  const excludedRowIds = new Set(
+    (duplicateReviewsResult.data || []).map((review) => String(review.row_id))
+  );
+  const rows = filterRegisterableSubmissionRows(allRows, excludedRowIds);
   const products = (productsResult.data || []) as WarrantyProduct[];
   expectedCertificateCount = rows.length;
   expectedInvoiceCount = rows.length > 0 ? 1 : 0;
-  if (rows.length === 0) {
+  if (rows.length === 0 && allRows.length > 0) {
+    checks.push({
+      code: "NO_REGISTERABLE_ROWS",
+      level: "error",
+      title: "登録対象行がありません",
+      message: "全行が重複として除外されているため、自動登録できません。",
+      resolution: "重複判断履歴と受付行を確認してください。",
+    });
+  } else if (rows.length === 0) {
     checks.push({
       code: "SUBMISSION_ROWS_REQUIRED",
       level: "error",

@@ -27,6 +27,7 @@ export type AutoRegisterErrorCode =
   | "PARTIAL_REGISTRATION"
   | "CONTENT_MISMATCH"
   | "REGISTRATION_FAILED"
+  | "NO_REGISTERABLE_ROWS"
   | BillingCustomerErrorCode;
 
 export class AutoRegisterError extends Error {
@@ -72,6 +73,8 @@ function errorCodeForCheck(
       return "PARTIAL_REGISTRATION";
     case "CONTENT_MISMATCH":
       return "CONTENT_MISMATCH";
+    case "NO_REGISTERABLE_ROWS":
+      return "NO_REGISTERABLE_ROWS";
     case "CUSTOMER_NOT_FOUND":
     case "CUSTOMER_AMBIGUOUS":
     case "CUSTOMER_EMAIL_REQUIRED":

@@ -14,6 +14,14 @@ import {
 } from "@/lib/submission-center/auto-register";
 import { runAutoRegisterPreflight } from "@/lib/submission-center/auto-register-preflight";
 import {
+  DuplicateReviewError,
+  filterRegisterableSubmissionRows,
+  loadExcludedDuplicateRowIds,
+  loadDuplicateReviewContexts,
+  reviewSubmissionDuplicate,
+  type DuplicateReviewDecision,
+} from "@/lib/submission-center/duplicate-review";
+import {
   certificateNumbersMatch,
   inspectWarrantyFulfillment,
 } from "@/lib/submission-center/warranty-fulfillment";
@@ -79,6 +87,26 @@ function autoRegisterErrorStatus(error: AutoRegisterError) {
     case "CUSTOMER_AMBIGUOUS":
     case "CUSTOMER_CREATE_CONFLICT":
     case "CUSTOMER_CREATED_BUT_UNRESOLVED":
+    case "NO_REGISTERABLE_ROWS":
+      return 409;
+    default:
+      return 500;
+  }
+}
+
+function duplicateReviewErrorStatus(error: DuplicateReviewError) {
+  switch (error.code) {
+    case "REVIEW_NOTE_REQUIRED":
+    case "INVALID_DUPLICATE_DECISION":
+      return 400;
+    case "ROW_NOT_FOUND":
+      return 404;
+    case "ROW_BATCH_MISMATCH":
+    case "DUPLICATE_REVIEW_NOT_REQUIRED":
+    case "DUPLICATE_SOURCE_NOT_FOUND":
+    case "DUPLICATE_REVIEW_CONCURRENT_UPDATE":
+    case "DUPLICATE_REVIEW_COMPLETED_BUT_UNRESOLVED":
+    case "NO_REGISTERABLE_ROWS":
       return 409;
     default:
       return 500;
@@ -283,17 +311,34 @@ export async function GET(
         .select(
           `
             id,
+            batch_id,
             sheet_name,
             row_number,
+            row_type,
             customer_name,
+            customer_name_kana,
+            postal_code,
             address_full,
+            phone,
+            email,
+            application_date,
             warranty_start_date,
             plan_code,
+            water_heater_type,
+            additional_equipment,
+            additional_quantity,
             manufacturer,
             model_number,
+            equipment_name,
+            quantity,
             warranty_fee,
+            row_hash,
             validation_status,
-            duplicate_status
+            duplicate_status,
+            duplicate_of_row_id,
+            import_status,
+            created_at,
+            updated_at
           `
         )
         .eq("batch_id", batchId)
@@ -357,7 +402,7 @@ export async function GET(
       "processing",
       "warranty_created",
     ];
-    const [warrantyFulfillment, autoRegisterPreflight] = await Promise.all([
+    const [warrantyFulfillment, autoRegisterPreflight, duplicateReviews] = await Promise.all([
       actor.isHeadquarters && fulfillmentStatuses.includes(batch.status)
         ? inspectWarrantyFulfillment({
             supabase: actor.supabase,
@@ -369,6 +414,12 @@ export async function GET(
             supabase: actor.supabase,
             batchId,
           }).then((result) => result.preflight)
+        : Promise.resolve(undefined),
+      actor.isHeadquarters
+        ? loadDuplicateReviewContexts({
+            supabase: actor.supabase,
+            batchId,
+          })
         : Promise.resolve(undefined),
     ]);
 
@@ -400,6 +451,7 @@ export async function GET(
       },
       rows: rowsResult.data || [],
       events: eventsResult.data || [],
+      ...(duplicateReviews ? { duplicate_reviews: duplicateReviews } : {}),
       ...(warrantyFulfillment
         ? { warranty_fulfillment: warrantyFulfillment }
         : {}),
@@ -446,6 +498,8 @@ export async function PATCH(
     }
 
     const body = (await request.json()) as {
+      action?: unknown;
+      row_id?: unknown;
       status?: unknown;
       note?: unknown;
       print_confirmation?: {
@@ -453,6 +507,52 @@ export async function PATCH(
       };
     };
     let note = typeof body.note === "string" ? body.note.trim() : "";
+
+    if (body.action !== undefined) {
+      const decisions: Record<string, DuplicateReviewDecision> = {
+        review_duplicate_as_separate: "separate",
+        exclude_duplicate_row: "exclude",
+      };
+      const action = typeof body.action === "string" ? body.action : "";
+      const decision = decisions[action];
+      if (!decision) {
+        throw new DuplicateReviewError(
+          "INVALID_DUPLICATE_DECISION",
+          "許可されていない重複判断です。"
+        );
+      }
+      const rowId = typeof body.row_id === "string" ? body.row_id.trim() : "";
+      if (!rowId) {
+        throw new DuplicateReviewError("ROW_NOT_FOUND", "対象行IDがありません。");
+      }
+
+      const duplicateReview = await reviewSubmissionDuplicate({
+        supabase: actor.supabase,
+        batchId,
+        rowId,
+        decision,
+        note,
+        actorUserId: actor.userId,
+        actorLabel: actor.actorLabel,
+      });
+      const [preflight, duplicateReviews] = await Promise.all([
+        runAutoRegisterPreflight({
+          supabase: actor.supabase,
+          batchId,
+        }).then((result) => result.preflight),
+        loadDuplicateReviewContexts({
+          supabase: actor.supabase,
+          batchId,
+        }),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        duplicate_review: duplicateReview,
+        duplicate_reviews: duplicateReviews,
+        auto_register_preflight: preflight,
+      });
+    }
 
     if (body.status === "printed") {
       const fulfillment = await inspectWarrantyFulfillment({
@@ -513,6 +613,12 @@ export async function PATCH(
       batch: transition.updatedBatch,
     });
   } catch (error) {
+    if (error instanceof DuplicateReviewError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: duplicateReviewErrorStatus(error) }
+      );
+    }
     if (error instanceof WorkflowTransitionError) {
       return NextResponse.json(
         { success: false, error: error.message },
@@ -687,7 +793,8 @@ export async function POST(
           additional_quantity,
           warranty_fee,
           validation_status,
-          duplicate_status
+          duplicate_status,
+          import_status
         `
       )
       .eq("batch_id", batchId)
@@ -696,6 +803,25 @@ export async function POST(
 
     if (rowsError) {
       throw new Error(rowsError.message);
+    }
+
+    const excludedRowIds = await loadExcludedDuplicateRowIds({
+      supabase: actor.supabase,
+      batchId,
+    });
+    const registerableRows = filterRegisterableSubmissionRows(
+      (rows || []) as Array<SubmissionDocumentRow & { import_status: string | null }>,
+      excludedRowIds
+    );
+    if (registerableRows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "NO_REGISTERABLE_ROWS",
+          error: "登録対象行がありません。",
+        },
+        { status: 409 }
+      );
     }
 
     const partnerRelation = batchData.partners;
@@ -710,7 +836,7 @@ export async function POST(
         partner_name: partner?.company_name || "提出元未設定",
         target_month: batchData.target_month,
       },
-      (rows || []) as SubmissionDocumentRow[]
+      registerableRows
     );
 
     return NextResponse.json({

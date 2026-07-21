@@ -5,6 +5,11 @@ import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { SubmissionDocumentGeneration } from "@/lib/submission-center/document-generator";
 import type { AutoRegisterPreflight } from "@/lib/submission-center/auto-register-preflight";
+import type {
+  DuplicateReviewContext,
+  DuplicateReviewDecision,
+} from "@/lib/submission-center/duplicate-review";
+import DuplicateReviewPanel from "./_components/DuplicateReviewPanel";
 
 type SubmissionFile = {
   id: string;
@@ -73,6 +78,7 @@ type DetailResponse = {
   events?: SubmissionEvent[];
   warranty_fulfillment?: WarrantyFulfillment;
   auto_register_preflight?: AutoRegisterPreflight;
+  duplicate_reviews?: DuplicateReviewContext[];
 };
 
 type WarrantyFulfillment = {
@@ -249,6 +255,12 @@ export default function AgencySubmissionDetailPage({
   );
   const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
   const [confirmingPrinted, setConfirmingPrinted] = useState(false);
+  const [duplicateReviews, setDuplicateReviews] = useState<
+    DuplicateReviewContext[]
+  >([]);
+  const [duplicateReviewingRowId, setDuplicateReviewingRowId] = useState<
+    string | null
+  >(null);
 
   const getAccessToken = useCallback(async () => {
     const {
@@ -287,6 +299,7 @@ export default function AgencySubmissionDetailPage({
       setEvents(json.events || []);
       setWarrantyFulfillment(json.warranty_fulfillment || null);
       setAutoRegisterPreflight(json.auto_register_preflight || null);
+      setDuplicateReviews(json.duplicate_reviews || []);
       setPrintConfirmedNumbers([]);
       setCanUpdate(Boolean(json.can_update));
       setNextStatus(workflowTransitions[json.batch.status]?.[0] || "");
@@ -303,6 +316,7 @@ export default function AgencySubmissionDetailPage({
       setEvents([]);
       setWarrantyFulfillment(null);
       setAutoRegisterPreflight(null);
+      setDuplicateReviews([]);
       setPrintConfirmedNumbers([]);
       setCanUpdate(false);
       setNextStatus("");
@@ -365,6 +379,57 @@ export default function AgencySubmissionDetailPage({
       );
     } finally {
       setUpdating(false);
+    }
+  }
+
+  async function handleDuplicateReview(
+    rowId: string,
+    decision: DuplicateReviewDecision,
+    reviewNote: string
+  ) {
+    if (!canUpdate || duplicateReviewingRowId) return;
+
+    setDuplicateReviewingRowId(rowId);
+    setErrorMessage("");
+    setSuccessMessage("");
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch(`/api/submission-batches/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action:
+            decision === "separate"
+              ? "review_duplicate_as_separate"
+              : "exclude_duplicate_row",
+          row_id: rowId,
+          note: reviewNote,
+        }),
+      });
+      const json = (await response.json()) as {
+        success: boolean;
+        error?: string;
+        code?: string;
+      };
+      if (!response.ok || !json.success) {
+        throw new Error(`${json.code ? `[${json.code}] ` : ""}${json.error || "重複判断の保存に失敗しました"}`);
+      }
+
+      await loadDetail();
+      setSuccessMessage(
+        decision === "separate"
+          ? "別加入として承認しました"
+          : "重複として除外しました"
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "重複判断の保存に失敗しました"
+      );
+    } finally {
+      setDuplicateReviewingRowId(null);
     }
   }
 
@@ -982,6 +1047,13 @@ export default function AgencySubmissionDetailPage({
           )}
         </section>
       ) : null}
+
+      <DuplicateReviewPanel
+        contexts={duplicateReviews}
+        canUpdate={canUpdate}
+        submittingRowId={duplicateReviewingRowId}
+        onReview={handleDuplicateReview}
+      />
 
       {canUpdate &&
       ["approved", "processing", "warranty_created"].includes(batch.status) ? (
