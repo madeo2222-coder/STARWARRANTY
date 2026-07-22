@@ -458,28 +458,119 @@ const styles = StyleSheet.create({
     position: "absolute",
     backgroundColor: "#ffffff",
   },
+  recipientBox: {
+    position: "absolute",
+    top: 49,
+    left: 51,
+    width: 194,
+    height: 88,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recipientName: {
+    width: "100%",
+    color: "#111827",
+    fontSize: 11.5,
+    lineHeight: 1.35,
+    textAlign: "center",
+    marginBottom: 5,
+  },
+  recipientPostalCode: {
+    width: "100%",
+    color: "#374151",
+    fontSize: 7.5,
+    lineHeight: 1.35,
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  recipientAddress: {
+    width: "100%",
+    color: "#111827",
+    fontSize: 7.2,
+    lineHeight: 1.45,
+    textAlign: "center",
+  },
+  certificateNumber: {
+    position: "absolute",
+    top: 80,
+    left: 467,
+    width: 101,
+    color: "#111827",
+    fontSize: 7,
+    lineHeight: 1.3,
+    textAlign: "center",
+  },
+  warrantyStartDate: {
+    position: "absolute",
+    top: 105,
+    left: 467,
+    width: 101,
+    color: "#111827",
+    fontSize: 7,
+    lineHeight: 1.3,
+    textAlign: "center",
+  },
   productText: {
     position: "absolute",
-    fontSize: 8,
+    top: 280,
+    left: 54,
+    width: 136,
+    minHeight: 26,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    backgroundColor: "#ffffff",
+    fontSize: 8.2,
+    lineHeight: 1.25,
     color: "#111827",
-    fontWeight: 700,
     textAlign: "center",
+  },
+  productNote: {
+    position: "absolute",
+    top: 305,
+    left: 54,
+    width: 136,
+    backgroundColor: "#ffffff",
+    color: "#4B5563",
+    fontSize: 5.2,
+    lineHeight: 1.25,
+    textAlign: "center",
+  },
+  yearsBox: {
+    position: "absolute",
+    top: 273,
+    left: 448,
+    width: 66,
+    height: 37,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
   },
   yearsText: {
-    position: "absolute",
-    fontSize: 22,
+    width: "100%",
+    fontSize: 20,
+    lineHeight: 1.15,
     color: "#1F2A44",
-    fontWeight: 700,
     textAlign: "center",
   },
-  qrImage: {
+  qrBlock: {
     position: "absolute",
-    width: 66,
-    height: 66,
+    top: 558,
+    left: 57,
+    width: 99,
+    height: 98,
+    alignItems: "center",
+  },
+  qrImage: {
+    width: 68,
+    height: 68,
   },
   qrCaption: {
-    position: "absolute",
-    fontSize: 6,
+    width: "100%",
+    marginTop: 3,
+    fontSize: 6.2,
+    lineHeight: 1.25,
     color: "#111827",
     textAlign: "center",
   },
@@ -658,108 +749,62 @@ function WarrantyTemplatePdf({
         style: styles.bg,
       }),
 
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 65, left: 65, width: 120, height: 16 }],
-      }),
       React.createElement(
-        Text,
-        {
-          style: [styles.text, { top: 69, left: 67, width: 118, fontSize: 9 }],
-        },
-        safeText(certificate.customer_name)
+        View,
+        { style: styles.recipientBox },
+        React.createElement(
+          Text,
+          { style: styles.recipientName },
+          safeText(certificate.customer_name)
+        ),
+        React.createElement(
+          Text,
+          { style: styles.recipientPostalCode },
+          formatPostalCode(certificate.postal_code)
+        ),
+        React.createElement(
+          Text,
+          { style: styles.recipientAddress },
+          address
+        )
       ),
 
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 113, left: 55, width: 215, height: 18 }],
-      }),
       React.createElement(
         Text,
-        {
-          style: [styles.text, { top: 116, left: 57, width: 210, fontSize: 7 }],
-        },
-        `${formatPostalCode(certificate.postal_code)} ${address}`
-      ),
-
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 80, left: 468, width: 100, height: 13 }],
-      }),
-      React.createElement(
-        Text,
-        {
-          style: [styles.text, { top: 82, left: 470, width: 100, fontSize: 7 }],
-        },
+        { style: styles.certificateNumber },
         safeText(certificate.certificate_no)
       ),
-
-      React.createElement(View, {
-        style: [
-          styles.whiteBox,
-          { top: 105, left: 468, width: 100, height: 13 },
-        ],
-      }),
       React.createElement(
         Text,
-        {
-          style: [styles.text, { top: 107, left: 470, width: 100, fontSize: 7 }],
-        },
+        { style: styles.warrantyStartDate },
         formatDate(certificate.start_date)
       ),
 
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 283, left: 69, width: 118, height: 12 }],
-      }),
       React.createElement(
         Text,
-        {
-          style: [styles.productText, { top: 283, left: 69, width: 118 }],
-        },
+        { style: styles.productText },
         product
       ),
-
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 296, left: 63, width: 130, height: 10 }],
-      }),
       React.createElement(
         Text,
-        {
-          style: [
-            styles.productText,
-            {
-              top: 296,
-              left: 63,
-              width: 130,
-              fontSize: 5.5,
-              color: "#374151",
-            },
-          ],
-        },
+        { style: styles.productNote },
         "※詳細は別紙リストをご確認ください"
       ),
 
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 274, left: 456, width: 45, height: 31 }],
-      }),
       React.createElement(
-        Text,
-        {
-          style: [styles.yearsText, { top: 274, left: 455, width: 50 }],
-        },
-        `${years}年`
+        View,
+        { style: styles.yearsBox },
+        React.createElement(Text, { style: styles.yearsText }, `${years}年`)
       ),
 
-      React.createElement(View, {
-        style: [styles.whiteBox, { top: 540, left: 65, width: 78, height: 78 }],
-      }),
-      React.createElement(Image, {
-        src: qrDataUrl,
-        style: [styles.qrImage, { top: 546, left: 71 }],
-      }),
       React.createElement(
-        Text,
-        {
-          style: [styles.qrCaption, { top: 615, left: 61, width: 88 }],
-        },
-        "修理受付はこちら"
+        View,
+        { style: styles.qrBlock },
+        React.createElement(Image, {
+          src: qrDataUrl,
+          style: styles.qrImage,
+        }),
+        React.createElement(Text, { style: styles.qrCaption }, "修理受付はこちら")
       )
     ),
 
