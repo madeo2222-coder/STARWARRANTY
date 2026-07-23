@@ -14,6 +14,7 @@ import {
   type DocumentProps,
 } from "@react-pdf/renderer";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeQualifiedInvoiceIssuerNumber } from "@/lib/headquarters/invoice-number";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,7 +34,6 @@ type WarrantyInvoice = {
   bank_account_info: string | null;
   note: string | null;
   status: string | null;
-  issuer_invoice_number?: string | null;
 };
 
 type WarrantyInvoiceItem = {
@@ -56,6 +56,7 @@ type HeadquartersSettings = {
   address: string | null;
   note: string | null;
   logo_url: string | null;
+  invoice_number: string | null;
 };
 
 type PdfProps = {
@@ -497,6 +498,9 @@ function WarrantyInvoicePdf({
   const issuerName = headquarters?.company_name || DEFAULT_COMPANY_NAME;
   const issuerPhone = headquarters?.phone || DEFAULT_PHONE;
   const issuerEmail = headquarters?.email || DEFAULT_EMAIL;
+  const issuerInvoiceNumber = normalizeQualifiedInvoiceIssuerNumber(
+    headquarters?.invoice_number
+  );
   const issuerAddress = [
     formatPostalCode(headquarters?.postal_code || DEFAULT_POSTAL_CODE),
     headquarters?.address || DEFAULT_ADDRESS,
@@ -603,6 +607,13 @@ function WarrantyInvoicePdf({
             Text,
             { style: styles.line },
             `Email：${safeText(issuerEmail)}`
+          ),
+          React.createElement(
+            Text,
+            { style: styles.line },
+            `適格請求書発行事業者登録番号：${
+              issuerInvoiceNumber || "未設定"
+            }`
           ),
           headquarters?.representative_name
             ? React.createElement(
@@ -742,14 +753,6 @@ function WarrantyInvoicePdf({
             headquarters?.note ||
             "※2026/4/1より株式会社バリュー・エージェントから業務譲渡し、株式会社スター・ワランティにて運営しております。\nご不明点がございましたら発行元までご連絡ください。"
         )
-      ),
-
-      React.createElement(
-        Text,
-        { style: styles.footer },
-        `適格請求書発行事業者番号：${safeText(
-          invoice.issuer_invoice_number
-        )}`
       )
     )
   );
@@ -799,7 +802,7 @@ export async function POST(req: Request) {
     const { data: headquarters } = await supabase
       .from("headquarters_settings")
       .select(
-        "company_name, representative_name, email, phone, postal_code, address, note, logo_url"
+        "company_name, representative_name, email, phone, postal_code, address, note, logo_url, invoice_number"
       )
       .order("created_at", { ascending: true })
       .limit(1)

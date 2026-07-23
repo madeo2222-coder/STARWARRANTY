@@ -6,6 +6,8 @@ import WarrantyInvoiceStatusForm from "./WarrantyInvoiceStatusForm";
 import WarrantyInvoiceCopyButton from "./WarrantyInvoiceCopyButton";
 import WarrantyInvoiceReminderForm from "./WarrantyInvoiceReminderForm";
 import WarrantyInvoiceDeleteButton from "./WarrantyInvoiceDeleteButton";
+import { requireHeadquartersPage } from "@/lib/auth/headquarters-server";
+import { normalizeQualifiedInvoiceIssuerNumber } from "@/lib/headquarters/invoice-number";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +112,8 @@ export default async function WarrantyInvoiceDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireHeadquartersPage();
+
   const { id } = await params;
   const supabase = getAdminClient();
 
@@ -141,9 +145,19 @@ export default async function WarrantyInvoiceDetailPage({
       ascending: false,
     });
 
+  const { data: headquartersSettings } = await supabase
+    .from("headquarters_settings")
+    .select("invoice_number")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
   const invoiceData = invoice as WarrantyInvoice;
   const itemRows = (items || []) as WarrantyInvoiceItem[];
   const sendLogRows = (sendLogs || []) as WarrantyInvoiceSendLog[];
+  const invoiceNumber = normalizeQualifiedInvoiceIssuerNumber(
+    headquartersSettings?.invoice_number
+  );
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -322,6 +336,16 @@ export default async function WarrantyInvoiceDetailPage({
               <span>{formatYen(invoiceData.total_amount)}</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold">発行元情報</h2>
+        <div className="mt-4 text-sm">
+          <p className="text-gray-500">
+            適格請求書発行事業者登録番号
+          </p>
+          <p className="mt-1 font-medium">{invoiceNumber || "未設定"}</p>
         </div>
       </div>
 

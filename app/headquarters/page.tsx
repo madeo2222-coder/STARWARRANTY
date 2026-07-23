@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  isValidQualifiedInvoiceIssuerNumber,
+  normalizeQualifiedInvoiceIssuerNumber,
+} from "@/lib/headquarters/invoice-number";
 
 type HeadquartersSettings = {
   id: string;
@@ -14,6 +18,7 @@ type HeadquartersSettings = {
   address: string | null;
   note: string | null;
   logo_url: string | null;
+  invoice_number: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -79,6 +84,7 @@ export default function HeadquartersPage() {
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
   const [selectedLogoName, setSelectedLogoName] = useState("");
 
   const [errorMessage, setErrorMessage] = useState("");
@@ -105,6 +111,7 @@ export default function HeadquartersPage() {
     setAddress(settings.address || "");
     setNote(settings.note || "");
     setLogoUrl(settings.logo_url || "");
+    setInvoiceNumber(settings.invoice_number || "");
     setSelectedLogoName("");
   }
 
@@ -295,6 +302,14 @@ export default function HeadquartersPage() {
         throw new Error("会社名を入力してください");
       }
 
+      const normalizedInvoiceNumber =
+        normalizeQualifiedInvoiceIssuerNumber(invoiceNumber);
+      if (!isValidQualifiedInvoiceIssuerNumber(normalizedInvoiceNumber)) {
+        throw new Error(
+          "適格請求書発行事業者登録番号は、Tから始まる13桁の数字で入力してください"
+        );
+      }
+
       const res = await fetchWithAuth("/api/headquarters-settings", {
         method: "PUT",
         headers: {
@@ -309,6 +324,7 @@ export default function HeadquartersPage() {
           address: address.trim() || null,
           note: note.trim() || null,
           logo_url: logoUrl.trim() || null,
+          invoice_number: normalizedInvoiceNumber || null,
         }),
       });
 
@@ -548,6 +564,26 @@ export default function HeadquartersPage() {
               placeholder="101-0048"
               disabled={!canManageHeadquarters}
             />
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-gray-700">
+              適格請求書発行事業者番号
+            </label>
+            <input
+              type="text"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 outline-none"
+              placeholder="Tから始まる13桁の数字"
+              pattern="T[0-9]{13}"
+              maxLength={14}
+              autoCapitalize="characters"
+              disabled={!canManageHeadquarters}
+            />
+            <p className="text-xs text-gray-500">
+              未取得・未設定の場合は空欄のまま保存できます。
+            </p>
           </div>
 
           <div className="space-y-2 md:col-span-2">

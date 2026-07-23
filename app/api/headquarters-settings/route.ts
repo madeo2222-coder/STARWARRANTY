@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  isValidQualifiedInvoiceIssuerNumber,
+  normalizeQualifiedInvoiceIssuerNumber,
+} from "@/lib/headquarters/invoice-number";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,6 +18,7 @@ type HeadquartersSettings = {
   address: string | null;
   note: string | null;
   logo_url: string | null;
+  invoice_number: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -35,6 +40,7 @@ const DEFAULT_HEADQUARTERS_SETTINGS = {
   address: null,
   note: null,
   logo_url: null,
+  invoice_number: null,
 };
 
 function getAdminClient() {
@@ -94,7 +100,7 @@ async function requireHeadquartersAdmin(request: Request) {
   };
 }
 
-async function getOrCreateHeadquartersSettings(supabase: any) {
+async function getOrCreateHeadquartersSettings(supabase: SupabaseClient) {
   const { data: rows, error: selectError } = await supabase
     .from("headquarters_settings")
     .select("*")
@@ -164,12 +170,27 @@ export async function PUT(request: Request) {
       address?: string | null;
       note?: string | null;
       logo_url?: string | null;
+      invoice_number?: string | null;
     };
 
     const companyName = String(body.company_name || "").trim();
 
     if (!companyName) {
       throw new Error("会社名を入力してください");
+    }
+
+    const invoiceNumber = normalizeQualifiedInvoiceIssuerNumber(
+      body.invoice_number
+    );
+    if (!isValidQualifiedInvoiceIssuerNumber(invoiceNumber)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "適格請求書発行事業者登録番号は、Tから始まる13桁の数字で入力してください。",
+        },
+        { status: 400 }
+      );
     }
 
     const { data: updated, error: updateError } = await supabase
@@ -184,6 +205,7 @@ export async function PUT(request: Request) {
         address: String(body.address || "").trim() || null,
         note: String(body.note || "").trim() || null,
         logo_url: String(body.logo_url || "").trim() || null,
+        invoice_number: invoiceNumber || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", settings.id)
