@@ -128,6 +128,24 @@ function safeText(value: string | number | null | undefined) {
   return text || "";
 }
 
+function formatRecipientName(value: string | null | undefined) {
+  const name = safeText(value);
+
+  if (!name || name.endsWith("様")) {
+    return name;
+  }
+
+  return `${name} 様`;
+}
+
+function getRecipientAddressFontSize(address: string) {
+  const length = Array.from(address).length;
+
+  if (length > 44) return 6.9;
+  if (length > 34) return 7.7;
+  return 8.5;
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "";
   return value.replaceAll("-", "/");
@@ -482,15 +500,15 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 7.5,
     lineHeight: 1.35,
-    textAlign: "center",
-    marginBottom: 2,
+    textAlign: "left",
+    marginBottom: 3,
   },
   recipientAddress: {
     width: "100%",
     color: "#111827",
-    fontSize: 7.2,
-    lineHeight: 1.45,
-    textAlign: "center",
+    fontSize: 8.5,
+    lineHeight: 1.35,
+    textAlign: "left",
   },
   certificateNumber: {
     position: "absolute",
@@ -731,7 +749,7 @@ function WarrantyTemplatePdf({
     certificate.address3,
   ]
     .filter(Boolean)
-    .join(" ");
+    .join("");
 
   const product = getMainProductForFirstPage(certificate, items, productMap);
   const years = getWarrantyYears(items, productMap);
@@ -755,7 +773,7 @@ function WarrantyTemplatePdf({
         React.createElement(
           Text,
           { style: styles.recipientName },
-          safeText(certificate.customer_name)
+          formatRecipientName(certificate.customer_name)
         ),
         React.createElement(
           Text,
@@ -764,7 +782,12 @@ function WarrantyTemplatePdf({
         ),
         React.createElement(
           Text,
-          { style: styles.recipientAddress },
+          {
+            style: [
+              styles.recipientAddress,
+              { fontSize: getRecipientAddressFontSize(address) },
+            ],
+          },
           address
         )
       ),
